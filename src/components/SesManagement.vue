@@ -1248,6 +1248,9 @@ onMounted(async () => {
             <div v-for="row in partnerCostMembers" :key="row.member.id" class="partner-cost-row">
               <div class="partner-cost-row-head">
                 <strong>{{ row.contract.customer.name }} / {{ row.contract.title }} / {{ partnerCostMemberLabel(row.member) }}</strong>
+                <span class="status-chip tax-chip" :class="{ included: row.contract.taxIncluded }">
+                  {{ row.contract.taxIncluded ? "税込み" : "税抜き" }}
+                </span>
                 <span class="status-chip" :class="{ registered: registeredPartnerCostMemberIds.has(row.member.id) }">
                   {{ registeredPartnerCostMemberIds.has(row.member.id) ? "登録済み" : "未登録" }}
                 </span>

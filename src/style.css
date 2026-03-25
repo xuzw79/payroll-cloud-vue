@@ -502,6 +502,18 @@ p {
   color: #236b34;
 }
 
+.status-chip.tax-chip {
+  border-color: #5481cf;
+  background: #eef4ff;
+  color: #2f5597;
+}
+
+.status-chip.tax-chip.included {
+  border-color: #b16b00;
+  background: #fff4d6;
+  color: #7b4a00;
+}
+
 .compact-cards {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
