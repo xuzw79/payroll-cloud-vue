@@ -264,11 +264,19 @@ const payrollSubMenus: { key: PayrollSubMenu; label: string; description: string
   { key: "yearSettings", label: "年度設定", description: "年度料率と所得税表CSVを管理します。" }
 ];
 const payrollSubMenuPermissions: Record<PayrollSubMenu, PermissionMenu[]> = {
-  payrollBonusInput: ["PAYROLL_INPUT", "BONUS_INPUT", "PAYSLIP", "BONUS_SLIP"],
+  payrollBonusInput: ["PAYROLL_INPUT", "BONUS_INPUT"],
   slipOutput: ["PAYSLIP", "BONUS_SLIP"],
   employees: ["PAYROLL_EMPLOYEES"],
   yearSettings: ["RATES", "TAX_IMPORT"]
 };
+const payrollPermissionGroups: { label: string; menus: PermissionMenu[] }[] = [
+  { label: "\u7d66\u4e0e\u30fb\u8cde\u4e0e\u5165\u529b", menus: ["PAYROLL_INPUT", "BONUS_INPUT"] },
+  { label: "\u660e\u7d30\u51fa\u529b", menus: ["PAYSLIP", "BONUS_SLIP"] },
+  { label: "\u793e\u54e1\u7ba1\u7406", menus: ["PAYROLL_EMPLOYEES"] },
+  { label: "\u5e74\u5ea6\u8a2d\u5b9a", menus: ["RATES", "TAX_IMPORT"] }
+];
+const payrollGroupedMenus = payrollPermissionGroups.flatMap((group) => group.menus);
+const nonPayrollPermissionMenus = permissionMenus.filter((menu) => menu !== "PAYROLL" && !payrollGroupedMenus.includes(menu));
 const loggedIn = ref(false);
 const loading = ref(false);
 const message = ref("");
@@ -606,6 +614,25 @@ function setPermissionGroup(menus: PermissionMenu[], flag: PermissionFlag, check
   menus.forEach((menu) => {
     permissionRow(permissionRoleForm.baseRole, menu)[flag] = checked;
   });
+  syncPayrollParentPermission((menu) => permissionRow(permissionRoleForm.baseRole, menu));
+}
+
+function isUserPermissionGroupChecked(menus: PermissionMenu[], flag: PermissionFlag) {
+  return menus.every((menu) => !!userPermissionRow(menu)[flag]);
+}
+
+function setUserPermissionGroup(menus: PermissionMenu[], flag: PermissionFlag, checked: boolean) {
+  menus.forEach((menu) => {
+    userPermissionRow(menu)[flag] = checked;
+  });
+  syncPayrollParentPermission(userPermissionRow);
+}
+
+function syncPayrollParentPermission(rowForMenu: (menu: PermissionMenu) => RolePermission) {
+  const parent = rowForMenu("PAYROLL");
+  (["canShow", "canView", "canEdit", "canViewAll"] as PermissionFlag[]).forEach((flag) => {
+    parent[flag] = payrollGroupedMenus.some((menu) => !!rowForMenu(menu)[flag]);
+  });
 }
 
 function normalizeActiveMenu() {
@@ -871,6 +898,9 @@ async function refresh() {
     users.value = canManageUsers.value ? await request<AppUser[]>("/users") : [];
     await refreshRolePermissions();
     normalizeActiveMenu();
+    if (!employees.value.some((employee) => employee.id === selectedEmployeeId.value)) {
+      selectedEmployeeId.value = "";
+    }
     if (!selectedEmployeeId.value && employees.value[0]) applyEmployee(employees.value[0]);
     const current = fiscalRateData.find((rate) => rate.fiscalYear === fiscalYear);
     if (current) applyRate(current);
@@ -966,6 +996,7 @@ async function saveRolePermissions() {
   }
   permissionMessage.value = "";
   try {
+    syncPayrollParentPermission((menu) => permissionRow(permissionRoleForm.baseRole, menu));
     const permissions = permissionMenus.map((menu) => permissionRow(permissionRoleForm.baseRole, menu));
     const saved = await request<RolePermission[]>("/role-permissions", {
       method: "PUT",
@@ -1011,6 +1042,7 @@ async function deletePermissionRole() {
 
 async function saveUserPermissions() {
   if (!canManageUsers.value || !userForm.id) return;
+  syncPayrollParentPermission(userPermissionRow);
   const saved = await request<RolePermission[]>(`/users/${userForm.id}/permissions`, {
     method: "PUT",
     body: JSON.stringify({ permissions: permissionMenus.map((menu) => userPermissionRow(menu)) })
@@ -1285,6 +1317,7 @@ watch(visiblePayrollSubMenus, (menus) => {
 
 watch(activePayrollSubMenu, () => {
   clearMessages();
+  if (loggedIn.value) refresh();
 });
 
 onMounted(async () => {
@@ -1695,7 +1728,18 @@ onMounted(async () => {
           <span>更新</span>
           <span>全件</span>
         </div>
-        <div v-for="menu in permissionMenus" :key="`user-${menu}`" class="permission-row">
+        <div class="permission-parent">
+          <strong>{{ menuLabels.PAYROLL }}</strong>
+          <div v-for="group in payrollPermissionGroups" :key="`user-payroll-${group.label}`" class="permission-row child">
+            <span>{{ group.label }}</span>
+            <span>メニュー</span>
+            <label class="check-cell"><input :checked="isUserPermissionGroupChecked(group.menus, 'canShow')" :disabled="!userForm.id" type="checkbox" @change="setUserPermissionGroup(group.menus, 'canShow', ($event.target as HTMLInputElement).checked)" /></label>
+            <label class="check-cell"><input :checked="isUserPermissionGroupChecked(group.menus, 'canView')" :disabled="!userForm.id" type="checkbox" @change="setUserPermissionGroup(group.menus, 'canView', ($event.target as HTMLInputElement).checked)" /></label>
+            <label class="check-cell"><input :checked="isUserPermissionGroupChecked(group.menus, 'canEdit')" :disabled="!userForm.id" type="checkbox" @change="setUserPermissionGroup(group.menus, 'canEdit', ($event.target as HTMLInputElement).checked)" /></label>
+            <label class="check-cell"><input :checked="isUserPermissionGroupChecked(group.menus, 'canViewAll')" :disabled="!userForm.id" type="checkbox" @change="setUserPermissionGroup(group.menus, 'canViewAll', ($event.target as HTMLInputElement).checked)" /></label>
+          </div>
+        </div>
+        <div v-for="menu in nonPayrollPermissionMenus" :key="`user-${menu}`" class="permission-row">
           <span>{{ menuLabels[menu] }}</span>
           <span>{{ menu.includes('_') ? '子メニュー' : '親メニュー' }}</span>
           <label class="check-cell"><input v-model="userPermissionRow(menu).canShow" :disabled="!userForm.id" type="checkbox" /></label>
@@ -1757,13 +1801,13 @@ onMounted(async () => {
                 <label><input :checked="isPermissionGroupChecked(payrollPermissionMenus, 'canEdit')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(payrollPermissionMenus, 'canEdit', ($event.target as HTMLInputElement).checked)" />更新</label>
                 <label><input :checked="isPermissionGroupChecked(payrollPermissionMenus, 'canViewAll')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(payrollPermissionMenus, 'canViewAll', ($event.target as HTMLInputElement).checked)" />全件</label>
               </div>
-              <div v-for="menu in permissionMenus.filter((item) => item === 'PAYROLL' || item.startsWith('PAYROLL_') || ['BONUS_INPUT','RATES','TAX_IMPORT','PAYSLIP','BONUS_SLIP'].includes(item))" :key="`payroll-${menu}`" class="permission-row" :class="{ child: menu !== 'PAYROLL' }">
-                <span>{{ menuLabels[menu] }}</span>
-                <span>{{ menu === 'PAYROLL' ? '親メニュー' : '子メニュー' }}</span>
-                <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canShow" :disabled="!canEditPermissions" type="checkbox" /></label>
-                <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canView" :disabled="!canEditPermissions" type="checkbox" /></label>
-                <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canEdit" :disabled="!canEditPermissions" type="checkbox" /></label>
-                <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canViewAll" :disabled="!canEditPermissions" type="checkbox" /></label>
+              <div v-for="group in payrollPermissionGroups" :key="`payroll-${group.label}`" class="permission-row child">
+                <span>{{ group.label }}</span>
+                <span>メニュー</span>
+                <label class="check-cell"><input :checked="isPermissionGroupChecked(group.menus, 'canShow')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(group.menus, 'canShow', ($event.target as HTMLInputElement).checked)" /></label>
+                <label class="check-cell"><input :checked="isPermissionGroupChecked(group.menus, 'canView')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(group.menus, 'canView', ($event.target as HTMLInputElement).checked)" /></label>
+                <label class="check-cell"><input :checked="isPermissionGroupChecked(group.menus, 'canEdit')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(group.menus, 'canEdit', ($event.target as HTMLInputElement).checked)" /></label>
+                <label class="check-cell"><input :checked="isPermissionGroupChecked(group.menus, 'canViewAll')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(group.menus, 'canViewAll', ($event.target as HTMLInputElement).checked)" /></label>
               </div>
             </div>
             <div class="permission-parent">
