@@ -1,17 +1,17 @@
 # 給与管理クラウド Vue版
 
-Vue 3 + Vite + Hono + PostgreSQL + Prisma + Railway を使った、小規模向け給与管理システムの雛形です。
+Vue 3 + Vite + Hono + PostgreSQL + Prisma + Railway を使った、小規模向け給与管理システムです。
 
-## 機能
+## 主な機能
 
 - 管理者ログイン
 - 社員管理
+- 社員ごとの既定扶養人数
 - 月別給与入力
+- 給与入力時の扶養人数
 - 年度別の税率・社会保険料率マスタ
-- 扶養人数の管理
-- 所得税表CSV導入
-- 支給月、扶養人数、課税対象額による所得税の自動查表
-- 支給月から年度を判定した給与計算
+- 所得税表CSVインポート
+- 支給月、扶養人数、課税対象額による所得税の自動参照
 - 給与計算結果のDB保存
 - 社員名・社員番号検索
 - 月別給与一覧
@@ -50,26 +50,9 @@ MAIL_FROM=送信元メールアドレス
 SMTP_STARTTLS=true
 ```
 
-## デプロイの流れ
+## 所得税表CSVインポート
 
-1. GitHubにこのプロジェクトをpush
-2. RailwayでNew Project
-3. GitHub repoを選択
-4. PostgreSQLを追加
-5. 環境変数を設定
-6. Deploy
-
-`railway.json` により、デプロイ時にPrisma migrationを適用してからアプリを起動します。
-
-## PDFメール送信
-
-給与を保存したあと、社員にメールアドレスが設定されていれば、給与明細PDFを添付してメール送信できます。
-
-PDFは外部ライブラリなしの簡易PDFとして生成します。日本語フォント埋め込みまでは未対応なので、PDF本文の一部は英語ラベルで出力します。メール本文は日本語です。
-
-## 所得税表CSV導入
-
-画面の「所得税表导入」にCSVを貼り付けて取り込みます。
+画面の「所得税表インポート」にCSVを貼り付けて取り込みます。
 
 ```csv
 fiscalYear,dependentCount,minTaxable,maxTaxable,taxAmount
@@ -85,6 +68,23 @@ fiscalYear,dependentCount,minTaxable,maxTaxable,taxAmount
 3. 年度、扶養人数、課税対象額に一致する所得税表を検索
 4. 一致すれば表の税額を使用
 5. 一致しなければ年度料率の所得税率で簡易計算
+
+## PDFメール送信
+
+給与を保存したあと、社員にメールアドレスが設定されていれば、給与明細PDFを添付してメール送信できます。
+
+PDFは外部ライブラリなしの簡易PDFとして生成します。日本語フォント埋め込みまでは未対応なので、PDF本文の一部は英語ラベルで出力します。メール本文は日本語です。
+
+## デプロイの流れ
+
+1. GitHubにこのプロジェクトをpush
+2. RailwayでNew Project
+3. GitHub repoを選択
+4. PostgreSQLを追加
+5. 環境変数を設定
+6. Deploy
+
+`railway.json` により、デプロイ時にPrisma migrationを適用してからアプリを起動します。
 
 ## 注意
 

@@ -100,7 +100,6 @@ const rateForm = reactive<FiscalRate>({
   memo: ""
 });
 const taxImport = reactive({
-  fiscalYear: thisFiscalYear,
   csv: "fiscalYear,dependentCount,minTaxable,maxTaxable,taxAmount\n2026,0,0,88000,0\n2026,0,88001,99000,130\n2026,1,0,99000,0\n"
 });
 
@@ -129,8 +128,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     ...options
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: "Request failed" }));
-    throw new Error(error.message || "Request failed");
+    const error = await response.json().catch(() => ({ message: "通信に失敗しました" }));
+    throw new Error(error.message || "通信に失敗しました");
   }
   return response.json();
 }
@@ -176,7 +175,6 @@ function applyRate(rate: FiscalRate) {
     employmentInsuranceRate: Number(rate.employmentInsuranceRate),
     memo: rate.memo || ""
   });
-  taxImport.fiscalYear = rate.fiscalYear;
 }
 
 function nextEmployeeNo() {
@@ -191,7 +189,7 @@ async function login() {
     loggedIn.value = true;
     await refresh();
   } catch (error) {
-    message.value = error instanceof Error ? error.message : "Login failed";
+    message.value = error instanceof Error ? error.message : "ログインできません";
   } finally {
     loading.value = false;
   }
@@ -226,7 +224,7 @@ async function refresh() {
 
 async function saveRate() {
   await request("/fiscal-rates", { method: "POST", body: JSON.stringify(rateForm) });
-  message.value = "年度料率已保存";
+  message.value = "年度料率を保存しました";
   await refresh();
 }
 
@@ -235,7 +233,7 @@ async function importIncomeTaxTable() {
     method: "POST",
     body: JSON.stringify({ csv: taxImport.csv })
   });
-  message.value = `所得税表导入完成: ${result.imported} rows`;
+  message.value = `所得税表を取り込みました: ${result.imported}件`;
   await refresh();
 }
 
@@ -243,49 +241,49 @@ async function saveEmployee() {
   const method = employeeForm.id ? "PUT" : "POST";
   const path = employeeForm.id ? `/employees/${employeeForm.id}` : "/employees";
   const employee = await request<Employee>(path, { method, body: JSON.stringify(employeeForm) });
-  message.value = "社員情報已保存";
+  message.value = "社員情報を保存しました";
   await refresh();
   applyEmployee(employee);
 }
 
 async function deleteEmployee() {
-  if (!employeeForm.id || !confirm("Hide this employee?")) return;
+  if (!employeeForm.id || !confirm("この社員を非表示にしますか？")) return;
   await request(`/employees/${employeeForm.id}`, { method: "DELETE" });
   selectedEmployeeId.value = "";
-  message.value = "社員已隐藏";
+  message.value = "社員を非表示にしました";
   await refresh();
 }
 
 async function savePayroll() {
   if (!selectedEmployee.value) {
-    message.value = "请选择社員";
+    message.value = "社員を選択してください";
     return;
   }
   await request("/payrolls", {
     method: "POST",
     body: JSON.stringify({ employeeId: selectedEmployee.value.id, period: period.value, ...payrollForm })
   });
-  message.value = "給与已保存。所得税会按年度表自动查表。";
+  message.value = "給与を保存しました。所得税は年度表から自動で参照されます。";
   await refresh();
 }
 
 async function sendPayslipEmail() {
   if (!selectedPayroll.value) {
-    message.value = "请先保存給与";
+    message.value = "先に給与を保存してください";
     return;
   }
   await request<Payroll>(`/payrolls/${selectedPayroll.value.id}/email`, { method: "POST" });
-  message.value = "給与明細PDF已邮件发送";
+  message.value = "給与明細PDFをメール送信しました";
   await refresh();
 }
 
 function exportCsv() {
-  const header = ["period", "employeeNo", "name", "payType", "dependents", "taxableIncome", "incomeTax", "grossPay", "deduction", "netPay", "emailedAt"];
+  const header = ["支給月", "社員番号", "氏名", "給与区分", "扶養人数", "課税対象額", "所得税", "総支給額", "控除合計", "差引支給額", "メール送信日時"];
   const rows = payrolls.value.map((payroll) => [
     payroll.period,
     payroll.employee.employeeNo,
     payroll.employee.name,
-    payroll.employee.payType,
+    payroll.employee.payType === "MONTHLY" ? "月給" : "時給",
     payroll.dependentCount,
     payroll.taxableIncome || "",
     payroll.incomeTax,
@@ -316,10 +314,10 @@ onMounted(async () => {
 <template>
   <main v-if="!loggedIn" class="login-page">
     <form class="login-panel" @submit.prevent="login">
-      <h1>Payroll Cloud</h1>
-      <label>Email<input v-model="loginForm.email" type="email" autocomplete="username" required /></label>
-      <label>Password<input v-model="loginForm.password" type="password" autocomplete="current-password" required /></label>
-      <button class="primary" :disabled="loading">Login</button>
+      <h1>給与管理クラウド</h1>
+      <label>メールアドレス<input v-model="loginForm.email" type="email" autocomplete="username" required /></label>
+      <label>パスワード<input v-model="loginForm.password" type="password" autocomplete="current-password" required /></label>
+      <button class="primary" :disabled="loading">ログイン</button>
       <p v-if="message" class="message">{{ message }}</p>
     </form>
   </main>
@@ -327,35 +325,35 @@ onMounted(async () => {
   <main v-else class="app-shell">
     <header class="topbar">
       <div>
-        <h1>Payroll Cloud</h1>
+        <h1>給与管理クラウド</h1>
         <p>Vue + Hono + PostgreSQL / Railway</p>
       </div>
       <div class="actions">
-        <button @click="refresh"><RefreshCw :size="16" />Refresh</button>
-        <button @click="exportCsv"><Download :size="16" />CSV</button>
-        <button @click="logout"><LogOut :size="16" />Logout</button>
+        <button @click="refresh"><RefreshCw :size="16" />更新</button>
+        <button @click="exportCsv"><Download :size="16" />CSV出力</button>
+        <button @click="logout"><LogOut :size="16" />ログアウト</button>
       </div>
     </header>
 
     <section class="filters">
-      <label>Pay period<input v-model="period" type="month" @change="refresh" /></label>
-      <label>Search<input v-model="query" placeholder="name / employee no" @keyup.enter="refresh" /></label>
-      <button class="primary" @click="refresh"><Search :size="16" />Search</button>
+      <label>支給月<input v-model="period" type="month" @change="refresh" /></label>
+      <label>社員検索<input v-model="query" placeholder="氏名・社員番号" @keyup.enter="refresh" /></label>
+      <button class="primary" @click="refresh"><Search :size="16" />検索</button>
       <span v-if="message" class="message">{{ message }}</span>
     </section>
 
     <section class="summary">
-      <div><span>Employees</span><strong>{{ employees.length }}</strong></div>
-      <div><span>Gross pay</span><strong>{{ yen.format(totals.gross) }}</strong></div>
-      <div><span>Deductions</span><strong>{{ yen.format(totals.deduction) }}</strong></div>
-      <div><span>Net pay</span><strong>{{ yen.format(totals.net) }}</strong></div>
+      <div><span>社員数</span><strong>{{ employees.length }}名</strong></div>
+      <div><span>総支給額</span><strong>{{ yen.format(totals.gross) }}</strong></div>
+      <div><span>控除合計</span><strong>{{ yen.format(totals.deduction) }}</strong></div>
+      <div><span>差引支給額</span><strong>{{ yen.format(totals.net) }}</strong></div>
     </section>
 
     <div class="workspace">
       <section class="panel employee-list">
         <div class="panel-head">
-          <h2>Employees</h2>
-          <button @click="applyEmployee()"><Plus :size="16" />Add</button>
+          <h2>社員</h2>
+          <button @click="applyEmployee()"><Plus :size="16" />追加</button>
         </div>
         <button
           v-for="employee in employees"
@@ -365,92 +363,92 @@ onMounted(async () => {
           @click="applyEmployee(employee)"
         >
           <strong>{{ employee.name }}</strong>
-          <span>{{ employee.employeeNo }} / dependents: {{ employee.defaultDependentCount }}</span>
+          <span>{{ employee.employeeNo }} / 扶養人数: {{ employee.defaultDependentCount }}</span>
         </button>
       </section>
 
       <section class="panel">
-        <div class="panel-head"><h2>Employee / Payroll</h2></div>
+        <div class="panel-head"><h2>社員・給与入力</h2></div>
         <div class="form-grid">
-          <label>Employee No<input v-model="employeeForm.employeeNo" /></label>
-          <label>Name<input v-model="employeeForm.name" /></label>
-          <label>Email<input v-model="employeeForm.email" type="email" /></label>
-          <label>Default dependents<input v-model.number="employeeForm.defaultDependentCount" type="number" min="0" /></label>
-          <label>Pay type<select v-model="employeeForm.payType"><option value="MONTHLY">Monthly</option><option value="HOURLY">Hourly</option></select></label>
-          <label>Base pay / hourly wage<input v-model.number="employeeForm.basePay" type="number" min="0" /></label>
-          <label class="wide">Memo<input v-model="employeeForm.memo" /></label>
+          <label>社員番号<input v-model="employeeForm.employeeNo" /></label>
+          <label>氏名<input v-model="employeeForm.name" /></label>
+          <label>メール<input v-model="employeeForm.email" type="email" /></label>
+          <label>既定の扶養人数<input v-model.number="employeeForm.defaultDependentCount" type="number" min="0" /></label>
+          <label>給与区分<select v-model="employeeForm.payType"><option value="MONTHLY">月給</option><option value="HOURLY">時給</option></select></label>
+          <label>基本給・時給<input v-model.number="employeeForm.basePay" type="number" min="0" /></label>
+          <label class="wide">メモ<input v-model="employeeForm.memo" /></label>
           <div class="form-actions full">
-            <button @click="deleteEmployee"><Trash2 :size="16" />Hide</button>
-            <button class="primary" @click="saveEmployee"><Save :size="16" />Save employee</button>
+            <button @click="deleteEmployee"><Trash2 :size="16" />非表示</button>
+            <button class="primary" @click="saveEmployee"><Save :size="16" />社員保存</button>
           </div>
         </div>
 
         <div class="divider"></div>
         <div class="form-grid">
-          <label>Work days<input v-model.number="payrollForm.workDays" type="number" min="0" step="0.5" /></label>
-          <label>Work hours<input v-model.number="payrollForm.workHours" type="number" min="0" step="0.25" /></label>
-          <label>Overtime hours<input v-model.number="payrollForm.overtimeHours" type="number" min="0" step="0.25" /></label>
-          <label>Dependents / 抚养人数<input v-model.number="payrollForm.dependentCount" type="number" min="0" /></label>
-          <label>Allowance<input v-model.number="payrollForm.allowance" type="number" min="0" /></label>
-          <label>Fixed deduction<input v-model.number="payrollForm.fixedDeduction" type="number" min="0" /></label>
-          <label class="wide">Note<input v-model="payrollForm.note" /></label>
+          <label>所定労働日数<input v-model.number="payrollForm.workDays" type="number" min="0" step="0.5" /></label>
+          <label>実働時間<input v-model.number="payrollForm.workHours" type="number" min="0" step="0.25" /></label>
+          <label>残業時間<input v-model.number="payrollForm.overtimeHours" type="number" min="0" step="0.25" /></label>
+          <label>扶養人数<input v-model.number="payrollForm.dependentCount" type="number" min="0" /></label>
+          <label>手当<input v-model.number="payrollForm.allowance" type="number" min="0" /></label>
+          <label>固定控除<input v-model.number="payrollForm.fixedDeduction" type="number" min="0" /></label>
+          <label class="wide">備考<input v-model="payrollForm.note" /></label>
           <div class="form-actions full">
-            <button class="primary" @click="savePayroll"><Save :size="16" />Save payroll</button>
-            <button @click="sendPayslipEmail"><Mail :size="16" />Send PDF mail</button>
+            <button class="primary" @click="savePayroll"><Save :size="16" />給与保存</button>
+            <button @click="sendPayslipEmail"><Mail :size="16" />PDFメール送信</button>
           </div>
         </div>
       </section>
 
       <section class="panel payslip">
-        <div class="panel-head"><h2>Annual rates</h2></div>
+        <div class="panel-head"><h2>年度料率</h2></div>
         <div class="form-grid compact">
-          <label>Fiscal year<input v-model.number="rateForm.fiscalYear" type="number" /></label>
-          <label>Overtime rate<input v-model.number="rateForm.overtimeRate" type="number" step="0.001" /></label>
-          <label>Fallback tax rate<input v-model.number="rateForm.incomeTaxRate" type="number" step="0.0001" /></label>
-          <label>Social insurance<input v-model.number="rateForm.socialInsuranceRate" type="number" step="0.0001" /></label>
-          <label>Employment insurance<input v-model.number="rateForm.employmentInsuranceRate" type="number" step="0.0001" /></label>
-          <label class="wide">Memo<input v-model="rateForm.memo" /></label>
+          <label>年度<input v-model.number="rateForm.fiscalYear" type="number" /></label>
+          <label>残業割増率<input v-model.number="rateForm.overtimeRate" type="number" step="0.001" /></label>
+          <label>所得税率（表なし時）<input v-model.number="rateForm.incomeTaxRate" type="number" step="0.0001" /></label>
+          <label>社会保険率<input v-model.number="rateForm.socialInsuranceRate" type="number" step="0.0001" /></label>
+          <label>雇用保険率<input v-model.number="rateForm.employmentInsuranceRate" type="number" step="0.0001" /></label>
+          <label class="wide">メモ<input v-model="rateForm.memo" /></label>
           <div class="form-actions full">
-            <button class="primary" @click="saveRate"><Save :size="16" />Save rate</button>
+            <button class="primary" @click="saveRate"><Save :size="16" />年度料率保存</button>
           </div>
         </div>
         <div class="rate-list">
           <button v-for="rate in fiscalRates" :key="rate.fiscalYear" @click="applyRate(rate)">
-            {{ rate.fiscalYear }}
+            {{ rate.fiscalYear }}年度
           </button>
         </div>
 
         <div class="divider"></div>
-        <div class="panel-head"><h2>所得税表导入</h2></div>
+        <div class="panel-head"><h2>所得税表インポート</h2></div>
         <div class="tax-import">
-          <p class="note">CSV columns: fiscalYear, dependentCount, minTaxable, maxTaxable, taxAmount</p>
+          <p class="note">CSV列: fiscalYear, dependentCount, minTaxable, maxTaxable, taxAmount</p>
           <textarea v-model="taxImport.csv" rows="6"></textarea>
           <div class="form-actions">
-            <button class="primary" @click="importIncomeTaxTable"><Upload :size="16" />Import tax table</button>
+            <button class="primary" @click="importIncomeTaxTable"><Upload :size="16" />所得税表を取り込む</button>
           </div>
-          <p class="note">Loaded rows for {{ fiscalYearFromPeriod(period) }}: {{ incomeTaxBrackets.length }}</p>
+          <p class="note">{{ fiscalYearFromPeriod(period) }}年度の読込行数: {{ incomeTaxBrackets.length }}件</p>
         </div>
 
         <div class="divider"></div>
-        <div class="panel-head"><h2>Payslip</h2></div>
+        <div class="panel-head"><h2>給与明細</h2></div>
         <div v-if="selectedPayroll" class="slip">
           <h3>{{ selectedPayroll.employee.name }}</h3>
-          <p class="message">Fiscal year: {{ activeRate?.fiscalYear || fiscalYearFromPeriod(period) }}</p>
+          <p class="message">適用年度: {{ activeRate?.fiscalYear || fiscalYearFromPeriod(period) }}年度</p>
           <dl>
-            <dt>Base pay</dt><dd>{{ yen.format(selectedPayroll.regularPay) }}</dd>
-            <dt>Overtime pay</dt><dd>{{ yen.format(selectedPayroll.overtimePay) }}</dd>
-            <dt>Gross pay</dt><dd>{{ yen.format(selectedPayroll.grossPay) }}</dd>
-            <dt>Dependents</dt><dd>{{ selectedPayroll.dependentCount }}</dd>
-            <dt>Taxable income</dt><dd>{{ yen.format(selectedPayroll.taxableIncome || 0) }}</dd>
-            <dt>Income tax</dt><dd>{{ yen.format(selectedPayroll.incomeTax) }}</dd>
-            <dt>Social insurance</dt><dd>{{ yen.format(selectedPayroll.socialInsurance) }}</dd>
-            <dt>Employment insurance</dt><dd>{{ yen.format(selectedPayroll.employmentInsurance) }}</dd>
-            <dt>Total deduction</dt><dd>{{ yen.format(selectedPayroll.totalDeduction) }}</dd>
+            <dt>基本給</dt><dd>{{ yen.format(selectedPayroll.regularPay) }}</dd>
+            <dt>残業代</dt><dd>{{ yen.format(selectedPayroll.overtimePay) }}</dd>
+            <dt>総支給額</dt><dd>{{ yen.format(selectedPayroll.grossPay) }}</dd>
+            <dt>扶養人数</dt><dd>{{ selectedPayroll.dependentCount }}</dd>
+            <dt>課税対象額</dt><dd>{{ yen.format(selectedPayroll.taxableIncome || 0) }}</dd>
+            <dt>所得税</dt><dd>{{ yen.format(selectedPayroll.incomeTax) }}</dd>
+            <dt>社会保険</dt><dd>{{ yen.format(selectedPayroll.socialInsurance) }}</dd>
+            <dt>雇用保険</dt><dd>{{ yen.format(selectedPayroll.employmentInsurance) }}</dd>
+            <dt>控除合計</dt><dd>{{ yen.format(selectedPayroll.totalDeduction) }}</dd>
           </dl>
-          <div class="net"><span>Net pay</span><strong>{{ yen.format(selectedPayroll.netPay) }}</strong></div>
-          <p class="message">Email: {{ selectedPayroll.emailedAt ? new Date(selectedPayroll.emailedAt).toLocaleString("ja-JP") : "not sent" }}</p>
+          <div class="net"><span>差引支給額</span><strong>{{ yen.format(selectedPayroll.netPay) }}</strong></div>
+          <p class="message">メール送信: {{ selectedPayroll.emailedAt ? new Date(selectedPayroll.emailedAt).toLocaleString("ja-JP") : "未送信" }}</p>
         </div>
-        <div v-else class="empty">Payroll is not saved for this employee yet.</div>
+        <div v-else class="empty">この社員の給与はまだ保存されていません。</div>
       </section>
     </div>
   </main>
