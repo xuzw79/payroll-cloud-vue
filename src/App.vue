@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { Download, LogOut, Plus, RefreshCw, Save, Search, Trash2 } from "lucide-vue-next";
+import { Download, LogOut, Mail, Plus, RefreshCw, Save, Search, Trash2 } from "lucide-vue-next";
 
 type PayType = "MONTHLY" | "HOURLY";
 
@@ -8,6 +8,7 @@ type Employee = {
   id: string;
   employeeNo: string;
   name: string;
+  email?: string | null;
   payType: PayType;
   basePay: number;
   memo?: string | null;
@@ -30,11 +31,23 @@ type Payroll = {
   incomeTax: number;
   socialInsurance: number;
   employmentInsurance: number;
+  emailedAt?: string | null;
   employee: Employee;
+};
+
+type FiscalRate = {
+  id?: string;
+  fiscalYear: number;
+  overtimeRate: string | number;
+  incomeTaxRate: string | number;
+  socialInsuranceRate: string | number;
+  employmentInsuranceRate: string | number;
+  memo?: string | null;
 };
 
 const yen = new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", maximumFractionDigits: 0 });
 const today = new Date().toISOString().slice(0, 7);
+const thisFiscalYear = new Date().getMonth() + 1 >= 4 ? new Date().getFullYear() : new Date().getFullYear() - 1;
 const loggedIn = ref(false);
 const loading = ref(false);
 const message = ref("");
@@ -42,27 +55,24 @@ const query = ref("");
 const period = ref(today);
 const employees = ref<Employee[]>([]);
 const payrolls = ref<Payroll[]>([]);
+const fiscalRates = ref<FiscalRate[]>([]);
 const selectedEmployeeId = ref("");
 
 const loginForm = reactive({ email: "admin@example.com", password: "" });
-const employeeForm = reactive({ id: "", employeeNo: "", name: "", payType: "MONTHLY" as PayType, basePay: 0, memo: "" });
-const payrollForm = reactive({
-  workDays: 20,
-  workHours: 160,
-  overtimeHours: 0,
-  allowance: 0,
-  fixedDeduction: 0,
-  note: ""
-});
-const settings = reactive({
+const employeeForm = reactive({ id: "", employeeNo: "", name: "", email: "", payType: "MONTHLY" as PayType, basePay: 0, memo: "" });
+const payrollForm = reactive({ workDays: 20, workHours: 160, overtimeHours: 0, allowance: 0, fixedDeduction: 0, note: "" });
+const rateForm = reactive<FiscalRate>({
+  fiscalYear: thisFiscalYear,
   overtimeRate: 1.25,
   incomeTaxRate: 0.03,
   socialInsuranceRate: 0.15,
-  employmentInsuranceRate: 0.006
+  employmentInsuranceRate: 0.006,
+  memo: ""
 });
 
 const selectedEmployee = computed(() => employees.value.find((employee) => employee.id === selectedEmployeeId.value));
 const selectedPayroll = computed(() => payrolls.value.find((payroll) => payroll.employeeId === selectedEmployeeId.value));
+const activeRate = computed(() => fiscalRates.value.find((rate) => rate.fiscalYear === fiscalYearFromPeriod(period.value)));
 const totals = computed(() => payrolls.value.reduce(
   (acc, payroll) => {
     acc.gross += payroll.grossPay;
@@ -73,6 +83,11 @@ const totals = computed(() => payrolls.value.reduce(
   { gross: 0, deduction: 0, net: 0 }
 ));
 
+function fiscalYearFromPeriod(value: string) {
+  const [year, month] = value.split("-").map(Number);
+  return month >= 4 ? year : year - 1;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api${path}`, {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
@@ -80,21 +95,23 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     ...options
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: "通信に失敗しました" }));
-    throw new Error(error.message || "通信に失敗しました");
+    const error = await response.json().catch(() => ({ message: "Request failed" }));
+    throw new Error(error.message || "Request failed");
   }
   return response.json();
 }
 
 function applyEmployee(employee?: Employee) {
-  const target = employee || { id: "", employeeNo: nextEmployeeNo(), name: "", payType: "MONTHLY" as PayType, basePay: 0, memo: "" };
+  const target = employee || { id: "", employeeNo: nextEmployeeNo(), name: "", email: "", payType: "MONTHLY" as PayType, basePay: 0, memo: "" };
   employeeForm.id = target.id;
   employeeForm.employeeNo = target.employeeNo;
   employeeForm.name = target.name;
+  employeeForm.email = target.email || "";
   employeeForm.payType = target.payType;
   employeeForm.basePay = target.basePay;
   employeeForm.memo = target.memo || "";
   selectedEmployeeId.value = target.id;
+
   const payroll = payrolls.value.find((item) => item.employeeId === target.id);
   if (payroll) {
     payrollForm.workDays = Number(payroll.workDays);
@@ -103,6 +120,17 @@ function applyEmployee(employee?: Employee) {
     payrollForm.allowance = payroll.allowance;
     payrollForm.fixedDeduction = payroll.fixedDeduction;
   }
+}
+
+function applyRate(rate: FiscalRate) {
+  Object.assign(rateForm, {
+    fiscalYear: rate.fiscalYear,
+    overtimeRate: Number(rate.overtimeRate),
+    incomeTaxRate: Number(rate.incomeTaxRate),
+    socialInsuranceRate: Number(rate.socialInsuranceRate),
+    employmentInsuranceRate: Number(rate.employmentInsuranceRate),
+    memo: rate.memo || ""
+  });
 }
 
 function nextEmployeeNo() {
@@ -131,28 +159,26 @@ async function logout() {
 async function refresh() {
   loading.value = true;
   try {
-    const [settingsData, employeeData, payrollData] = await Promise.all([
-      request<typeof settings>("/settings"),
+    const [employeeData, payrollData, fiscalRateData] = await Promise.all([
       request<Employee[]>(`/employees?q=${encodeURIComponent(query.value)}`),
-      request<Payroll[]>(`/payrolls?period=${encodeURIComponent(period.value)}`)
+      request<Payroll[]>(`/payrolls?period=${encodeURIComponent(period.value)}`),
+      request<FiscalRate[]>("/fiscal-rates")
     ]);
-    Object.assign(settings, {
-      overtimeRate: Number(settingsData.overtimeRate),
-      incomeTaxRate: Number(settingsData.incomeTaxRate),
-      socialInsuranceRate: Number(settingsData.socialInsuranceRate),
-      employmentInsuranceRate: Number(settingsData.employmentInsuranceRate)
-    });
     employees.value = employeeData;
     payrolls.value = payrollData;
+    fiscalRates.value = fiscalRateData;
     if (!selectedEmployeeId.value && employees.value[0]) applyEmployee(employees.value[0]);
+    const current = fiscalRateData.find((rate) => rate.fiscalYear === fiscalYearFromPeriod(period.value));
+    if (current) applyRate(current);
   } finally {
     loading.value = false;
   }
 }
 
-async function saveSettings() {
-  await request("/settings", { method: "PUT", body: JSON.stringify(settings) });
-  message.value = "設定を保存しました";
+async function saveRate() {
+  await request("/fiscal-rates", { method: "POST", body: JSON.stringify(rateForm) });
+  message.value = "年度料率を保存しました";
+  await refresh();
 }
 
 async function saveEmployee() {
@@ -179,19 +205,24 @@ async function savePayroll() {
   }
   await request("/payrolls", {
     method: "POST",
-    body: JSON.stringify({
-      employeeId: selectedEmployee.value.id,
-      period: period.value,
-      ...payrollForm,
-      ...settings
-    })
+    body: JSON.stringify({ employeeId: selectedEmployee.value.id, period: period.value, ...payrollForm })
   });
   message.value = "給与を保存しました";
   await refresh();
 }
 
+async function sendPayslipEmail() {
+  if (!selectedPayroll.value) {
+    message.value = "先に給与を保存してください";
+    return;
+  }
+  await request<Payroll>(`/payrolls/${selectedPayroll.value.id}/email`, { method: "POST" });
+  message.value = "給与明細PDFをメール送信しました";
+  await refresh();
+}
+
 function exportCsv() {
-  const header = ["支給月", "社員番号", "氏名", "給与区分", "総支給額", "控除合計", "差引支給額"];
+  const header = ["支給月", "社員番号", "氏名", "給与区分", "総支給額", "控除合計", "差引支給額", "送信日時"];
   const rows = payrolls.value.map((payroll) => [
     payroll.period,
     payroll.employee.employeeNo,
@@ -199,7 +230,8 @@ function exportCsv() {
     payroll.employee.payType === "MONTHLY" ? "月給" : "時給",
     payroll.grossPay,
     payroll.totalDeduction,
-    payroll.netPay
+    payroll.netPay,
+    payroll.emailedAt || ""
   ]);
   const csv = "\ufeff" + [header, ...rows].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n");
   const link = document.createElement("a");
@@ -272,7 +304,7 @@ onMounted(async () => {
           @click="applyEmployee(employee)"
         >
           <strong>{{ employee.name }}</strong>
-          <span>{{ employee.employeeNo }} / {{ employee.payType === "MONTHLY" ? "月給" : "時給" }}</span>
+          <span>{{ employee.employeeNo }} / {{ employee.email || "メール未設定" }}</span>
         </button>
       </section>
 
@@ -281,9 +313,10 @@ onMounted(async () => {
         <div class="form-grid">
           <label>社員番号<input v-model="employeeForm.employeeNo" /></label>
           <label>氏名<input v-model="employeeForm.name" /></label>
+          <label>メール<input v-model="employeeForm.email" type="email" /></label>
           <label>給与区分<select v-model="employeeForm.payType"><option value="MONTHLY">月給</option><option value="HOURLY">時給</option></select></label>
           <label>基本給・時給<input v-model.number="employeeForm.basePay" type="number" min="0" /></label>
-          <label class="wide">メモ<input v-model="employeeForm.memo" /></label>
+          <label>メモ<input v-model="employeeForm.memo" /></label>
           <div class="form-actions full">
             <button @click="deleteEmployee"><Trash2 :size="16" />非表示</button>
             <button class="primary" @click="saveEmployee"><Save :size="16" />社員保存</button>
@@ -297,28 +330,38 @@ onMounted(async () => {
           <label>残業時間<input v-model.number="payrollForm.overtimeHours" type="number" min="0" step="0.25" /></label>
           <label>手当<input v-model.number="payrollForm.allowance" type="number" min="0" /></label>
           <label>固定控除<input v-model.number="payrollForm.fixedDeduction" type="number" min="0" /></label>
-          <label class="wide">備考<input v-model="payrollForm.note" /></label>
+          <label>備考<input v-model="payrollForm.note" /></label>
           <div class="form-actions full">
             <button class="primary" @click="savePayroll"><Save :size="16" />給与保存</button>
-          </div>
-        </div>
-
-        <div class="divider"></div>
-        <div class="form-grid compact">
-          <label>残業割増率<input v-model.number="settings.overtimeRate" type="number" step="0.001" /></label>
-          <label>所得税率<input v-model.number="settings.incomeTaxRate" type="number" step="0.0001" /></label>
-          <label>社会保険率<input v-model.number="settings.socialInsuranceRate" type="number" step="0.0001" /></label>
-          <label>雇用保険率<input v-model.number="settings.employmentInsuranceRate" type="number" step="0.0001" /></label>
-          <div class="form-actions full">
-            <button @click="saveSettings"><Save :size="16" />設定保存</button>
+            <button @click="sendPayslipEmail"><Mail :size="16" />PDFメール送信</button>
           </div>
         </div>
       </section>
 
       <section class="panel payslip">
+        <div class="panel-head"><h2>年度料率</h2></div>
+        <div class="form-grid compact">
+          <label>年度<input v-model.number="rateForm.fiscalYear" type="number" /></label>
+          <label>残業割増率<input v-model.number="rateForm.overtimeRate" type="number" step="0.001" /></label>
+          <label>所得税率<input v-model.number="rateForm.incomeTaxRate" type="number" step="0.0001" /></label>
+          <label>社会保険率<input v-model.number="rateForm.socialInsuranceRate" type="number" step="0.0001" /></label>
+          <label>雇用保険率<input v-model.number="rateForm.employmentInsuranceRate" type="number" step="0.0001" /></label>
+          <label class="wide">メモ<input v-model="rateForm.memo" /></label>
+          <div class="form-actions full">
+            <button class="primary" @click="saveRate"><Save :size="16" />年度料率保存</button>
+          </div>
+        </div>
+        <div class="rate-list">
+          <button v-for="rate in fiscalRates" :key="rate.fiscalYear" @click="applyRate(rate)">
+            {{ rate.fiscalYear }}年度
+          </button>
+        </div>
+
+        <div class="divider"></div>
         <div class="panel-head"><h2>月別明細</h2></div>
         <div v-if="selectedPayroll" class="slip">
           <h3>{{ selectedPayroll.employee.name }}</h3>
+          <p class="message">適用年度: {{ activeRate?.fiscalYear || fiscalYearFromPeriod(period) }}年度</p>
           <dl>
             <dt>基本給</dt><dd>{{ yen.format(selectedPayroll.regularPay) }}</dd>
             <dt>残業代</dt><dd>{{ yen.format(selectedPayroll.overtimePay) }}</dd>
@@ -329,6 +372,7 @@ onMounted(async () => {
             <dt>控除合計</dt><dd>{{ yen.format(selectedPayroll.totalDeduction) }}</dd>
           </dl>
           <div class="net"><span>差引支給額</span><strong>{{ yen.format(selectedPayroll.netPay) }}</strong></div>
+          <p class="message">メール送信: {{ selectedPayroll.emailedAt ? new Date(selectedPayroll.emailedAt).toLocaleString("ja-JP") : "未送信" }}</p>
         </div>
         <div v-else class="empty">この社員の給与はまだ保存されていません。</div>
       </section>

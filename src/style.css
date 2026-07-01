@@ -233,6 +233,7 @@ p {
 .employee-item span {
   color: #60706c;
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .form-grid {
@@ -256,6 +257,13 @@ p {
 
 .divider {
   border-top: 1px solid #dce4e1;
+}
+
+.rate-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 14px 14px;
 }
 
 .payslip {

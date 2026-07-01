@@ -4,10 +4,30 @@ import { Hono } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
 import { cookieName, createSession, requireAuth } from "./auth.js";
 import { prisma } from "./db.js";
+import { sendPayslipMail } from "./mailer.js";
+import { createPayslipPdf } from "./pdf.js";
 import { calculatePayroll } from "./payroll.js";
 
 const app = new Hono();
 const api = new Hono();
+
+function periodToFiscalYear(period: string) {
+  const [year, month] = period.split("-").map(Number);
+  return month >= 4 ? year : year - 1;
+}
+
+async function getRatesForPeriod(period: string) {
+  const fiscalYear = periodToFiscalYear(period);
+  const fiscalRate = await prisma.fiscalRate.findUnique({ where: { fiscalYear } });
+  if (fiscalRate) return { fiscalYear, rates: fiscalRate };
+
+  const settings = await prisma.companySetting.upsert({
+    where: { id: "default" },
+    update: {},
+    create: { id: "default", currentFiscalYear: fiscalYear }
+  });
+  return { fiscalYear, rates: settings };
+}
 
 api.post("/login", async (c) => {
   const adminEmail = process.env.ADMIN_EMAIL;
@@ -41,10 +61,11 @@ api.use("*", requireAuth);
 api.get("/me", (c) => c.json({ email: process.env.ADMIN_EMAIL ?? "" }));
 
 api.get("/settings", async (c) => {
+  const currentFiscalYear = new Date().getFullYear();
   const settings = await prisma.companySetting.upsert({
     where: { id: "default" },
     update: {},
-    create: { id: "default" }
+    create: { id: "default", currentFiscalYear }
   });
   return c.json(settings);
 });
@@ -54,6 +75,7 @@ api.put("/settings", async (c) => {
   const settings = await prisma.companySetting.upsert({
     where: { id: "default" },
     update: {
+      currentFiscalYear: Number(body.currentFiscalYear || new Date().getFullYear()),
       overtimeRate: Number(body.overtimeRate),
       incomeTaxRate: Number(body.incomeTaxRate),
       socialInsuranceRate: Number(body.socialInsuranceRate),
@@ -61,6 +83,7 @@ api.put("/settings", async (c) => {
     },
     create: {
       id: "default",
+      currentFiscalYear: Number(body.currentFiscalYear || new Date().getFullYear()),
       overtimeRate: Number(body.overtimeRate),
       incomeTaxRate: Number(body.incomeTaxRate),
       socialInsuranceRate: Number(body.socialInsuranceRate),
@@ -68,6 +91,34 @@ api.put("/settings", async (c) => {
     }
   });
   return c.json(settings);
+});
+
+api.get("/fiscal-rates", async (c) => {
+  const rates = await prisma.fiscalRate.findMany({ orderBy: { fiscalYear: "desc" } });
+  return c.json(rates);
+});
+
+api.post("/fiscal-rates", async (c) => {
+  const body = await c.req.json();
+  const rate = await prisma.fiscalRate.upsert({
+    where: { fiscalYear: Number(body.fiscalYear) },
+    update: {
+      overtimeRate: Number(body.overtimeRate),
+      incomeTaxRate: Number(body.incomeTaxRate),
+      socialInsuranceRate: Number(body.socialInsuranceRate),
+      employmentInsuranceRate: Number(body.employmentInsuranceRate),
+      memo: body.memo || null
+    },
+    create: {
+      fiscalYear: Number(body.fiscalYear),
+      overtimeRate: Number(body.overtimeRate),
+      incomeTaxRate: Number(body.incomeTaxRate),
+      socialInsuranceRate: Number(body.socialInsuranceRate),
+      employmentInsuranceRate: Number(body.employmentInsuranceRate),
+      memo: body.memo || null
+    }
+  });
+  return c.json(rate);
 });
 
 api.get("/employees", async (c) => {
@@ -88,6 +139,7 @@ api.post("/employees", async (c) => {
     data: {
       employeeNo: String(body.employeeNo),
       name: String(body.name),
+      email: body.email || null,
       payType: body.payType === "HOURLY" ? "HOURLY" : "MONTHLY",
       basePay: Number(body.basePay || 0),
       memo: body.memo || null
@@ -103,6 +155,7 @@ api.put("/employees/:id", async (c) => {
     data: {
       employeeNo: String(body.employeeNo),
       name: String(body.name),
+      email: body.email || null,
       payType: body.payType === "HOURLY" ? "HOURLY" : "MONTHLY",
       basePay: Number(body.basePay || 0),
       memo: body.memo || null
@@ -129,12 +182,13 @@ api.get("/payrolls", async (c) => {
 
 api.post("/payrolls", async (c) => {
   const body = await c.req.json();
+  const period = String(body.period);
   const employee = await prisma.employee.findUniqueOrThrow({ where: { id: String(body.employeeId) } });
-  const settings = await prisma.companySetting.findUniqueOrThrow({ where: { id: "default" } });
-  const overtimeRate = Number(body.overtimeRate ?? settings.overtimeRate);
-  const incomeTaxRate = Number(body.incomeTaxRate ?? settings.incomeTaxRate);
-  const socialInsuranceRate = Number(body.socialInsuranceRate ?? settings.socialInsuranceRate);
-  const employmentInsuranceRate = Number(body.employmentInsuranceRate ?? settings.employmentInsuranceRate);
+  const { fiscalYear, rates } = await getRatesForPeriod(period);
+  const overtimeRate = Number(body.overtimeRate ?? rates.overtimeRate);
+  const incomeTaxRate = Number(body.incomeTaxRate ?? rates.incomeTaxRate);
+  const socialInsuranceRate = Number(body.socialInsuranceRate ?? rates.socialInsuranceRate);
+  const employmentInsuranceRate = Number(body.employmentInsuranceRate ?? rates.employmentInsuranceRate);
   const workHours = Number(body.workHours || 0);
   const overtimeHours = Number(body.overtimeHours || 0);
   const allowance = Number(body.allowance || 0);
@@ -153,7 +207,7 @@ api.post("/payrolls", async (c) => {
   });
 
   const payroll = await prisma.payroll.upsert({
-    where: { employeeId_period: { employeeId: employee.id, period: String(body.period) } },
+    where: { employeeId_period: { employeeId: employee.id, period } },
     update: {
       workDays: Number(body.workDays || 0),
       workHours,
@@ -164,12 +218,13 @@ api.post("/payrolls", async (c) => {
       incomeTaxRate,
       socialInsuranceRate,
       employmentInsuranceRate,
+      fiscalYear,
       ...calculated,
       note: body.note || null
     },
     create: {
       employeeId: employee.id,
-      period: String(body.period),
+      period,
       workDays: Number(body.workDays || 0),
       workHours,
       overtimeHours,
@@ -179,6 +234,7 @@ api.post("/payrolls", async (c) => {
       incomeTaxRate,
       socialInsuranceRate,
       employmentInsuranceRate,
+      fiscalYear,
       ...calculated,
       note: body.note || null
     },
@@ -187,13 +243,54 @@ api.post("/payrolls", async (c) => {
   return c.json(payroll);
 });
 
+api.post("/payrolls/:id/email", async (c) => {
+  const payroll = await prisma.payroll.findUniqueOrThrow({
+    where: { id: c.req.param("id") },
+    include: { employee: true }
+  });
+
+  if (!payroll.employee.email) {
+    return c.json({ message: "Employee email is not set" }, 400);
+  }
+
+  const pdf = await createPayslipPdf({
+    period: payroll.period,
+    employeeNo: payroll.employee.employeeNo,
+    employeeName: payroll.employee.name,
+    payType: payroll.employee.payType,
+    regularPay: payroll.regularPay,
+    overtimePay: payroll.overtimePay,
+    allowance: payroll.allowance,
+    grossPay: payroll.grossPay,
+    incomeTax: payroll.incomeTax,
+    socialInsurance: payroll.socialInsurance,
+    employmentInsurance: payroll.employmentInsurance,
+    fixedDeduction: payroll.fixedDeduction,
+    totalDeduction: payroll.totalDeduction,
+    netPay: payroll.netPay
+  });
+
+  await sendPayslipMail({
+    to: payroll.employee.email,
+    employeeName: payroll.employee.name,
+    period: payroll.period,
+    pdf
+  });
+
+  const updated = await prisma.payroll.update({
+    where: { id: payroll.id },
+    data: { emailedAt: new Date() },
+    include: { employee: true }
+  });
+  return c.json(updated);
+});
+
 app.route("/api", api);
 app.use("/assets/*", serveStatic({ root: "./dist" }));
 app.use("*", serveStatic({ path: "./dist/index.html" }));
 
-//serve({ fetch: app.fetch, port: Number(process.env.PORT || 3000) });
 serve({
   fetch: app.fetch,
   port: Number(process.env.PORT || 3000),
-  hostname: '0.0.0.0' // 👈 这一行至关重要！
+  hostname: "0.0.0.0"
 });

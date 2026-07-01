@@ -16,6 +16,7 @@ model Employee {
   id          String    @id @default(cuid())
   employeeNo  String    @unique
   name        String
+  email       String?
   payType     PayType   @default(MONTHLY)
   basePay     Int
   memo        String?
@@ -46,6 +47,8 @@ model Payroll {
   employmentInsurance      Int
   totalDeduction           Int
   netPay                   Int
+  fiscalYear               Int?
+  emailedAt                DateTime?
   note                     String?
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
@@ -57,9 +60,22 @@ model Payroll {
 
 model CompanySetting {
   id                       String   @id @default("default")
+  currentFiscalYear        Int?
   overtimeRate             Decimal  @db.Decimal(5, 3) @default(1.25)
   incomeTaxRate            Decimal  @db.Decimal(5, 4) @default(0.0300)
   socialInsuranceRate      Decimal  @db.Decimal(5, 4) @default(0.1500)
   employmentInsuranceRate  Decimal  @db.Decimal(5, 4) @default(0.0060)
+  updatedAt                DateTime @updatedAt
+}
+
+model FiscalRate {
+  id                       String   @id @default(cuid())
+  fiscalYear               Int      @unique
+  overtimeRate             Decimal  @db.Decimal(5, 3) @default(1.25)
+  incomeTaxRate            Decimal  @db.Decimal(5, 4) @default(0.0300)
+  socialInsuranceRate      Decimal  @db.Decimal(5, 4) @default(0.1500)
+  employmentInsuranceRate  Decimal  @db.Decimal(5, 4) @default(0.0060)
+  memo                     String?
+  createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 }
