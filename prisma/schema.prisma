@@ -1,0 +1,65 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PayType {
+  MONTHLY
+  HOURLY
+}
+
+model Employee {
+  id          String    @id @default(cuid())
+  employeeNo  String    @unique
+  name        String
+  payType     PayType   @default(MONTHLY)
+  basePay     Int
+  memo        String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  payrolls    Payroll[]
+}
+
+model Payroll {
+  id                       String   @id @default(cuid())
+  employeeId               String
+  period                   String
+  workDays                 Decimal  @db.Decimal(8, 2)
+  workHours                Decimal  @db.Decimal(8, 2)
+  overtimeHours            Decimal  @db.Decimal(8, 2)
+  allowance                Int      @default(0)
+  fixedDeduction           Int      @default(0)
+  overtimeRate             Decimal  @db.Decimal(5, 3)
+  incomeTaxRate            Decimal  @db.Decimal(5, 4)
+  socialInsuranceRate      Decimal  @db.Decimal(5, 4)
+  employmentInsuranceRate  Decimal  @db.Decimal(5, 4)
+  regularPay               Int
+  overtimePay              Int
+  grossPay                 Int
+  incomeTax                Int
+  socialInsurance          Int
+  employmentInsurance      Int
+  totalDeduction           Int
+  netPay                   Int
+  note                     String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+  employee                 Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, period])
+  @@index([period])
+}
+
+model CompanySetting {
+  id                       String   @id @default("default")
+  overtimeRate             Decimal  @db.Decimal(5, 3) @default(1.25)
+  incomeTaxRate            Decimal  @db.Decimal(5, 4) @default(0.0300)
+  socialInsuranceRate      Decimal  @db.Decimal(5, 4) @default(0.1500)
+  employmentInsuranceRate  Decimal  @db.Decimal(5, 4) @default(0.0060)
+  updatedAt                DateTime @updatedAt
+}
