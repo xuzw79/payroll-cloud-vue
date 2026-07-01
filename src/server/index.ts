@@ -191,4 +191,9 @@ app.route("/api", api);
 app.use("/assets/*", serveStatic({ root: "./dist" }));
 app.use("*", serveStatic({ path: "./dist/index.html" }));
 
-serve({ fetch: app.fetch, port: Number(process.env.PORT || 3000) });
+//serve({ fetch: app.fetch, port: Number(process.env.PORT || 3000) });
+serve({
+  fetch: app.fetch,
+  port: Number(process.env.PORT || 3000),
+  hostname: '0.0.0.0' // 👈 这一行至关重要！
+});
