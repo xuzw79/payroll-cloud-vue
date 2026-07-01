@@ -1,27 +1,34 @@
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
-import { setCookie, deleteCookie } from "hono/cookie";
+import { deleteCookie, setCookie } from "hono/cookie";
+import { cookieName, createSession, requireAuth } from "./auth.js";
 import { prisma } from "./db.js";
 import { calculatePayroll } from "./payroll.js";
-import { cookieName, createSession, requireAuth } from "./auth.js";
 
 const app = new Hono();
 const api = new Hono();
 
 api.post("/login", async (c) => {
-  const body = await c.req.json<{ email?: string; password?: string }>();
-  const ok = body.email === process.env.ADMIN_EMAIL && body.password === process.env.ADMIN_PASSWORD;
-  if (!ok) return c.json({ message: "メールアドレスまたはパスワードが違います" }, 401);
+  const adminEmail = process.env.ADMIN_EMAIL;
+  const adminPassword = process.env.ADMIN_PASSWORD;
 
-  setCookie(c, cookieName, createSession(body.email), {
+  if (!adminEmail || !adminPassword) {
+    return c.json({ message: "ADMIN_EMAIL and ADMIN_PASSWORD must be set" }, 500);
+  }
+
+  const body = await c.req.json<{ email?: string; password?: string }>();
+  const ok = body.email === adminEmail && body.password === adminPassword;
+  if (!ok) return c.json({ message: "Invalid email or password" }, 401);
+
+  setCookie(c, cookieName, createSession(adminEmail), {
     httpOnly: true,
     sameSite: "Lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: 60 * 60 * 12
   });
-  return c.json({ email: body.email });
+  return c.json({ email: adminEmail });
 });
 
 api.post("/logout", (c) => {
@@ -31,7 +38,7 @@ api.post("/logout", (c) => {
 
 api.use("*", requireAuth);
 
-api.get("/me", (c) => c.json({ email: process.env.ADMIN_EMAIL }));
+api.get("/me", (c) => c.json({ email: process.env.ADMIN_EMAIL ?? "" }));
 
 api.get("/settings", async (c) => {
   const settings = await prisma.companySetting.upsert({

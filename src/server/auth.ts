@@ -21,17 +21,19 @@ export function verifySession(token?: string) {
   if (!token) return false;
   const [payload, signature] = token.split(".");
   if (!payload || !signature) return false;
+
   const expected = sign(payload);
   const left = Buffer.from(signature);
   const right = Buffer.from(expected);
   if (left.length !== right.length || !timingSafeEqual(left, right)) return false;
+
   const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { exp: number };
   return data.exp > Date.now();
 }
 
 export async function requireAuth(c: Context, next: Next) {
   if (!verifySession(getCookie(c, cookieName))) {
-    return c.json({ message: "ログインが必要です" }, 401);
+    return c.json({ message: "Authentication required" }, 401);
   }
   return next();
 }
