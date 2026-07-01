@@ -19,7 +19,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -48,9 +49,9 @@ button.primary {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
-  min-height: 38px;
   padding: 8px 10px;
   border: 1px solid #dce4e1;
   border-radius: 6px;
@@ -59,9 +60,20 @@ select {
 }
 
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   outline: 3px solid rgba(23, 107, 93, 0.15);
   border-color: #176b5d;
+}
+
+input,
+select {
+  min-height: 38px;
+}
+
+textarea {
+  min-height: 132px;
+  resize: vertical;
 }
 
 label {
@@ -264,6 +276,18 @@ p {
   flex-wrap: wrap;
   gap: 8px;
   padding: 0 14px 14px;
+}
+
+.tax-import {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.note {
+  color: #60706c;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .payslip {

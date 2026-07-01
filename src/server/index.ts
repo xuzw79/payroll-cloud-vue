@@ -29,6 +29,29 @@ async function getRatesForPeriod(period: string) {
   return { fiscalYear, rates: settings };
 }
 
+function parseCsv(text: string) {
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim());
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",").map((header) => header.trim());
+  return lines.slice(1).map((line) => {
+    const values = line.split(",").map((value) => value.trim());
+    return Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""]));
+  });
+}
+
+async function findIncomeTaxAmount(input: { fiscalYear: number; dependentCount: number; taxableIncome: number }) {
+  const bracket = await prisma.incomeTaxBracket.findFirst({
+    where: {
+      fiscalYear: input.fiscalYear,
+      dependentCount: input.dependentCount,
+      minTaxable: { lte: input.taxableIncome },
+      OR: [{ maxTaxable: null }, { maxTaxable: { gte: input.taxableIncome } }]
+    },
+    orderBy: { minTaxable: "desc" }
+  });
+  return bracket?.taxAmount;
+}
+
 api.post("/login", async (c) => {
   const adminEmail = process.env.ADMIN_EMAIL;
   const adminPassword = process.env.ADMIN_PASSWORD;
@@ -121,6 +144,36 @@ api.post("/fiscal-rates", async (c) => {
   return c.json(rate);
 });
 
+api.get("/income-tax-brackets", async (c) => {
+  const fiscalYear = Number(c.req.query("fiscalYear") || new Date().getFullYear());
+  const brackets = await prisma.incomeTaxBracket.findMany({
+    where: { fiscalYear },
+    orderBy: [{ dependentCount: "asc" }, { minTaxable: "asc" }]
+  });
+  return c.json(brackets);
+});
+
+api.post("/income-tax-brackets/import", async (c) => {
+  const body = await c.req.json<{ csv?: string }>();
+  const rows = parseCsv(body.csv || "");
+  const data = rows.map((row) => ({
+    fiscalYear: Number(row.fiscalYear),
+    dependentCount: Number(row.dependentCount || 0),
+    minTaxable: Number(row.minTaxable || 0),
+    maxTaxable: row.maxTaxable ? Number(row.maxTaxable) : null,
+    taxAmount: Number(row.taxAmount || 0)
+  })).filter((row) => row.fiscalYear && row.minTaxable >= 0 && row.taxAmount >= 0);
+
+  if (!data.length) return c.json({ message: "No valid income tax rows" }, 400);
+
+  const fiscalYears = [...new Set(data.map((row) => row.fiscalYear))];
+  await prisma.$transaction([
+    prisma.incomeTaxBracket.deleteMany({ where: { fiscalYear: { in: fiscalYears } } }),
+    prisma.incomeTaxBracket.createMany({ data })
+  ]);
+  return c.json({ imported: data.length, fiscalYears });
+});
+
 api.get("/employees", async (c) => {
   const q = c.req.query("q") || "";
   const employees = await prisma.employee.findMany({
@@ -140,6 +193,7 @@ api.post("/employees", async (c) => {
       employeeNo: String(body.employeeNo),
       name: String(body.name),
       email: body.email || null,
+      defaultDependentCount: Number(body.defaultDependentCount || 0),
       payType: body.payType === "HOURLY" ? "HOURLY" : "MONTHLY",
       basePay: Number(body.basePay || 0),
       memo: body.memo || null
@@ -156,6 +210,7 @@ api.put("/employees/:id", async (c) => {
       employeeNo: String(body.employeeNo),
       name: String(body.name),
       email: body.email || null,
+      defaultDependentCount: Number(body.defaultDependentCount || 0),
       payType: body.payType === "HOURLY" ? "HOURLY" : "MONTHLY",
       basePay: Number(body.basePay || 0),
       memo: body.memo || null
@@ -193,7 +248,8 @@ api.post("/payrolls", async (c) => {
   const overtimeHours = Number(body.overtimeHours || 0);
   const allowance = Number(body.allowance || 0);
   const fixedDeduction = Number(body.fixedDeduction || 0);
-  const calculated = calculatePayroll({
+  const dependentCount = Number(body.dependentCount ?? employee.defaultDependentCount ?? 0);
+  const preliminary = calculatePayroll({
     payType: employee.payType,
     basePay: employee.basePay,
     workHours,
@@ -204,6 +260,21 @@ api.post("/payrolls", async (c) => {
     incomeTaxRate,
     socialInsuranceRate,
     employmentInsuranceRate
+  });
+  const taxableIncome = Math.max(preliminary.grossPay - preliminary.socialInsurance - preliminary.employmentInsurance, 0);
+  const tableIncomeTax = await findIncomeTaxAmount({ fiscalYear, dependentCount, taxableIncome });
+  const calculated = calculatePayroll({
+    payType: employee.payType,
+    basePay: employee.basePay,
+    workHours,
+    overtimeHours,
+    allowance,
+    fixedDeduction,
+    overtimeRate,
+    incomeTaxRate,
+    socialInsuranceRate,
+    employmentInsuranceRate,
+    incomeTaxAmount: tableIncomeTax
   });
 
   const payroll = await prisma.payroll.upsert({
@@ -219,6 +290,8 @@ api.post("/payrolls", async (c) => {
       socialInsuranceRate,
       employmentInsuranceRate,
       fiscalYear,
+      dependentCount,
+      taxableIncome,
       ...calculated,
       note: body.note || null
     },
@@ -235,6 +308,8 @@ api.post("/payrolls", async (c) => {
       socialInsuranceRate,
       employmentInsuranceRate,
       fiscalYear,
+      dependentCount,
+      taxableIncome,
       ...calculated,
       note: body.note || null
     },

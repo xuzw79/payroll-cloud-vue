@@ -17,6 +17,7 @@ model Employee {
   employeeNo  String    @unique
   name        String
   email       String?
+  defaultDependentCount Int @default(0)
   payType     PayType   @default(MONTHLY)
   basePay     Int
   memo        String?
@@ -48,6 +49,8 @@ model Payroll {
   totalDeduction           Int
   netPay                   Int
   fiscalYear               Int?
+  dependentCount           Int      @default(0)
+  taxableIncome            Int?
   emailedAt                DateTime?
   note                     String?
   createdAt                DateTime @default(now())
@@ -78,4 +81,17 @@ model FiscalRate {
   memo                     String?
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
+}
+
+model IncomeTaxBracket {
+  id              String   @id @default(cuid())
+  fiscalYear      Int
+  dependentCount  Int
+  minTaxable      Int
+  maxTaxable      Int?
+  taxAmount       Int
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([fiscalYear, dependentCount, minTaxable])
 }
