@@ -16,6 +16,7 @@ async function main() {
       socialInsuranceRate: 0.15,
       healthInsuranceRate: 0.05,
       pensionInsuranceRate: 0.1,
+      childCareSupportRate: 0,
       employmentInsuranceRate: 0.006
     }
   });
@@ -30,6 +31,7 @@ async function main() {
       socialInsuranceRate: 0.15,
       healthInsuranceRate: 0.05,
       pensionInsuranceRate: 0.1,
+      childCareSupportRate: 0,
       employmentInsuranceRate: 0.006,
       memo: "Initial sample rates"
     }

@@ -24,6 +24,7 @@ type Payroll = {
   overtimeHours: string;
   allowance: number;
   fixedDeduction: number;
+  residentTax: number;
   dependentCount: number;
   socialInsuranceEnrolled: boolean;
   socialInsuranceBaseAmount?: number | null;
@@ -36,8 +37,10 @@ type Payroll = {
   incomeTax: number;
   healthInsurance: number;
   pensionInsurance: number;
+  childCareSupport: number;
   socialInsurance: number;
   employmentInsurance: number;
+  residentTax: number;
   emailedAt?: string | null;
   employee: Employee;
 };
@@ -50,6 +53,7 @@ type FiscalRate = {
   socialInsuranceRate: string | number;
   healthInsuranceRate: string | number;
   pensionInsuranceRate: string | number;
+  childCareSupportRate: string | number;
   employmentInsuranceRate: string | number;
   memo?: string | null;
 };
@@ -94,6 +98,7 @@ const payrollForm = reactive({
   overtimeHours: 0,
   allowance: 0,
   fixedDeduction: 0,
+  residentTax: 0,
   dependentCount: 0,
   socialInsuranceEnrolled: true,
   socialInsuranceBaseAmount: 0,
@@ -106,6 +111,7 @@ const rateForm = reactive<FiscalRate>({
   socialInsuranceRate: 0.15,
   healthInsuranceRate: 0.05,
   pensionInsuranceRate: 0.1,
+  childCareSupportRate: 0,
   employmentInsuranceRate: 0.006,
   memo: ""
 });
@@ -175,6 +181,7 @@ function applyEmployee(employee?: Employee) {
     payrollForm.overtimeHours = Number(payroll.overtimeHours);
     payrollForm.allowance = payroll.allowance;
     payrollForm.fixedDeduction = payroll.fixedDeduction;
+    payrollForm.residentTax = payroll.residentTax || 0;
   }
 }
 
@@ -182,13 +189,15 @@ function applyRate(rate: FiscalRate) {
   const fallbackSocialInsuranceRate = Number(rate.socialInsuranceRate || 0);
   const healthInsuranceRate = Number(rate.healthInsuranceRate ?? fallbackSocialInsuranceRate / 2);
   const pensionInsuranceRate = Number(rate.pensionInsuranceRate ?? fallbackSocialInsuranceRate - healthInsuranceRate);
+  const childCareSupportRate = Number(rate.childCareSupportRate || 0);
   Object.assign(rateForm, {
     fiscalYear: rate.fiscalYear,
     overtimeRate: Number(rate.overtimeRate),
     incomeTaxRate: Number(rate.incomeTaxRate),
-    socialInsuranceRate: healthInsuranceRate + pensionInsuranceRate,
+    socialInsuranceRate: healthInsuranceRate + pensionInsuranceRate + childCareSupportRate,
     healthInsuranceRate,
     pensionInsuranceRate,
+    childCareSupportRate,
     employmentInsuranceRate: Number(rate.employmentInsuranceRate),
     memo: rate.memo || ""
   });
@@ -242,13 +251,15 @@ async function refresh() {
 async function saveRate() {
   const healthInsuranceRate = Number(rateForm.healthInsuranceRate || 0);
   const pensionInsuranceRate = Number(rateForm.pensionInsuranceRate || 0);
+  const childCareSupportRate = Number(rateForm.childCareSupportRate || 0);
   await request("/fiscal-rates", {
     method: "POST",
     body: JSON.stringify({
       ...rateForm,
       healthInsuranceRate,
       pensionInsuranceRate,
-      socialInsuranceRate: healthInsuranceRate + pensionInsuranceRate
+      childCareSupportRate,
+      socialInsuranceRate: healthInsuranceRate + pensionInsuranceRate + childCareSupportRate
     })
   });
   message.value = "年度料率を保存しました";
@@ -330,7 +341,7 @@ async function downloadPayslipPdf() {
 }
 
 function exportCsv() {
-  const header = ["支給月", "社員番号", "氏名", "給与区分", "扶養人数", "社会保険加入", "社会保険適用金額", "課税対象額", "所得税", "健康・介護保険", "厚生年金保険", "社会保険合計", "雇用保険", "総支給額", "控除合計", "差引支給額", "メール送信日時"];
+  const header = ["支給月", "社員番号", "氏名", "給与区分", "扶養人数", "社会保険加入", "社会保険適用金額", "課税対象額", "所得税", "健康・介護保険", "厚生年金保険", "子ども・子育て支援金", "社会保険合計", "雇用保険", "住民税", "総支給額", "控除合計", "差引支給額", "メール送信日時"];
   const rows = payrolls.value.map((payroll) => [
     payroll.period,
     payroll.employee.employeeNo,
@@ -343,8 +354,10 @@ function exportCsv() {
     payroll.incomeTax,
     payroll.healthInsurance,
     payroll.pensionInsurance,
+    payroll.childCareSupport,
     payroll.socialInsurance,
     payroll.employmentInsurance,
+    payroll.residentTax,
     payroll.grossPay,
     payroll.totalDeduction,
     payroll.netPay,
@@ -450,6 +463,7 @@ onMounted(async () => {
           <label>社会保険加入<select v-model="payrollForm.socialInsuranceEnrolled"><option :value="true">加入</option><option :value="false">未加入</option></select></label>
           <label v-if="payrollForm.socialInsuranceEnrolled">社会保険適用金額<input v-model.number="payrollForm.socialInsuranceBaseAmount" type="number" min="0" placeholder="未入力時は総支給額" /></label>
           <label>手当<input v-model.number="payrollForm.allowance" type="number" min="0" /></label>
+          <label>住民税<input v-model.number="payrollForm.residentTax" type="number" min="0" /></label>
           <label>固定控除<input v-model.number="payrollForm.fixedDeduction" type="number" min="0" /></label>
           <label class="wide">備考<input v-model="payrollForm.note" /></label>
           <div class="form-actions full">
@@ -468,6 +482,7 @@ onMounted(async () => {
           <label>所得税率（表なし時）<input v-model.number="rateForm.incomeTaxRate" type="number" step="0.00001" /></label>
           <label>健康・介護保険率<input v-model.number="rateForm.healthInsuranceRate" type="number" step="0.00001" /></label>
           <label>厚生年金保険率<input v-model.number="rateForm.pensionInsuranceRate" type="number" step="0.00001" /></label>
+          <label>子ども・子育て支援金率<input v-model.number="rateForm.childCareSupportRate" type="number" step="0.00001" /></label>
           <label>雇用保険率<input v-model.number="rateForm.employmentInsuranceRate" type="number" step="0.00001" /></label>
           <label class="wide">メモ<input v-model="rateForm.memo" /></label>
           <div class="form-actions full">
@@ -507,8 +522,10 @@ onMounted(async () => {
             <dt>社会保険適用金額</dt><dd>{{ selectedPayroll.socialInsuranceBaseAmount ? yen.format(selectedPayroll.socialInsuranceBaseAmount) : "総支給額" }}</dd>
             <dt>健康・介護保険</dt><dd>{{ yen.format(selectedPayroll.healthInsurance) }}</dd>
             <dt>厚生年金保険</dt><dd>{{ yen.format(selectedPayroll.pensionInsurance) }}</dd>
+            <dt>子ども・子育て支援金</dt><dd>{{ yen.format(selectedPayroll.childCareSupport) }}</dd>
             <dt>社会保険合計</dt><dd>{{ yen.format(selectedPayroll.socialInsurance) }}</dd>
             <dt>雇用保険</dt><dd>{{ yen.format(selectedPayroll.employmentInsurance) }}</dd>
+            <dt>住民税</dt><dd>{{ yen.format(selectedPayroll.residentTax) }}</dd>
             <dt>控除合計</dt><dd>{{ yen.format(selectedPayroll.totalDeduction) }}</dd>
           </dl>
           <div class="net"><span>差引支給額</span><strong>{{ yen.format(selectedPayroll.netPay) }}</strong></div>

@@ -11,10 +11,12 @@ export type PayrollInput = {
   incomeTaxRate: number;
   healthInsuranceRate: number;
   pensionInsuranceRate: number;
+  childCareSupportRate: number;
   employmentInsuranceRate: number;
   incomeTaxAmount?: number;
   socialInsuranceEnrolled?: boolean;
   socialInsuranceBaseAmount?: number;
+  residentTax?: number;
 };
 
 export function calculatePayroll(input: PayrollInput) {
@@ -27,10 +29,12 @@ export function calculatePayroll(input: PayrollInput) {
     : grossPay;
   const healthInsurance = input.socialInsuranceEnrolled === false ? 0 : socialInsuranceBase * input.healthInsuranceRate;
   const pensionInsurance = input.socialInsuranceEnrolled === false ? 0 : socialInsuranceBase * input.pensionInsuranceRate;
-  const socialInsurance = healthInsurance + pensionInsurance;
+  const childCareSupport = input.socialInsuranceEnrolled === false ? 0 : socialInsuranceBase * input.childCareSupportRate;
+  const socialInsurance = healthInsurance + pensionInsurance + childCareSupport;
   const employmentInsurance = grossPay * input.employmentInsuranceRate;
   const incomeTax = input.incomeTaxAmount ?? grossPay * input.incomeTaxRate;
-  const totalDeduction = incomeTax + socialInsurance + employmentInsurance + input.fixedDeduction;
+  const residentTax = input.residentTax || 0;
+  const totalDeduction = incomeTax + socialInsurance + employmentInsurance + residentTax + input.fixedDeduction;
 
   return {
     regularPay: Math.round(regularPay),
@@ -39,8 +43,10 @@ export function calculatePayroll(input: PayrollInput) {
     incomeTax: Math.round(incomeTax),
     healthInsurance: Math.round(healthInsurance),
     pensionInsurance: Math.round(pensionInsurance),
+    childCareSupport: Math.round(childCareSupport),
     socialInsurance: Math.round(socialInsurance),
     employmentInsurance: Math.round(employmentInsurance),
+    residentTax: Math.round(residentTax),
     totalDeduction: Math.round(totalDeduction),
     netPay: Math.round(grossPay - totalDeduction)
   };

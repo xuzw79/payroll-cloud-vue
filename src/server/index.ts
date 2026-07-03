@@ -67,8 +67,10 @@ function toPayslipPdfInput(payroll: Payroll & { employee: Employee }) {
     incomeTax: payroll.incomeTax,
     healthInsurance: payroll.healthInsurance,
     pensionInsurance: payroll.pensionInsurance,
+    childCareSupport: payroll.childCareSupport,
     socialInsurance: payroll.socialInsurance,
     employmentInsurance: payroll.employmentInsurance,
+    residentTax: payroll.residentTax,
     fixedDeduction: payroll.fixedDeduction,
     totalDeduction: payroll.totalDeduction,
     netPay: payroll.netPay
@@ -120,7 +122,8 @@ api.put("/settings", async (c) => {
   const body = await c.req.json();
   const healthInsuranceRate = Number(body.healthInsuranceRate ?? Number(body.socialInsuranceRate || 0) / 2);
   const pensionInsuranceRate = Number(body.pensionInsuranceRate ?? Number(body.socialInsuranceRate || 0) / 2);
-  const socialInsuranceRate = healthInsuranceRate + pensionInsuranceRate;
+  const childCareSupportRate = Number(body.childCareSupportRate || 0);
+  const socialInsuranceRate = healthInsuranceRate + pensionInsuranceRate + childCareSupportRate;
   const settings = await prisma.companySetting.upsert({
     where: { id: "default" },
     update: {
@@ -130,6 +133,7 @@ api.put("/settings", async (c) => {
       socialInsuranceRate,
       healthInsuranceRate,
       pensionInsuranceRate,
+      childCareSupportRate,
       employmentInsuranceRate: Number(body.employmentInsuranceRate)
     },
     create: {
@@ -140,6 +144,7 @@ api.put("/settings", async (c) => {
       socialInsuranceRate,
       healthInsuranceRate,
       pensionInsuranceRate,
+      childCareSupportRate,
       employmentInsuranceRate: Number(body.employmentInsuranceRate)
     }
   });
@@ -155,7 +160,8 @@ api.post("/fiscal-rates", async (c) => {
   const body = await c.req.json();
   const healthInsuranceRate = Number(body.healthInsuranceRate ?? Number(body.socialInsuranceRate || 0) / 2);
   const pensionInsuranceRate = Number(body.pensionInsuranceRate ?? Number(body.socialInsuranceRate || 0) / 2);
-  const socialInsuranceRate = healthInsuranceRate + pensionInsuranceRate;
+  const childCareSupportRate = Number(body.childCareSupportRate || 0);
+  const socialInsuranceRate = healthInsuranceRate + pensionInsuranceRate + childCareSupportRate;
   const rate = await prisma.fiscalRate.upsert({
     where: { fiscalYear: Number(body.fiscalYear) },
     update: {
@@ -164,6 +170,7 @@ api.post("/fiscal-rates", async (c) => {
       socialInsuranceRate,
       healthInsuranceRate,
       pensionInsuranceRate,
+      childCareSupportRate,
       employmentInsuranceRate: Number(body.employmentInsuranceRate),
       memo: body.memo || null
     },
@@ -174,6 +181,7 @@ api.post("/fiscal-rates", async (c) => {
       socialInsuranceRate,
       healthInsuranceRate,
       pensionInsuranceRate,
+      childCareSupportRate,
       employmentInsuranceRate: Number(body.employmentInsuranceRate),
       memo: body.memo || null
     }
@@ -281,12 +289,14 @@ api.post("/payrolls", async (c) => {
   const incomeTaxRate = Number(body.incomeTaxRate ?? rates.incomeTaxRate);
   const healthInsuranceRate = Number(body.healthInsuranceRate ?? rates.healthInsuranceRate);
   const pensionInsuranceRate = Number(body.pensionInsuranceRate ?? rates.pensionInsuranceRate);
-  const socialInsuranceRate = healthInsuranceRate + pensionInsuranceRate;
+  const childCareSupportRate = Number(body.childCareSupportRate ?? rates.childCareSupportRate);
+  const socialInsuranceRate = healthInsuranceRate + pensionInsuranceRate + childCareSupportRate;
   const employmentInsuranceRate = Number(body.employmentInsuranceRate ?? rates.employmentInsuranceRate);
   const workHours = Number(body.workHours || 0);
   const overtimeHours = Number(body.overtimeHours || 0);
   const allowance = Number(body.allowance || 0);
   const fixedDeduction = Number(body.fixedDeduction || 0);
+  const residentTax = Number(body.residentTax || 0);
   const dependentCount = Number(body.dependentCount ?? employee.defaultDependentCount ?? 0);
   const socialInsuranceEnrolled = body.socialInsuranceEnrolled !== false;
   const socialInsuranceBaseAmount = body.socialInsuranceBaseAmount ? Number(body.socialInsuranceBaseAmount) : null;
@@ -301,9 +311,11 @@ api.post("/payrolls", async (c) => {
     incomeTaxRate,
     healthInsuranceRate,
     pensionInsuranceRate,
+    childCareSupportRate,
     employmentInsuranceRate,
     socialInsuranceEnrolled,
-    socialInsuranceBaseAmount: socialInsuranceBaseAmount ?? undefined
+    socialInsuranceBaseAmount: socialInsuranceBaseAmount ?? undefined,
+    residentTax
   });
   const taxableIncome = Math.max(preliminary.grossPay - preliminary.socialInsurance - preliminary.employmentInsurance, 0);
   const tableIncomeTax = await findIncomeTaxAmount({ fiscalYear, dependentCount, taxableIncome });
@@ -318,10 +330,12 @@ api.post("/payrolls", async (c) => {
     incomeTaxRate,
     healthInsuranceRate,
     pensionInsuranceRate,
+    childCareSupportRate,
     employmentInsuranceRate,
     incomeTaxAmount: tableIncomeTax,
     socialInsuranceEnrolled,
-    socialInsuranceBaseAmount: socialInsuranceBaseAmount ?? undefined
+    socialInsuranceBaseAmount: socialInsuranceBaseAmount ?? undefined,
+    residentTax
   });
 
   const payroll = await prisma.payroll.upsert({
@@ -337,6 +351,7 @@ api.post("/payrolls", async (c) => {
       socialInsuranceRate,
       healthInsuranceRate,
       pensionInsuranceRate,
+      childCareSupportRate,
       employmentInsuranceRate,
       socialInsuranceEnrolled,
       socialInsuranceBaseAmount,
@@ -359,6 +374,7 @@ api.post("/payrolls", async (c) => {
       socialInsuranceRate,
       healthInsuranceRate,
       pensionInsuranceRate,
+      childCareSupportRate,
       employmentInsuranceRate,
       socialInsuranceEnrolled,
       socialInsuranceBaseAmount,

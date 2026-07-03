@@ -17,8 +17,10 @@ type PayslipPdfInput = {
   incomeTax: number;
   healthInsurance: number;
   pensionInsurance: number;
+  childCareSupport: number;
   socialInsurance: number;
   employmentInsurance: number;
+  residentTax: number;
   fixedDeduction: number;
   totalDeduction: number;
   netPay: number;
@@ -198,10 +200,10 @@ export async function createPayslipPdf(input: PayslipPdfInput) {
       { label: "厚生年金保険料", value: formatYen(input.pensionInsurance) },
       { label: "雇用保険料", value: formatYen(input.employmentInsurance) },
       { label: "社会保険料合計", value: formatYen(input.socialInsurance + input.employmentInsurance), highlight: true },
-      { label: "", blank: true },
+      { label: "子ども・子育て支援金", value: formatYen(input.childCareSupport) },
       { label: "定額減税額", value: "0" },
       { label: "所得税", value: formatYen(input.incomeTax) },
-      { label: "住民税", value: "0" }
+      { label: "住民税", value: formatYen(input.residentTax) }
     ],
     [
       { label: "寮使用料", value: "0" },
