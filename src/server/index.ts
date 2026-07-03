@@ -3,6 +3,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import type { Employee, Payroll } from "@prisma/client";
 import { Hono } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
+import JSZip from "jszip";
 import { cookieName, createSession, requireAuth } from "./auth.js";
 import { prisma } from "./db.js";
 import { sendPayslipMail } from "./mailer.js";
@@ -15,6 +16,10 @@ const api = new Hono();
 function periodToFiscalYear(period: string) {
   const [year, month] = period.split("-").map(Number);
   return month >= 4 ? year : year - 1;
+}
+
+function isPeriod(value: string) {
+  return /^\d{4}-\d{2}$/.test(value);
 }
 
 async function getRatesForPeriod(period: string) {
@@ -44,6 +49,10 @@ function numberOrDefault(value: unknown, defaultValue: number) {
   if (value === undefined || value === null || value === "") return defaultValue;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : defaultValue;
+}
+
+function safeFilePart(value: string) {
+  return value.replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, "_");
 }
 
 async function findIncomeTaxAmount(input: { fiscalYear: number; dependentCount: number; taxableIncome: number }) {
@@ -290,6 +299,55 @@ api.get("/payrolls", async (c) => {
     orderBy: [{ period: "desc" }, { employee: { employeeNo: "asc" } }]
   });
   return c.json(payrolls);
+});
+
+api.get("/payrolls/pdf-range", async (c) => {
+  try {
+    const startPeriod = c.req.query("startPeriod") || "";
+    const endPeriod = c.req.query("endPeriod") || "";
+    const employeeId = c.req.query("employeeId") || "";
+
+    if (!isPeriod(startPeriod) || !isPeriod(endPeriod)) {
+      return c.json({ message: "開始月と終了月をYYYY-MM形式で指定してください" }, 400);
+    }
+    if (startPeriod > endPeriod) {
+      return c.json({ message: "開始月は終了月以前を指定してください" }, 400);
+    }
+
+    const payrolls = await prisma.payroll.findMany({
+      where: {
+        period: { gte: startPeriod, lte: endPeriod },
+        employeeId: employeeId || undefined
+      },
+      include: { employee: true },
+      orderBy: [{ period: "asc" }, { employee: { employeeNo: "asc" } }]
+    });
+
+    if (!payrolls.length) {
+      return c.json({ message: "指定範囲の保存済み給与がありません" }, 404);
+    }
+
+    const zip = new JSZip();
+    for (const payroll of payrolls) {
+      const pdf = await createPayslipPdf(toPayslipPdfInput(payroll));
+      const employeeName = safeFilePart(payroll.employee.name);
+      const employeeNo = safeFilePart(payroll.employee.employeeNo);
+      zip.file(`${payroll.period}/payslip-${payroll.period}-${employeeNo}-${employeeName}.pdf`, pdf);
+    }
+
+    const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
+    const fileName = `payslips-${startPeriod}-${endPeriod}.zip`;
+
+    return new Response(new Uint8Array(zipBuffer), {
+      headers: {
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename="${fileName}"`
+      }
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "PDF range download failed";
+    return c.json({ message }, 500);
+  }
 });
 
 api.post("/payrolls", async (c) => {

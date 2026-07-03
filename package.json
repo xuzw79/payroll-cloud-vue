@@ -20,6 +20,7 @@
     "@types/pdfkit": "^0.17.6",
     "@vitejs/plugin-vue": "^5.2.1",
     "hono": "^4.6.12",
+    "jszip": "^3.10.1",
     "lucide-vue-next": "^0.468.0",
     "pdfkit": "^0.19.1",
     "vite": "^6.0.3",
