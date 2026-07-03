@@ -329,45 +329,50 @@ api.post("/payrolls", async (c) => {
 });
 
 api.post("/payrolls/:id/email", async (c) => {
-  const payroll = await prisma.payroll.findUniqueOrThrow({
-    where: { id: c.req.param("id") },
-    include: { employee: true }
-  });
+  try {
+    const payroll = await prisma.payroll.findUniqueOrThrow({
+      where: { id: c.req.param("id") },
+      include: { employee: true }
+    });
 
-  if (!payroll.employee.email) {
-    return c.json({ message: "Employee email is not set" }, 400);
+    if (!payroll.employee.email) {
+      return c.json({ message: "社員メールアドレスが未設定です" }, 400);
+    }
+
+    const pdf = await createPayslipPdf({
+      period: payroll.period,
+      employeeNo: payroll.employee.employeeNo,
+      employeeName: payroll.employee.name,
+      payType: payroll.employee.payType,
+      regularPay: payroll.regularPay,
+      overtimePay: payroll.overtimePay,
+      allowance: payroll.allowance,
+      grossPay: payroll.grossPay,
+      incomeTax: payroll.incomeTax,
+      socialInsurance: payroll.socialInsurance,
+      employmentInsurance: payroll.employmentInsurance,
+      fixedDeduction: payroll.fixedDeduction,
+      totalDeduction: payroll.totalDeduction,
+      netPay: payroll.netPay
+    });
+
+    await sendPayslipMail({
+      to: payroll.employee.email,
+      employeeName: payroll.employee.name,
+      period: payroll.period,
+      pdf
+    });
+
+    const updated = await prisma.payroll.update({
+      where: { id: payroll.id },
+      data: { emailedAt: new Date() },
+      include: { employee: true }
+    });
+    return c.json(updated);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "メール送信に失敗しました";
+    return c.json({ message }, 500);
   }
-
-  const pdf = await createPayslipPdf({
-    period: payroll.period,
-    employeeNo: payroll.employee.employeeNo,
-    employeeName: payroll.employee.name,
-    payType: payroll.employee.payType,
-    regularPay: payroll.regularPay,
-    overtimePay: payroll.overtimePay,
-    allowance: payroll.allowance,
-    grossPay: payroll.grossPay,
-    incomeTax: payroll.incomeTax,
-    socialInsurance: payroll.socialInsurance,
-    employmentInsurance: payroll.employmentInsurance,
-    fixedDeduction: payroll.fixedDeduction,
-    totalDeduction: payroll.totalDeduction,
-    netPay: payroll.netPay
-  });
-
-  await sendPayslipMail({
-    to: payroll.employee.email,
-    employeeName: payroll.employee.name,
-    period: payroll.period,
-    pdf
-  });
-
-  const updated = await prisma.payroll.update({
-    where: { id: payroll.id },
-    data: { emailedAt: new Date() },
-    include: { employee: true }
-  });
-  return c.json(updated);
 });
 
 app.route("/api", api);

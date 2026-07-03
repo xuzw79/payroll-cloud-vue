@@ -4,11 +4,26 @@ import tls from "node:tls";
 
 type SocketLike = net.Socket | tls.TLSSocket;
 
-function readLine(socket: SocketLike) {
+function encodeHeader(value: string) {
+  return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
+}
+
+function envelopeAddress(value: string) {
+  const matched = value.match(/<([^>]+)>/);
+  return (matched?.[1] || value).trim();
+}
+
+function readResponse(socket: SocketLike) {
   return new Promise<string>((resolve, reject) => {
+    let buffer = "";
     const onData = (data: Buffer) => {
-      cleanup();
-      resolve(data.toString("utf8"));
+      buffer += data.toString("utf8");
+      const lines = buffer.split(/\r?\n/).filter(Boolean);
+      const last = lines.at(-1);
+      if (last && /^\d{3}\s/.test(last)) {
+        cleanup();
+        resolve(lines.join("\n"));
+      }
     };
     const onError = (error: Error) => {
       cleanup();
@@ -18,14 +33,23 @@ function readLine(socket: SocketLike) {
       socket.off("data", onData);
       socket.off("error", onError);
     };
-    socket.once("data", onData);
+    socket.on("data", onData);
     socket.once("error", onError);
   });
 }
 
-async function writeCommand(socket: SocketLike, command: string) {
-  socket.write(`${command}\r\n`);
-  return readLine(socket);
+function assertCode(response: string, expected: number[]) {
+  const code = Number(response.slice(0, 3));
+  if (!expected.includes(code)) {
+    throw new Error(`SMTP error ${code}: ${response.replace(/\s+/g, " ")}`);
+  }
+}
+
+async function command(socket: SocketLike, value: string, expected: number[]) {
+  socket.write(`${value}\r\n`);
+  const response = await readResponse(socket);
+  assertCode(response, expected);
+  return response;
 }
 
 async function connectSmtp() {
@@ -38,29 +62,29 @@ async function connectSmtp() {
     : net.connect({ host, port });
 
   await new Promise<void>((resolve, reject) => {
-    socket.once("connect", resolve);
-    socket.once("secureConnect", resolve);
+    socket.once(port === 465 ? "secureConnect" : "connect", resolve);
     socket.once("error", reject);
   });
-  await readLine(socket);
-  await writeCommand(socket, `EHLO ${process.env.SMTP_HELO || "payroll-cloud.local"}`);
+  assertCode(await readResponse(socket), [220]);
+
+  await command(socket, `EHLO ${process.env.SMTP_HELO || "iwills.co.jp"}`, [250]);
 
   if (port !== 465 && process.env.SMTP_STARTTLS !== "false") {
-    await writeCommand(socket, "STARTTLS");
+    await command(socket, "STARTTLS", [220]);
     socket = tls.connect({ socket, servername: host });
     await new Promise<void>((resolve, reject) => {
       socket.once("secureConnect", resolve);
       socket.once("error", reject);
     });
-    await writeCommand(socket, `EHLO ${process.env.SMTP_HELO || "payroll-cloud.local"}`);
+    await command(socket, `EHLO ${process.env.SMTP_HELO || "iwills.co.jp"}`, [250]);
   }
 
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
   if (user && pass) {
-    await writeCommand(socket, "AUTH LOGIN");
-    await writeCommand(socket, Buffer.from(user).toString("base64"));
-    await writeCommand(socket, Buffer.from(pass).toString("base64"));
+    await command(socket, "AUTH LOGIN", [334]);
+    await command(socket, Buffer.from(user).toString("base64"), [334]);
+    await command(socket, Buffer.from(pass).toString("base64"), [235]);
   }
 
   return socket;
@@ -71,15 +95,15 @@ function buildMessage(options: { from: string; to: string; subject: string; text
   return [
     `From: ${options.from}`,
     `To: ${options.to}`,
-    `Subject: ${options.subject}`,
+    `Subject: ${encodeHeader(options.subject)}`,
     "MIME-Version: 1.0",
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
     "",
     `--${boundary}`,
     "Content-Type: text/plain; charset=utf-8",
-    "Content-Transfer-Encoding: 8bit",
+    "Content-Transfer-Encoding: base64",
     "",
-    options.text,
+    Buffer.from(options.text, "utf8").toString("base64").replace(/(.{76})/g, "$1\r\n"),
     "",
     `--${boundary}`,
     `Content-Type: application/pdf; name="${options.filename}"`,
@@ -88,8 +112,7 @@ function buildMessage(options: { from: string; to: string; subject: string; text
     "",
     options.pdf.toString("base64").replace(/(.{76})/g, "$1\r\n"),
     "",
-    `--${boundary}--`,
-    "."
+    `--${boundary}--`
   ].join("\r\n");
 }
 
@@ -99,9 +122,9 @@ export async function sendPayslipMail(options: { to: string; employeeName: strin
 
   const socket = await connectSmtp();
   try {
-    await writeCommand(socket, `MAIL FROM:<${from}>`);
-    await writeCommand(socket, `RCPT TO:<${options.to}>`);
-    await writeCommand(socket, "DATA");
+    await command(socket, `MAIL FROM:<${envelopeAddress(from)}>`, [250]);
+    await command(socket, `RCPT TO:<${envelopeAddress(options.to)}>`, [250, 251]);
+    await command(socket, "DATA", [354]);
     socket.write(buildMessage({
       from,
       to: options.to,
@@ -109,9 +132,9 @@ export async function sendPayslipMail(options: { to: string; employeeName: strin
       text: `${options.employeeName} 様\n\n${options.period} の給与明細を添付します。\n`,
       pdf: options.pdf,
       filename: `payslip-${options.period}.pdf`
-    }) + "\r\n");
-    await readLine(socket);
-    await writeCommand(socket, "QUIT");
+    }) + "\r\n.\r\n");
+    assertCode(await readResponse(socket), [250]);
+    await command(socket, "QUIT", [221]);
   } finally {
     socket.end();
   }

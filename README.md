@@ -42,13 +42,18 @@ ADMIN_EMAIL=管理者メールアドレス
 ADMIN_PASSWORD=管理者パスワード
 SESSION_SECRET=長いランダム文字列
 PORT=3000
-SMTP_HOST=SMTPサーバー
+SMTP_HOST=smtp.iwills.co.jp
 SMTP_PORT=587
-SMTP_USER=SMTPユーザー
+SMTP_USER=payroll@iwills.co.jp
 SMTP_PASS=SMTPパスワード
-MAIL_FROM=送信元メールアドレス
+MAIL_FROM=payroll@iwills.co.jp
 SMTP_STARTTLS=true
+SMTP_HELO=iwills.co.jp
 ```
+
+`iwills.co.jp` から送信する場合、`MAIL_FROM` は実在するメールアドレスにしてください。例: `payroll@iwills.co.jp` または `admin@iwills.co.jp`。
+
+SMTPサーバー名、ユーザー名、パスワードはメール管理会社の設定に合わせてください。もしサーバーが `smtp.iwills.co.jp` ではない場合は、実際のSMTPホスト名に変更します。
 
 ## 所得税表CSVインポート
 
