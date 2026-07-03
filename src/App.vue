@@ -144,6 +144,10 @@ function fiscalYearFromPeriod(value: string) {
   return month >= 4 ? year : year - 1;
 }
 
+function safeFilePart(value: string) {
+  return value.replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, "_");
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api${path}`, {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
@@ -215,6 +219,19 @@ function applyRate(rate: FiscalRate) {
 
 function nextEmployeeNo() {
   return `E${String(employees.value.length + 1).padStart(3, "0")}`;
+}
+
+function applyPayrollInput(payroll: Payroll) {
+  payrollForm.dependentCount = payroll.dependentCount;
+  payrollForm.socialInsuranceEnrolled = payroll.socialInsuranceEnrolled;
+  payrollForm.socialInsuranceBaseAmount = payroll.socialInsuranceBaseAmount || 0;
+  payrollForm.workDays = Number(payroll.workDays);
+  payrollForm.workHours = Number(payroll.workHours);
+  payrollForm.overtimeHours = Number(payroll.overtimeHours);
+  payrollForm.allowance = payroll.allowance;
+  payrollForm.fixedDeduction = payroll.fixedDeduction;
+  payrollForm.residentTax = payroll.residentTax || 0;
+  payrollForm.dormitoryFee = payroll.dormitoryFee || 0;
 }
 
 async function login() {
@@ -316,6 +333,25 @@ async function savePayroll() {
   await refresh();
 }
 
+async function usePreviousPayrollInput() {
+  if (!selectedEmployee.value) {
+    message.value = "社員を選択してください";
+    return;
+  }
+
+  const params = new URLSearchParams({
+    employeeId: selectedEmployee.value.id,
+    beforePeriod: period.value
+  });
+  try {
+    const payroll = await request<Payroll>(`/payrolls/latest-template?${params.toString()}`);
+    applyPayrollInput(payroll);
+    message.value = `${payroll.period} の給与入力を利用しました`;
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : "過去入力を利用できませんでした";
+  }
+}
+
 async function sendPayslipEmail() {
   if (!selectedPayroll.value) {
     message.value = "先に給与を保存してください";
@@ -343,7 +379,7 @@ async function downloadPayslipPdf() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `payslip-${payroll.period}-${payroll.employee.employeeNo}.pdf`;
+  link.download = `payslip-${payroll.period}-${safeFilePart(payroll.employee.employeeNo)}-${safeFilePart(payroll.employee.name)}.pdf`;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -520,6 +556,7 @@ onMounted(async () => {
           <label>固定控除<input v-model.number="payrollForm.fixedDeduction" type="number" min="0" /></label>
           <label class="wide">備考<input v-model="payrollForm.note" /></label>
           <div class="form-actions full">
+            <button @click="usePreviousPayrollInput"><RefreshCw :size="16" />前回入力を利用</button>
             <button class="primary" @click="savePayroll"><Save :size="16" />給与保存</button>
             <button @click="downloadPayslipPdf"><Download :size="16" />PDFダウンロード</button>
             <button @click="sendPayslipEmail"><Mail :size="16" />PDFメール送信</button>

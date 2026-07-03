@@ -302,6 +302,28 @@ api.get("/payrolls", async (c) => {
   return c.json(payrolls);
 });
 
+api.get("/payrolls/latest-template", async (c) => {
+  const employeeId = c.req.query("employeeId") || "";
+  const beforePeriod = c.req.query("beforePeriod") || "";
+
+  if (!employeeId) return c.json({ message: "社員を指定してください" }, 400);
+  if (!isPeriod(beforePeriod)) return c.json({ message: "対象月をYYYY-MM形式で指定してください" }, 400);
+
+  const payroll = await prisma.payroll.findFirst({
+    where: {
+      employeeId,
+      period: { lt: beforePeriod }
+    },
+    include: { employee: true },
+    orderBy: { period: "desc" }
+  });
+
+  if (!payroll) {
+    return c.json({ message: "利用できる過去の給与入力がありません" }, 404);
+  }
+  return c.json(payroll);
+});
+
 api.get("/payrolls/pdf-range", async (c) => {
   try {
     const startPeriod = c.req.query("startPeriod") || "";
@@ -507,12 +529,14 @@ api.get("/payrolls/:id/pdf", async (c) => {
       include: { employee: true }
     });
     const pdf = await createPayslipPdf(toPayslipPdfInput(payroll));
-    const fileName = `payslip-${payroll.period}-${payroll.employee.employeeNo}.pdf`;
+    const employeeName = safeFilePart(payroll.employee.name);
+    const employeeNo = safeFilePart(payroll.employee.employeeNo);
+    const fileName = `payslip-${payroll.period}-${employeeNo}-${employeeName}.pdf`;
 
     return new Response(new Uint8Array(pdf), {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${fileName}"`
+        "Content-Disposition": `attachment; filename="payslip-${payroll.period}-${employeeNo}.pdf"; filename*=UTF-8''${encodeURIComponent(fileName)}`
       }
     });
   } catch (error) {
