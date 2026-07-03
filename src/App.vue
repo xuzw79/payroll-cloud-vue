@@ -34,6 +34,8 @@ type Payroll = {
   regularPay: number;
   overtimePay: number;
   incomeTax: number;
+  healthInsurance: number;
+  pensionInsurance: number;
   socialInsurance: number;
   employmentInsurance: number;
   emailedAt?: string | null;
@@ -46,6 +48,8 @@ type FiscalRate = {
   overtimeRate: string | number;
   incomeTaxRate: string | number;
   socialInsuranceRate: string | number;
+  healthInsuranceRate: string | number;
+  pensionInsuranceRate: string | number;
   employmentInsuranceRate: string | number;
   memo?: string | null;
 };
@@ -100,6 +104,8 @@ const rateForm = reactive<FiscalRate>({
   overtimeRate: 1.25,
   incomeTaxRate: 0.03,
   socialInsuranceRate: 0.15,
+  healthInsuranceRate: 0.05,
+  pensionInsuranceRate: 0.1,
   employmentInsuranceRate: 0.006,
   memo: ""
 });
@@ -173,11 +179,16 @@ function applyEmployee(employee?: Employee) {
 }
 
 function applyRate(rate: FiscalRate) {
+  const fallbackSocialInsuranceRate = Number(rate.socialInsuranceRate || 0);
+  const healthInsuranceRate = Number(rate.healthInsuranceRate ?? fallbackSocialInsuranceRate / 2);
+  const pensionInsuranceRate = Number(rate.pensionInsuranceRate ?? fallbackSocialInsuranceRate - healthInsuranceRate);
   Object.assign(rateForm, {
     fiscalYear: rate.fiscalYear,
     overtimeRate: Number(rate.overtimeRate),
     incomeTaxRate: Number(rate.incomeTaxRate),
-    socialInsuranceRate: Number(rate.socialInsuranceRate),
+    socialInsuranceRate: healthInsuranceRate + pensionInsuranceRate,
+    healthInsuranceRate,
+    pensionInsuranceRate,
     employmentInsuranceRate: Number(rate.employmentInsuranceRate),
     memo: rate.memo || ""
   });
@@ -229,7 +240,17 @@ async function refresh() {
 }
 
 async function saveRate() {
-  await request("/fiscal-rates", { method: "POST", body: JSON.stringify(rateForm) });
+  const healthInsuranceRate = Number(rateForm.healthInsuranceRate || 0);
+  const pensionInsuranceRate = Number(rateForm.pensionInsuranceRate || 0);
+  await request("/fiscal-rates", {
+    method: "POST",
+    body: JSON.stringify({
+      ...rateForm,
+      healthInsuranceRate,
+      pensionInsuranceRate,
+      socialInsuranceRate: healthInsuranceRate + pensionInsuranceRate
+    })
+  });
   message.value = "年度料率を保存しました";
   await refresh();
 }
@@ -309,7 +330,7 @@ async function downloadPayslipPdf() {
 }
 
 function exportCsv() {
-  const header = ["支給月", "社員番号", "氏名", "給与区分", "扶養人数", "社会保険加入", "社会保険適用金額", "課税対象額", "所得税", "総支給額", "控除合計", "差引支給額", "メール送信日時"];
+  const header = ["支給月", "社員番号", "氏名", "給与区分", "扶養人数", "社会保険加入", "社会保険適用金額", "課税対象額", "所得税", "健康・介護保険", "厚生年金保険", "社会保険合計", "雇用保険", "総支給額", "控除合計", "差引支給額", "メール送信日時"];
   const rows = payrolls.value.map((payroll) => [
     payroll.period,
     payroll.employee.employeeNo,
@@ -320,6 +341,10 @@ function exportCsv() {
     payroll.socialInsuranceBaseAmount || "",
     payroll.taxableIncome || "",
     payroll.incomeTax,
+    payroll.healthInsurance,
+    payroll.pensionInsurance,
+    payroll.socialInsurance,
+    payroll.employmentInsurance,
     payroll.grossPay,
     payroll.totalDeduction,
     payroll.netPay,
@@ -439,10 +464,11 @@ onMounted(async () => {
         <div class="panel-head"><h2>年度料率</h2></div>
         <div class="form-grid compact">
           <label>年度<input v-model.number="rateForm.fiscalYear" type="number" /></label>
-          <label>残業割増率<input v-model.number="rateForm.overtimeRate" type="number" step="0.001" /></label>
-          <label>所得税率（表なし時）<input v-model.number="rateForm.incomeTaxRate" type="number" step="0.0001" /></label>
-          <label>社会保険率<input v-model.number="rateForm.socialInsuranceRate" type="number" step="0.0001" /></label>
-          <label>雇用保険率<input v-model.number="rateForm.employmentInsuranceRate" type="number" step="0.0001" /></label>
+          <label>残業割増率<input v-model.number="rateForm.overtimeRate" type="number" step="0.00001" /></label>
+          <label>所得税率（表なし時）<input v-model.number="rateForm.incomeTaxRate" type="number" step="0.00001" /></label>
+          <label>健康・介護保険率<input v-model.number="rateForm.healthInsuranceRate" type="number" step="0.00001" /></label>
+          <label>厚生年金保険率<input v-model.number="rateForm.pensionInsuranceRate" type="number" step="0.00001" /></label>
+          <label>雇用保険率<input v-model.number="rateForm.employmentInsuranceRate" type="number" step="0.00001" /></label>
           <label class="wide">メモ<input v-model="rateForm.memo" /></label>
           <div class="form-actions full">
             <button class="primary" @click="saveRate"><Save :size="16" />年度料率保存</button>
@@ -479,7 +505,9 @@ onMounted(async () => {
             <dt>所得税</dt><dd>{{ yen.format(selectedPayroll.incomeTax) }}</dd>
             <dt>社会保険加入</dt><dd>{{ selectedPayroll.socialInsuranceEnrolled ? "加入" : "未加入" }}</dd>
             <dt>社会保険適用金額</dt><dd>{{ selectedPayroll.socialInsuranceBaseAmount ? yen.format(selectedPayroll.socialInsuranceBaseAmount) : "総支給額" }}</dd>
-            <dt>社会保険</dt><dd>{{ yen.format(selectedPayroll.socialInsurance) }}</dd>
+            <dt>健康・介護保険</dt><dd>{{ yen.format(selectedPayroll.healthInsurance) }}</dd>
+            <dt>厚生年金保険</dt><dd>{{ yen.format(selectedPayroll.pensionInsurance) }}</dd>
+            <dt>社会保険合計</dt><dd>{{ yen.format(selectedPayroll.socialInsurance) }}</dd>
             <dt>雇用保険</dt><dd>{{ yen.format(selectedPayroll.employmentInsurance) }}</dd>
             <dt>控除合計</dt><dd>{{ yen.format(selectedPayroll.totalDeduction) }}</dd>
           </dl>

@@ -15,6 +15,8 @@ type PayslipPdfInput = {
   allowance: number;
   grossPay: number;
   incomeTax: number;
+  healthInsurance: number;
+  pensionInsurance: number;
   socialInsurance: number;
   employmentInsurance: number;
   fixedDeduction: number;
@@ -192,8 +194,8 @@ export async function createPayslipPdf(input: PayslipPdfInput) {
 
   const deductionRows: Cell[][] = [
     [
-      { label: "健康・介護保険料", value: "0" },
-      { label: "厚生年金保険料", value: "0" },
+      { label: "健康・介護保険料", value: formatYen(input.healthInsurance) },
+      { label: "厚生年金保険料", value: formatYen(input.pensionInsurance) },
       { label: "雇用保険料", value: formatYen(input.employmentInsurance) },
       { label: "社会保険料合計", value: formatYen(input.socialInsurance + input.employmentInsurance), highlight: true },
       { label: "", blank: true },

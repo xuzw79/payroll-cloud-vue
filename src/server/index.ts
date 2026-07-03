@@ -65,6 +65,8 @@ function toPayslipPdfInput(payroll: Payroll & { employee: Employee }) {
     grossPay: payroll.grossPay,
     taxableIncome: payroll.taxableIncome,
     incomeTax: payroll.incomeTax,
+    healthInsurance: payroll.healthInsurance,
+    pensionInsurance: payroll.pensionInsurance,
     socialInsurance: payroll.socialInsurance,
     employmentInsurance: payroll.employmentInsurance,
     fixedDeduction: payroll.fixedDeduction,
@@ -116,13 +118,18 @@ api.get("/settings", async (c) => {
 
 api.put("/settings", async (c) => {
   const body = await c.req.json();
+  const healthInsuranceRate = Number(body.healthInsuranceRate ?? Number(body.socialInsuranceRate || 0) / 2);
+  const pensionInsuranceRate = Number(body.pensionInsuranceRate ?? Number(body.socialInsuranceRate || 0) / 2);
+  const socialInsuranceRate = healthInsuranceRate + pensionInsuranceRate;
   const settings = await prisma.companySetting.upsert({
     where: { id: "default" },
     update: {
       currentFiscalYear: Number(body.currentFiscalYear || new Date().getFullYear()),
       overtimeRate: Number(body.overtimeRate),
       incomeTaxRate: Number(body.incomeTaxRate),
-      socialInsuranceRate: Number(body.socialInsuranceRate),
+      socialInsuranceRate,
+      healthInsuranceRate,
+      pensionInsuranceRate,
       employmentInsuranceRate: Number(body.employmentInsuranceRate)
     },
     create: {
@@ -130,7 +137,9 @@ api.put("/settings", async (c) => {
       currentFiscalYear: Number(body.currentFiscalYear || new Date().getFullYear()),
       overtimeRate: Number(body.overtimeRate),
       incomeTaxRate: Number(body.incomeTaxRate),
-      socialInsuranceRate: Number(body.socialInsuranceRate),
+      socialInsuranceRate,
+      healthInsuranceRate,
+      pensionInsuranceRate,
       employmentInsuranceRate: Number(body.employmentInsuranceRate)
     }
   });
@@ -144,12 +153,17 @@ api.get("/fiscal-rates", async (c) => {
 
 api.post("/fiscal-rates", async (c) => {
   const body = await c.req.json();
+  const healthInsuranceRate = Number(body.healthInsuranceRate ?? Number(body.socialInsuranceRate || 0) / 2);
+  const pensionInsuranceRate = Number(body.pensionInsuranceRate ?? Number(body.socialInsuranceRate || 0) / 2);
+  const socialInsuranceRate = healthInsuranceRate + pensionInsuranceRate;
   const rate = await prisma.fiscalRate.upsert({
     where: { fiscalYear: Number(body.fiscalYear) },
     update: {
       overtimeRate: Number(body.overtimeRate),
       incomeTaxRate: Number(body.incomeTaxRate),
-      socialInsuranceRate: Number(body.socialInsuranceRate),
+      socialInsuranceRate,
+      healthInsuranceRate,
+      pensionInsuranceRate,
       employmentInsuranceRate: Number(body.employmentInsuranceRate),
       memo: body.memo || null
     },
@@ -157,7 +171,9 @@ api.post("/fiscal-rates", async (c) => {
       fiscalYear: Number(body.fiscalYear),
       overtimeRate: Number(body.overtimeRate),
       incomeTaxRate: Number(body.incomeTaxRate),
-      socialInsuranceRate: Number(body.socialInsuranceRate),
+      socialInsuranceRate,
+      healthInsuranceRate,
+      pensionInsuranceRate,
       employmentInsuranceRate: Number(body.employmentInsuranceRate),
       memo: body.memo || null
     }
@@ -263,7 +279,9 @@ api.post("/payrolls", async (c) => {
   const { fiscalYear, rates } = await getRatesForPeriod(period);
   const overtimeRate = Number(body.overtimeRate ?? rates.overtimeRate);
   const incomeTaxRate = Number(body.incomeTaxRate ?? rates.incomeTaxRate);
-  const socialInsuranceRate = Number(body.socialInsuranceRate ?? rates.socialInsuranceRate);
+  const healthInsuranceRate = Number(body.healthInsuranceRate ?? rates.healthInsuranceRate);
+  const pensionInsuranceRate = Number(body.pensionInsuranceRate ?? rates.pensionInsuranceRate);
+  const socialInsuranceRate = healthInsuranceRate + pensionInsuranceRate;
   const employmentInsuranceRate = Number(body.employmentInsuranceRate ?? rates.employmentInsuranceRate);
   const workHours = Number(body.workHours || 0);
   const overtimeHours = Number(body.overtimeHours || 0);
@@ -281,7 +299,8 @@ api.post("/payrolls", async (c) => {
     fixedDeduction,
     overtimeRate,
     incomeTaxRate,
-    socialInsuranceRate,
+    healthInsuranceRate,
+    pensionInsuranceRate,
     employmentInsuranceRate,
     socialInsuranceEnrolled,
     socialInsuranceBaseAmount: socialInsuranceBaseAmount ?? undefined
@@ -297,7 +316,8 @@ api.post("/payrolls", async (c) => {
     fixedDeduction,
     overtimeRate,
     incomeTaxRate,
-    socialInsuranceRate,
+    healthInsuranceRate,
+    pensionInsuranceRate,
     employmentInsuranceRate,
     incomeTaxAmount: tableIncomeTax,
     socialInsuranceEnrolled,
@@ -315,6 +335,8 @@ api.post("/payrolls", async (c) => {
       overtimeRate,
       incomeTaxRate,
       socialInsuranceRate,
+      healthInsuranceRate,
+      pensionInsuranceRate,
       employmentInsuranceRate,
       socialInsuranceEnrolled,
       socialInsuranceBaseAmount,
@@ -335,6 +357,8 @@ api.post("/payrolls", async (c) => {
       overtimeRate,
       incomeTaxRate,
       socialInsuranceRate,
+      healthInsuranceRate,
+      pensionInsuranceRate,
       employmentInsuranceRate,
       socialInsuranceEnrolled,
       socialInsuranceBaseAmount,

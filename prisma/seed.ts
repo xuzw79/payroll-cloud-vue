@@ -14,6 +14,8 @@ async function main() {
       overtimeRate: 1.25,
       incomeTaxRate: 0.03,
       socialInsuranceRate: 0.15,
+      healthInsuranceRate: 0.05,
+      pensionInsuranceRate: 0.1,
       employmentInsuranceRate: 0.006
     }
   });
@@ -26,6 +28,8 @@ async function main() {
       overtimeRate: 1.25,
       incomeTaxRate: 0.03,
       socialInsuranceRate: 0.15,
+      healthInsuranceRate: 0.05,
+      pensionInsuranceRate: 0.1,
       employmentInsuranceRate: 0.006,
       memo: "Initial sample rates"
     }
