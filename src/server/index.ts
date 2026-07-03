@@ -239,6 +239,7 @@ api.post("/employees", async (c) => {
       name: String(body.name),
       email: body.email || null,
       defaultDependentCount: Number(body.defaultDependentCount || 0),
+      employmentInsuranceEnrolled: body.employmentInsuranceEnrolled !== false,
       payType: body.payType === "HOURLY" ? "HOURLY" : "MONTHLY",
       basePay: Number(body.basePay || 0),
       memo: body.memo || null
@@ -256,6 +257,7 @@ api.put("/employees/:id", async (c) => {
       name: String(body.name),
       email: body.email || null,
       defaultDependentCount: Number(body.defaultDependentCount || 0),
+      employmentInsuranceEnrolled: body.employmentInsuranceEnrolled !== false,
       payType: body.payType === "HOURLY" ? "HOURLY" : "MONTHLY",
       basePay: Number(body.basePay || 0),
       memo: body.memo || null
@@ -299,6 +301,7 @@ api.post("/payrolls", async (c) => {
   const residentTax = Number(body.residentTax || 0);
   const dependentCount = Number(body.dependentCount ?? employee.defaultDependentCount ?? 0);
   const socialInsuranceEnrolled = body.socialInsuranceEnrolled !== false;
+  const employmentInsuranceEnrolled = employee.employmentInsuranceEnrolled !== false;
   const socialInsuranceBaseAmount = body.socialInsuranceBaseAmount ? Number(body.socialInsuranceBaseAmount) : null;
   const preliminary = calculatePayroll({
     payType: employee.payType,
@@ -314,6 +317,7 @@ api.post("/payrolls", async (c) => {
     childCareSupportRate,
     employmentInsuranceRate,
     socialInsuranceEnrolled,
+    employmentInsuranceEnrolled,
     socialInsuranceBaseAmount: socialInsuranceBaseAmount ?? undefined,
     residentTax
   });
@@ -334,6 +338,7 @@ api.post("/payrolls", async (c) => {
     employmentInsuranceRate,
     incomeTaxAmount: tableIncomeTax,
     socialInsuranceEnrolled,
+    employmentInsuranceEnrolled,
     socialInsuranceBaseAmount: socialInsuranceBaseAmount ?? undefined,
     residentTax
   });
@@ -354,6 +359,7 @@ api.post("/payrolls", async (c) => {
       childCareSupportRate,
       employmentInsuranceRate,
       socialInsuranceEnrolled,
+      employmentInsuranceEnrolled,
       socialInsuranceBaseAmount,
       fiscalYear,
       dependentCount,
@@ -377,6 +383,7 @@ api.post("/payrolls", async (c) => {
       childCareSupportRate,
       employmentInsuranceRate,
       socialInsuranceEnrolled,
+      employmentInsuranceEnrolled,
       socialInsuranceBaseAmount,
       fiscalYear,
       dependentCount,

@@ -18,6 +18,7 @@ model Employee {
   name        String
   email       String?
   defaultDependentCount Int @default(0)
+  employmentInsuranceEnrolled Boolean @default(true)
   payType     PayType   @default(MONTHLY)
   basePay     Int
   memo        String?
@@ -44,6 +45,7 @@ model Payroll {
   childCareSupportRate     Decimal  @db.Decimal(8, 6) @default(0.000000)
   employmentInsuranceRate  Decimal  @db.Decimal(8, 6)
   socialInsuranceEnrolled  Boolean  @default(true)
+  employmentInsuranceEnrolled Boolean @default(true)
   socialInsuranceBaseAmount Int?
   regularPay               Int
   overtimePay              Int

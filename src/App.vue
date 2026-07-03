@@ -10,6 +10,7 @@ type Employee = {
   name: string;
   email?: string | null;
   defaultDependentCount: number;
+  employmentInsuranceEnrolled: boolean;
   payType: PayType;
   basePay: number;
   memo?: string | null;
@@ -40,7 +41,7 @@ type Payroll = {
   childCareSupport: number;
   socialInsurance: number;
   employmentInsurance: number;
-  residentTax: number;
+  employmentInsuranceEnrolled: boolean;
   emailedAt?: string | null;
   employee: Employee;
 };
@@ -88,6 +89,7 @@ const employeeForm = reactive({
   name: "",
   email: "",
   defaultDependentCount: 0,
+  employmentInsuranceEnrolled: true,
   payType: "MONTHLY" as PayType,
   basePay: 0,
   memo: ""
@@ -157,6 +159,7 @@ function applyEmployee(employee?: Employee) {
     name: "",
     email: "",
     defaultDependentCount: 0,
+    employmentInsuranceEnrolled: true,
     payType: "MONTHLY" as PayType,
     basePay: 0,
     memo: ""
@@ -166,6 +169,7 @@ function applyEmployee(employee?: Employee) {
   employeeForm.name = target.name;
   employeeForm.email = target.email || "";
   employeeForm.defaultDependentCount = target.defaultDependentCount || 0;
+  employeeForm.employmentInsuranceEnrolled = target.employmentInsuranceEnrolled ?? true;
   employeeForm.payType = target.payType;
   employeeForm.basePay = target.basePay;
   employeeForm.memo = target.memo || "";
@@ -341,7 +345,7 @@ async function downloadPayslipPdf() {
 }
 
 function exportCsv() {
-  const header = ["支給月", "社員番号", "氏名", "給与区分", "扶養人数", "社会保険加入", "社会保険適用金額", "課税対象額", "所得税", "健康・介護保険", "厚生年金保険", "子ども・子育て支援金", "社会保険合計", "雇用保険", "住民税", "総支給額", "控除合計", "差引支給額", "メール送信日時"];
+  const header = ["支給月", "社員番号", "氏名", "給与区分", "扶養人数", "社会保険加入", "社会保険適用金額", "課税対象額", "所得税", "健康・介護保険", "厚生年金保険", "子ども・子育て支援金", "社会保険合計", "雇用保険適用", "雇用保険", "住民税", "総支給額", "控除合計", "差引支給額", "メール送信日時"];
   const rows = payrolls.value.map((payroll) => [
     payroll.period,
     payroll.employee.employeeNo,
@@ -356,6 +360,7 @@ function exportCsv() {
     payroll.pensionInsurance,
     payroll.childCareSupport,
     payroll.socialInsurance,
+    payroll.employmentInsuranceEnrolled ? "適用" : "対象外",
     payroll.employmentInsurance,
     payroll.residentTax,
     payroll.grossPay,
@@ -445,6 +450,7 @@ onMounted(async () => {
           <label>氏名<input v-model="employeeForm.name" /></label>
           <label>メール<input v-model="employeeForm.email" type="email" /></label>
           <label>既定の扶養人数<input v-model.number="employeeForm.defaultDependentCount" type="number" min="0" /></label>
+          <label>雇用保険適用<select v-model="employeeForm.employmentInsuranceEnrolled"><option :value="true">適用</option><option :value="false">対象外</option></select></label>
           <label>給与区分<select v-model="employeeForm.payType"><option value="MONTHLY">月給</option><option value="HOURLY">時給</option></select></label>
           <label>基本給・時給<input v-model.number="employeeForm.basePay" type="number" min="0" /></label>
           <label class="wide">メモ<input v-model="employeeForm.memo" /></label>
@@ -524,6 +530,7 @@ onMounted(async () => {
             <dt>厚生年金保険</dt><dd>{{ yen.format(selectedPayroll.pensionInsurance) }}</dd>
             <dt>子ども・子育て支援金</dt><dd>{{ yen.format(selectedPayroll.childCareSupport) }}</dd>
             <dt>社会保険合計</dt><dd>{{ yen.format(selectedPayroll.socialInsurance) }}</dd>
+            <dt>雇用保険適用</dt><dd>{{ selectedPayroll.employmentInsuranceEnrolled ? "適用" : "対象外" }}</dd>
             <dt>雇用保険</dt><dd>{{ yen.format(selectedPayroll.employmentInsurance) }}</dd>
             <dt>住民税</dt><dd>{{ yen.format(selectedPayroll.residentTax) }}</dd>
             <dt>控除合計</dt><dd>{{ yen.format(selectedPayroll.totalDeduction) }}</dd>

@@ -15,6 +15,7 @@ export type PayrollInput = {
   employmentInsuranceRate: number;
   incomeTaxAmount?: number;
   socialInsuranceEnrolled?: boolean;
+  employmentInsuranceEnrolled?: boolean;
   socialInsuranceBaseAmount?: number;
   residentTax?: number;
 };
@@ -31,7 +32,7 @@ export function calculatePayroll(input: PayrollInput) {
   const pensionInsurance = input.socialInsuranceEnrolled === false ? 0 : socialInsuranceBase * input.pensionInsuranceRate;
   const childCareSupport = input.socialInsuranceEnrolled === false ? 0 : socialInsuranceBase * input.childCareSupportRate;
   const socialInsurance = healthInsurance + pensionInsurance + childCareSupport;
-  const employmentInsurance = grossPay * input.employmentInsuranceRate;
+  const employmentInsurance = input.employmentInsuranceEnrolled === false ? 0 : grossPay * input.employmentInsuranceRate;
   const incomeTax = input.incomeTaxAmount ?? grossPay * input.incomeTaxRate;
   const residentTax = input.residentTax || 0;
   const totalDeduction = incomeTax + socialInsurance + employmentInsurance + residentTax + input.fixedDeduction;
