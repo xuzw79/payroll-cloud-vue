@@ -478,12 +478,12 @@ onMounted(async () => {
         <div class="panel-head"><h2>年度料率</h2></div>
         <div class="form-grid compact">
           <label>年度<input v-model.number="rateForm.fiscalYear" type="number" /></label>
-          <label>残業割増率<input v-model.number="rateForm.overtimeRate" type="number" step="0.00001" /></label>
-          <label>所得税率（表なし時）<input v-model.number="rateForm.incomeTaxRate" type="number" step="0.00001" /></label>
-          <label>健康・介護保険率<input v-model.number="rateForm.healthInsuranceRate" type="number" step="0.00001" /></label>
-          <label>厚生年金保険率<input v-model.number="rateForm.pensionInsuranceRate" type="number" step="0.00001" /></label>
-          <label>子ども・子育て支援金率<input v-model.number="rateForm.childCareSupportRate" type="number" step="0.00001" /></label>
-          <label>雇用保険率<input v-model.number="rateForm.employmentInsuranceRate" type="number" step="0.00001" /></label>
+          <label>残業割増率<input v-model.number="rateForm.overtimeRate" type="number" step="0.000001" /></label>
+          <label>所得税率（表なし時）<input v-model.number="rateForm.incomeTaxRate" type="number" step="0.000001" /></label>
+          <label>健康・介護保険率<input v-model.number="rateForm.healthInsuranceRate" type="number" step="0.000001" /></label>
+          <label>厚生年金保険率<input v-model.number="rateForm.pensionInsuranceRate" type="number" step="0.000001" /></label>
+          <label>子ども・子育て支援金率<input v-model.number="rateForm.childCareSupportRate" type="number" step="0.000001" /></label>
+          <label>雇用保険率<input v-model.number="rateForm.employmentInsuranceRate" type="number" step="0.000001" /></label>
           <label class="wide">メモ<input v-model="rateForm.memo" /></label>
           <div class="form-actions full">
             <button class="primary" @click="saveRate"><Save :size="16" />年度料率保存</button>

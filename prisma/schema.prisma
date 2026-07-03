@@ -36,13 +36,13 @@ model Payroll {
   overtimeHours            Decimal  @db.Decimal(8, 2)
   allowance                Int      @default(0)
   fixedDeduction           Int      @default(0)
-  overtimeRate             Decimal  @db.Decimal(7, 5)
-  incomeTaxRate            Decimal  @db.Decimal(7, 5)
-  socialInsuranceRate      Decimal  @db.Decimal(7, 5)
-  healthInsuranceRate      Decimal  @db.Decimal(7, 5) @default(0.05000)
-  pensionInsuranceRate     Decimal  @db.Decimal(7, 5) @default(0.10000)
-  childCareSupportRate     Decimal  @db.Decimal(7, 5) @default(0.00000)
-  employmentInsuranceRate  Decimal  @db.Decimal(7, 5)
+  overtimeRate             Decimal  @db.Decimal(8, 6)
+  incomeTaxRate            Decimal  @db.Decimal(8, 6)
+  socialInsuranceRate      Decimal  @db.Decimal(8, 6)
+  healthInsuranceRate      Decimal  @db.Decimal(8, 6) @default(0.050000)
+  pensionInsuranceRate     Decimal  @db.Decimal(8, 6) @default(0.100000)
+  childCareSupportRate     Decimal  @db.Decimal(8, 6) @default(0.000000)
+  employmentInsuranceRate  Decimal  @db.Decimal(8, 6)
   socialInsuranceEnrolled  Boolean  @default(true)
   socialInsuranceBaseAmount Int?
   regularPay               Int
@@ -73,26 +73,26 @@ model Payroll {
 model CompanySetting {
   id                       String   @id @default("default")
   currentFiscalYear        Int?
-  overtimeRate             Decimal  @db.Decimal(7, 5) @default(1.25000)
-  incomeTaxRate            Decimal  @db.Decimal(7, 5) @default(0.03000)
-  socialInsuranceRate      Decimal  @db.Decimal(7, 5) @default(0.15000)
-  healthInsuranceRate      Decimal  @db.Decimal(7, 5) @default(0.05000)
-  pensionInsuranceRate     Decimal  @db.Decimal(7, 5) @default(0.10000)
-  childCareSupportRate     Decimal  @db.Decimal(7, 5) @default(0.00000)
-  employmentInsuranceRate  Decimal  @db.Decimal(7, 5) @default(0.00600)
+  overtimeRate             Decimal  @db.Decimal(8, 6) @default(1.250000)
+  incomeTaxRate            Decimal  @db.Decimal(8, 6) @default(0.030000)
+  socialInsuranceRate      Decimal  @db.Decimal(8, 6) @default(0.150000)
+  healthInsuranceRate      Decimal  @db.Decimal(8, 6) @default(0.050000)
+  pensionInsuranceRate     Decimal  @db.Decimal(8, 6) @default(0.100000)
+  childCareSupportRate     Decimal  @db.Decimal(8, 6) @default(0.000000)
+  employmentInsuranceRate  Decimal  @db.Decimal(8, 6) @default(0.006000)
   updatedAt                DateTime @updatedAt
 }
 
 model FiscalRate {
   id                       String   @id @default(cuid())
   fiscalYear               Int      @unique
-  overtimeRate             Decimal  @db.Decimal(7, 5) @default(1.25000)
-  incomeTaxRate            Decimal  @db.Decimal(7, 5) @default(0.03000)
-  socialInsuranceRate      Decimal  @db.Decimal(7, 5) @default(0.15000)
-  healthInsuranceRate      Decimal  @db.Decimal(7, 5) @default(0.05000)
-  pensionInsuranceRate     Decimal  @db.Decimal(7, 5) @default(0.10000)
-  childCareSupportRate     Decimal  @db.Decimal(7, 5) @default(0.00000)
-  employmentInsuranceRate  Decimal  @db.Decimal(7, 5) @default(0.00600)
+  overtimeRate             Decimal  @db.Decimal(8, 6) @default(1.250000)
+  incomeTaxRate            Decimal  @db.Decimal(8, 6) @default(0.030000)
+  socialInsuranceRate      Decimal  @db.Decimal(8, 6) @default(0.150000)
+  healthInsuranceRate      Decimal  @db.Decimal(8, 6) @default(0.050000)
+  pensionInsuranceRate     Decimal  @db.Decimal(8, 6) @default(0.100000)
+  childCareSupportRate     Decimal  @db.Decimal(8, 6) @default(0.000000)
+  employmentInsuranceRate  Decimal  @db.Decimal(8, 6) @default(0.006000)
   memo                     String?
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
