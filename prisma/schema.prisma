@@ -40,6 +40,8 @@ model Payroll {
   incomeTaxRate            Decimal  @db.Decimal(5, 4)
   socialInsuranceRate      Decimal  @db.Decimal(5, 4)
   employmentInsuranceRate  Decimal  @db.Decimal(5, 4)
+  socialInsuranceEnrolled  Boolean  @default(true)
+  socialInsuranceBaseAmount Int?
   regularPay               Int
   overtimePay              Int
   grossPay                 Int

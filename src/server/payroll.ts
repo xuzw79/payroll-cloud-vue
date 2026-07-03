@@ -12,6 +12,8 @@ export type PayrollInput = {
   socialInsuranceRate: number;
   employmentInsuranceRate: number;
   incomeTaxAmount?: number;
+  socialInsuranceEnrolled?: boolean;
+  socialInsuranceBaseAmount?: number;
 };
 
 export function calculatePayroll(input: PayrollInput) {
@@ -19,7 +21,10 @@ export function calculatePayroll(input: PayrollInput) {
   const hourlyRate = input.payType === "MONTHLY" ? input.basePay / Math.max(input.workHours || 160, 1) : input.basePay;
   const overtimePay = hourlyRate * input.overtimeHours * input.overtimeRate;
   const grossPay = regularPay + overtimePay + input.allowance;
-  const socialInsurance = grossPay * input.socialInsuranceRate;
+  const socialInsuranceBase = input.socialInsuranceBaseAmount && input.socialInsuranceBaseAmount > 0
+    ? input.socialInsuranceBaseAmount
+    : grossPay;
+  const socialInsurance = input.socialInsuranceEnrolled === false ? 0 : socialInsuranceBase * input.socialInsuranceRate;
   const employmentInsurance = grossPay * input.employmentInsuranceRate;
   const incomeTax = input.incomeTaxAmount ?? grossPay * input.incomeTaxRate;
   const totalDeduction = incomeTax + socialInsurance + employmentInsurance + input.fixedDeduction;

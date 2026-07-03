@@ -25,6 +25,8 @@ type Payroll = {
   allowance: number;
   fixedDeduction: number;
   dependentCount: number;
+  socialInsuranceEnrolled: boolean;
+  socialInsuranceBaseAmount?: number | null;
   taxableIncome?: number | null;
   grossPay: number;
   totalDeduction: number;
@@ -89,6 +91,8 @@ const payrollForm = reactive({
   allowance: 0,
   fixedDeduction: 0,
   dependentCount: 0,
+  socialInsuranceEnrolled: true,
+  socialInsuranceBaseAmount: 0,
   note: ""
 });
 const rateForm = reactive<FiscalRate>({
@@ -157,6 +161,8 @@ function applyEmployee(employee?: Employee) {
 
   const payroll = payrolls.value.find((item) => item.employeeId === target.id);
   payrollForm.dependentCount = payroll?.dependentCount ?? employeeForm.defaultDependentCount;
+  payrollForm.socialInsuranceEnrolled = payroll?.socialInsuranceEnrolled ?? true;
+  payrollForm.socialInsuranceBaseAmount = payroll?.socialInsuranceBaseAmount || 0;
   if (payroll) {
     payrollForm.workDays = Number(payroll.workDays);
     payrollForm.workHours = Number(payroll.workHours);
@@ -278,13 +284,15 @@ async function sendPayslipEmail() {
 }
 
 function exportCsv() {
-  const header = ["支給月", "社員番号", "氏名", "給与区分", "扶養人数", "課税対象額", "所得税", "総支給額", "控除合計", "差引支給額", "メール送信日時"];
+  const header = ["支給月", "社員番号", "氏名", "給与区分", "扶養人数", "社会保険加入", "社会保険適用金額", "課税対象額", "所得税", "総支給額", "控除合計", "差引支給額", "メール送信日時"];
   const rows = payrolls.value.map((payroll) => [
     payroll.period,
     payroll.employee.employeeNo,
     payroll.employee.name,
     payroll.employee.payType === "MONTHLY" ? "月給" : "時給",
     payroll.dependentCount,
+    payroll.socialInsuranceEnrolled ? "加入" : "未加入",
+    payroll.socialInsuranceBaseAmount || "",
     payroll.taxableIncome || "",
     payroll.incomeTax,
     payroll.grossPay,
@@ -389,6 +397,8 @@ onMounted(async () => {
           <label>実働時間<input v-model.number="payrollForm.workHours" type="number" min="0" step="0.25" /></label>
           <label>残業時間<input v-model.number="payrollForm.overtimeHours" type="number" min="0" step="0.25" /></label>
           <label>扶養人数<input v-model.number="payrollForm.dependentCount" type="number" min="0" /></label>
+          <label>社会保険加入<select v-model="payrollForm.socialInsuranceEnrolled"><option :value="true">加入</option><option :value="false">未加入</option></select></label>
+          <label v-if="payrollForm.socialInsuranceEnrolled">社会保険適用金額<input v-model.number="payrollForm.socialInsuranceBaseAmount" type="number" min="0" placeholder="未入力時は総支給額" /></label>
           <label>手当<input v-model.number="payrollForm.allowance" type="number" min="0" /></label>
           <label>固定控除<input v-model.number="payrollForm.fixedDeduction" type="number" min="0" /></label>
           <label class="wide">備考<input v-model="payrollForm.note" /></label>
@@ -441,6 +451,8 @@ onMounted(async () => {
             <dt>扶養人数</dt><dd>{{ selectedPayroll.dependentCount }}</dd>
             <dt>課税対象額</dt><dd>{{ yen.format(selectedPayroll.taxableIncome || 0) }}</dd>
             <dt>所得税</dt><dd>{{ yen.format(selectedPayroll.incomeTax) }}</dd>
+            <dt>社会保険加入</dt><dd>{{ selectedPayroll.socialInsuranceEnrolled ? "加入" : "未加入" }}</dd>
+            <dt>社会保険適用金額</dt><dd>{{ selectedPayroll.socialInsuranceBaseAmount ? yen.format(selectedPayroll.socialInsuranceBaseAmount) : "総支給額" }}</dd>
             <dt>社会保険</dt><dd>{{ yen.format(selectedPayroll.socialInsurance) }}</dd>
             <dt>雇用保険</dt><dd>{{ yen.format(selectedPayroll.employmentInsurance) }}</dd>
             <dt>控除合計</dt><dd>{{ yen.format(selectedPayroll.totalDeduction) }}</dd>

@@ -249,6 +249,8 @@ api.post("/payrolls", async (c) => {
   const allowance = Number(body.allowance || 0);
   const fixedDeduction = Number(body.fixedDeduction || 0);
   const dependentCount = Number(body.dependentCount ?? employee.defaultDependentCount ?? 0);
+  const socialInsuranceEnrolled = body.socialInsuranceEnrolled !== false;
+  const socialInsuranceBaseAmount = body.socialInsuranceBaseAmount ? Number(body.socialInsuranceBaseAmount) : null;
   const preliminary = calculatePayroll({
     payType: employee.payType,
     basePay: employee.basePay,
@@ -259,7 +261,9 @@ api.post("/payrolls", async (c) => {
     overtimeRate,
     incomeTaxRate,
     socialInsuranceRate,
-    employmentInsuranceRate
+    employmentInsuranceRate,
+    socialInsuranceEnrolled,
+    socialInsuranceBaseAmount: socialInsuranceBaseAmount ?? undefined
   });
   const taxableIncome = Math.max(preliminary.grossPay - preliminary.socialInsurance - preliminary.employmentInsurance, 0);
   const tableIncomeTax = await findIncomeTaxAmount({ fiscalYear, dependentCount, taxableIncome });
@@ -274,7 +278,9 @@ api.post("/payrolls", async (c) => {
     incomeTaxRate,
     socialInsuranceRate,
     employmentInsuranceRate,
-    incomeTaxAmount: tableIncomeTax
+    incomeTaxAmount: tableIncomeTax,
+    socialInsuranceEnrolled,
+    socialInsuranceBaseAmount: socialInsuranceBaseAmount ?? undefined
   });
 
   const payroll = await prisma.payroll.upsert({
@@ -289,6 +295,8 @@ api.post("/payrolls", async (c) => {
       incomeTaxRate,
       socialInsuranceRate,
       employmentInsuranceRate,
+      socialInsuranceEnrolled,
+      socialInsuranceBaseAmount,
       fiscalYear,
       dependentCount,
       taxableIncome,
@@ -307,6 +315,8 @@ api.post("/payrolls", async (c) => {
       incomeTaxRate,
       socialInsuranceRate,
       employmentInsuranceRate,
+      socialInsuranceEnrolled,
+      socialInsuranceBaseAmount,
       fiscalYear,
       dependentCount,
       taxableIncome,
