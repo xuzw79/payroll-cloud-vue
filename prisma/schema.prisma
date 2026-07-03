@@ -21,6 +21,7 @@ model Employee {
   employmentInsuranceEnrolled Boolean @default(true)
   payType     PayType   @default(MONTHLY)
   basePay     Int
+  fixedOvertimeAllowance Int @default(0)
   memo        String?
   isActive    Boolean   @default(true)
   createdAt   DateTime  @default(now())
@@ -36,6 +37,7 @@ model Payroll {
   workHours                Decimal  @db.Decimal(8, 2)
   overtimeHours            Decimal  @db.Decimal(8, 2)
   allowance                Int      @default(0)
+  fixedOvertimeAllowance   Int      @default(0)
   fixedDeduction           Int      @default(0)
   overtimeRate             Decimal  @db.Decimal(8, 6)
   incomeTaxRate            Decimal  @db.Decimal(8, 6)

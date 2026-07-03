@@ -88,6 +88,7 @@ function toPayslipPdfInput(payroll: Payroll & { employee: Employee }) {
     payType: payroll.employee.payType,
     regularPay: payroll.regularPay,
     overtimePay: payroll.overtimePay,
+    fixedOvertimeAllowance: payroll.fixedOvertimeAllowance,
     allowance: payroll.allowance,
     grossPay: payroll.grossPay,
     taxableIncome: payroll.taxableIncome,
@@ -270,6 +271,7 @@ api.post("/employees", async (c) => {
       employmentInsuranceEnrolled: body.employmentInsuranceEnrolled !== false,
       payType: body.payType === "HOURLY" ? "HOURLY" : "MONTHLY",
       basePay: Number(body.basePay || 0),
+      fixedOvertimeAllowance: Number(body.fixedOvertimeAllowance || 0),
       memo: body.memo || null
     }
   });
@@ -288,6 +290,7 @@ api.put("/employees/:id", async (c) => {
       employmentInsuranceEnrolled: body.employmentInsuranceEnrolled !== false,
       payType: body.payType === "HOURLY" ? "HOURLY" : "MONTHLY",
       basePay: Number(body.basePay || 0),
+      fixedOvertimeAllowance: Number(body.fixedOvertimeAllowance || 0),
       memo: body.memo || null
     }
   });
@@ -437,6 +440,7 @@ api.post("/payrolls", async (c) => {
     workHours,
     overtimeHours,
     allowance,
+    fixedOvertimeAllowance: employee.fixedOvertimeAllowance,
     fixedDeduction,
     overtimeRate,
     incomeTaxRate,
@@ -463,6 +467,7 @@ api.post("/payrolls", async (c) => {
     workHours,
     overtimeHours,
     allowance,
+    fixedOvertimeAllowance: employee.fixedOvertimeAllowance,
     fixedDeduction,
     overtimeRate,
     incomeTaxRate,

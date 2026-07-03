@@ -13,6 +13,7 @@ type Employee = {
   employmentInsuranceEnrolled: boolean;
   payType: PayType;
   basePay: number;
+  fixedOvertimeAllowance: number;
   memo?: string | null;
 };
 
@@ -36,6 +37,7 @@ type Payroll = {
   netPay: number;
   regularPay: number;
   overtimePay: number;
+  fixedOvertimeAllowance: number;
   incomeTax: number;
   healthInsurance: number;
   pensionInsurance: number;
@@ -97,6 +99,7 @@ const employeeForm = reactive({
   employmentInsuranceEnrolled: true,
   payType: "MONTHLY" as PayType,
   basePay: 0,
+  fixedOvertimeAllowance: 0,
   memo: ""
 });
 const payrollForm = reactive({
@@ -192,6 +195,7 @@ function applyEmployee(employee?: Employee) {
     employmentInsuranceEnrolled: true,
     payType: "MONTHLY" as PayType,
     basePay: 0,
+    fixedOvertimeAllowance: 0,
     memo: ""
   };
   employeeForm.id = target.id;
@@ -202,6 +206,7 @@ function applyEmployee(employee?: Employee) {
   employeeForm.employmentInsuranceEnrolled = target.employmentInsuranceEnrolled ?? true;
   employeeForm.payType = target.payType;
   employeeForm.basePay = target.basePay;
+  employeeForm.fixedOvertimeAllowance = target.fixedOvertimeAllowance || 0;
   employeeForm.memo = target.memo || "";
   selectedEmployeeId.value = target.id;
 
@@ -442,7 +447,7 @@ async function downloadPayslipPdfRange() {
 }
 
 function exportCsv() {
-  const header = ["支給月", "社員番号", "氏名", "給与区分", "扶養人数", "社会保険加入", "社会保険適用金額", "課税対象額", "所得税", "健康・介護保険", "厚生年金保険", "子ども・子育て支援金", "社会保険合計", "雇用保険適用", "雇用保険", "住民税", "寮使用料", "総支給額", "控除合計", "差引支給額", "メール送信日時"];
+  const header = ["支給月", "社員番号", "氏名", "給与区分", "扶養人数", "社会保険加入", "社会保険適用金額", "課税対象額", "所得税", "健康・介護保険", "厚生年金保険", "子ども・子育て支援金", "社会保険合計", "雇用保険適用", "雇用保険", "住民税", "寮使用料", "固定残業手当", "総支給額", "控除合計", "差引支給額", "メール送信日時"];
   const rows = payrolls.value.map((payroll) => [
     payroll.period,
     payroll.employee.employeeNo,
@@ -461,6 +466,7 @@ function exportCsv() {
     payroll.employmentInsurance,
     payroll.residentTax,
     payroll.dormitoryFee,
+    payroll.fixedOvertimeAllowance,
     payroll.grossPay,
     payroll.totalDeduction,
     payroll.netPay,
@@ -555,6 +561,7 @@ onMounted(async () => {
           <label>雇用保険適用<select v-model="employeeForm.employmentInsuranceEnrolled"><option :value="true">適用</option><option :value="false">対象外</option></select></label>
           <label>給与区分<select v-model="employeeForm.payType"><option value="MONTHLY">月給</option><option value="HOURLY">時給</option></select></label>
           <label>基本給・時給<input v-model.number="employeeForm.basePay" type="number" min="0" /></label>
+          <label>固定残業手当<input v-model.number="employeeForm.fixedOvertimeAllowance" type="number" min="0" /></label>
           <label class="wide">メモ<input v-model="employeeForm.memo" /></label>
           <div class="form-actions full">
             <button @click="deleteEmployee"><Trash2 :size="16" />非表示</button>
@@ -623,6 +630,7 @@ onMounted(async () => {
           <p class="message">適用年度: {{ activeRate?.fiscalYear || fiscalYearFromPeriod(period) }}年度</p>
           <dl>
             <dt>基本給</dt><dd>{{ yen.format(selectedPayroll.regularPay) }}</dd>
+            <dt>固定残業手当</dt><dd>{{ yen.format(selectedPayroll.fixedOvertimeAllowance) }}</dd>
             <dt>残業代</dt><dd>{{ yen.format(selectedPayroll.overtimePay) }}</dd>
             <dt>総支給額</dt><dd>{{ yen.format(selectedPayroll.grossPay) }}</dd>
             <dt>扶養人数</dt><dd>{{ selectedPayroll.dependentCount }}</dd>
