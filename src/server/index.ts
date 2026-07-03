@@ -40,7 +40,16 @@ function parseCsv(text: string) {
   });
 }
 
+function numberOrDefault(value: unknown, defaultValue: number) {
+  if (value === undefined || value === null || value === "") return defaultValue;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : defaultValue;
+}
+
 async function findIncomeTaxAmount(input: { fiscalYear: number; dependentCount: number; taxableIncome: number }) {
+  const hasFiscalYearTable = await prisma.incomeTaxBracket.count({
+    where: { fiscalYear: input.fiscalYear }
+  });
   const bracket = await prisma.incomeTaxBracket.findFirst({
     where: {
       fiscalYear: input.fiscalYear,
@@ -50,7 +59,7 @@ async function findIncomeTaxAmount(input: { fiscalYear: number; dependentCount: 
     },
     orderBy: { minTaxable: "desc" }
   });
-  return bracket?.taxAmount;
+  return { taxAmount: bracket?.taxAmount, hasFiscalYearTable: hasFiscalYearTable > 0 };
 }
 
 function toPayslipPdfInput(payroll: Payroll & { employee: Employee }) {
@@ -301,7 +310,7 @@ api.post("/payrolls", async (c) => {
   const fixedDeduction = Number(body.fixedDeduction || 0);
   const residentTax = Number(body.residentTax || 0);
   const dormitoryFee = Number(body.dormitoryFee || 0);
-  const dependentCount = Number(body.dependentCount ?? employee.defaultDependentCount ?? 0);
+  const dependentCount = Math.max(0, Math.trunc(numberOrDefault(body.dependentCount, employee.defaultDependentCount ?? 0)));
   const socialInsuranceEnrolled = body.socialInsuranceEnrolled !== false;
   const employmentInsuranceEnrolled = employee.employmentInsuranceEnrolled !== false;
   const socialInsuranceBaseAmount = body.socialInsuranceBaseAmount ? Number(body.socialInsuranceBaseAmount) : null;
@@ -326,6 +335,11 @@ api.post("/payrolls", async (c) => {
   });
   const taxableIncome = Math.max(preliminary.grossPay - preliminary.socialInsurance - preliminary.employmentInsurance, 0);
   const tableIncomeTax = await findIncomeTaxAmount({ fiscalYear, dependentCount, taxableIncome });
+  if (tableIncomeTax.hasFiscalYearTable && tableIncomeTax.taxAmount === undefined) {
+    return c.json({
+      message: `${fiscalYear}年度の所得税表に、扶養人数${dependentCount}名・課税対象額${taxableIncome}円の行が見つかりません。所得税表CSVを確認してください。`
+    }, 400);
+  }
   const calculated = calculatePayroll({
     payType: employee.payType,
     basePay: employee.basePay,
@@ -339,7 +353,7 @@ api.post("/payrolls", async (c) => {
     pensionInsuranceRate,
     childCareSupportRate,
     employmentInsuranceRate,
-    incomeTaxAmount: tableIncomeTax,
+    incomeTaxAmount: tableIncomeTax.taxAmount,
     socialInsuranceEnrolled,
     employmentInsuranceEnrolled,
     socialInsuranceBaseAmount: socialInsuranceBaseAmount ?? undefined,

@@ -289,6 +289,7 @@ async function saveEmployee() {
   message.value = "社員情報を保存しました";
   await refresh();
   applyEmployee(employee);
+  payrollForm.dependentCount = employee.defaultDependentCount || 0;
 }
 
 async function deleteEmployee() {
