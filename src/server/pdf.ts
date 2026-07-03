@@ -21,6 +21,7 @@ type PayslipPdfInput = {
   socialInsurance: number;
   employmentInsurance: number;
   residentTax: number;
+  dormitoryFee: number;
   fixedDeduction: number;
   totalDeduction: number;
   netPay: number;
@@ -206,7 +207,7 @@ export async function createPayslipPdf(input: PayslipPdfInput) {
       { label: "住民税", value: formatYen(input.residentTax) }
     ],
     [
-      { label: "寮使用料", value: "0" },
+      { label: "寮使用料", value: formatYen(input.dormitoryFee) },
       { label: "年末調整不足額", value: "0" },
       { label: "", blank: true },
       { label: "", blank: true },

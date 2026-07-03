@@ -57,6 +57,7 @@ model Payroll {
   socialInsurance          Int
   employmentInsurance      Int
   residentTax              Int      @default(0)
+  dormitoryFee             Int      @default(0)
   totalDeduction           Int
   netPay                   Int
   fiscalYear               Int?

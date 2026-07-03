@@ -26,6 +26,7 @@ type Payroll = {
   allowance: number;
   fixedDeduction: number;
   residentTax: number;
+  dormitoryFee: number;
   dependentCount: number;
   socialInsuranceEnrolled: boolean;
   socialInsuranceBaseAmount?: number | null;
@@ -101,6 +102,7 @@ const payrollForm = reactive({
   allowance: 0,
   fixedDeduction: 0,
   residentTax: 0,
+  dormitoryFee: 0,
   dependentCount: 0,
   socialInsuranceEnrolled: true,
   socialInsuranceBaseAmount: 0,
@@ -186,6 +188,7 @@ function applyEmployee(employee?: Employee) {
     payrollForm.allowance = payroll.allowance;
     payrollForm.fixedDeduction = payroll.fixedDeduction;
     payrollForm.residentTax = payroll.residentTax || 0;
+    payrollForm.dormitoryFee = payroll.dormitoryFee || 0;
   }
 }
 
@@ -345,7 +348,7 @@ async function downloadPayslipPdf() {
 }
 
 function exportCsv() {
-  const header = ["支給月", "社員番号", "氏名", "給与区分", "扶養人数", "社会保険加入", "社会保険適用金額", "課税対象額", "所得税", "健康・介護保険", "厚生年金保険", "子ども・子育て支援金", "社会保険合計", "雇用保険適用", "雇用保険", "住民税", "総支給額", "控除合計", "差引支給額", "メール送信日時"];
+  const header = ["支給月", "社員番号", "氏名", "給与区分", "扶養人数", "社会保険加入", "社会保険適用金額", "課税対象額", "所得税", "健康・介護保険", "厚生年金保険", "子ども・子育て支援金", "社会保険合計", "雇用保険適用", "雇用保険", "住民税", "寮使用料", "総支給額", "控除合計", "差引支給額", "メール送信日時"];
   const rows = payrolls.value.map((payroll) => [
     payroll.period,
     payroll.employee.employeeNo,
@@ -363,6 +366,7 @@ function exportCsv() {
     payroll.employmentInsuranceEnrolled ? "適用" : "対象外",
     payroll.employmentInsurance,
     payroll.residentTax,
+    payroll.dormitoryFee,
     payroll.grossPay,
     payroll.totalDeduction,
     payroll.netPay,
@@ -470,6 +474,7 @@ onMounted(async () => {
           <label v-if="payrollForm.socialInsuranceEnrolled">社会保険適用金額<input v-model.number="payrollForm.socialInsuranceBaseAmount" type="number" min="0" placeholder="未入力時は総支給額" /></label>
           <label>手当<input v-model.number="payrollForm.allowance" type="number" min="0" /></label>
           <label>住民税<input v-model.number="payrollForm.residentTax" type="number" min="0" /></label>
+          <label>寮使用料<input v-model.number="payrollForm.dormitoryFee" type="number" min="0" /></label>
           <label>固定控除<input v-model.number="payrollForm.fixedDeduction" type="number" min="0" /></label>
           <label class="wide">備考<input v-model="payrollForm.note" /></label>
           <div class="form-actions full">
@@ -533,6 +538,7 @@ onMounted(async () => {
             <dt>雇用保険適用</dt><dd>{{ selectedPayroll.employmentInsuranceEnrolled ? "適用" : "対象外" }}</dd>
             <dt>雇用保険</dt><dd>{{ yen.format(selectedPayroll.employmentInsurance) }}</dd>
             <dt>住民税</dt><dd>{{ yen.format(selectedPayroll.residentTax) }}</dd>
+            <dt>寮使用料</dt><dd>{{ yen.format(selectedPayroll.dormitoryFee) }}</dd>
             <dt>控除合計</dt><dd>{{ yen.format(selectedPayroll.totalDeduction) }}</dd>
           </dl>
           <div class="net"><span>差引支給額</span><strong>{{ yen.format(selectedPayroll.netPay) }}</strong></div>

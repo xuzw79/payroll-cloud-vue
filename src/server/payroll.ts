@@ -18,6 +18,7 @@ export type PayrollInput = {
   employmentInsuranceEnrolled?: boolean;
   socialInsuranceBaseAmount?: number;
   residentTax?: number;
+  dormitoryFee?: number;
 };
 
 export function calculatePayroll(input: PayrollInput) {
@@ -35,7 +36,8 @@ export function calculatePayroll(input: PayrollInput) {
   const employmentInsurance = input.employmentInsuranceEnrolled === false ? 0 : grossPay * input.employmentInsuranceRate;
   const incomeTax = input.incomeTaxAmount ?? grossPay * input.incomeTaxRate;
   const residentTax = input.residentTax || 0;
-  const totalDeduction = incomeTax + socialInsurance + employmentInsurance + residentTax + input.fixedDeduction;
+  const dormitoryFee = input.dormitoryFee || 0;
+  const totalDeduction = incomeTax + socialInsurance + employmentInsurance + residentTax + dormitoryFee + input.fixedDeduction;
 
   return {
     regularPay: Math.round(regularPay),
@@ -48,6 +50,7 @@ export function calculatePayroll(input: PayrollInput) {
     socialInsurance: Math.round(socialInsurance),
     employmentInsurance: Math.round(employmentInsurance),
     residentTax: Math.round(residentTax),
+    dormitoryFee: Math.round(dormitoryFee),
     totalDeduction: Math.round(totalDeduction),
     netPay: Math.round(grossPay - totalDeduction)
   };

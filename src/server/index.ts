@@ -71,6 +71,7 @@ function toPayslipPdfInput(payroll: Payroll & { employee: Employee }) {
     socialInsurance: payroll.socialInsurance,
     employmentInsurance: payroll.employmentInsurance,
     residentTax: payroll.residentTax,
+    dormitoryFee: payroll.dormitoryFee,
     fixedDeduction: payroll.fixedDeduction,
     totalDeduction: payroll.totalDeduction,
     netPay: payroll.netPay
@@ -299,6 +300,7 @@ api.post("/payrolls", async (c) => {
   const allowance = Number(body.allowance || 0);
   const fixedDeduction = Number(body.fixedDeduction || 0);
   const residentTax = Number(body.residentTax || 0);
+  const dormitoryFee = Number(body.dormitoryFee || 0);
   const dependentCount = Number(body.dependentCount ?? employee.defaultDependentCount ?? 0);
   const socialInsuranceEnrolled = body.socialInsuranceEnrolled !== false;
   const employmentInsuranceEnrolled = employee.employmentInsuranceEnrolled !== false;
@@ -319,7 +321,8 @@ api.post("/payrolls", async (c) => {
     socialInsuranceEnrolled,
     employmentInsuranceEnrolled,
     socialInsuranceBaseAmount: socialInsuranceBaseAmount ?? undefined,
-    residentTax
+    residentTax,
+    dormitoryFee
   });
   const taxableIncome = Math.max(preliminary.grossPay - preliminary.socialInsurance - preliminary.employmentInsurance, 0);
   const tableIncomeTax = await findIncomeTaxAmount({ fiscalYear, dependentCount, taxableIncome });
@@ -340,7 +343,8 @@ api.post("/payrolls", async (c) => {
     socialInsuranceEnrolled,
     employmentInsuranceEnrolled,
     socialInsuranceBaseAmount: socialInsuranceBaseAmount ?? undefined,
-    residentTax
+    residentTax,
+    dormitoryFee
   });
 
   const payroll = await prisma.payroll.upsert({
