@@ -43,6 +43,7 @@ type Payroll = {
   socialInsurance: number;
   employmentInsurance: number;
   employmentInsuranceEnrolled: boolean;
+  note?: string | null;
   emailedAt?: string | null;
   employee: Employee;
 };
@@ -148,6 +149,10 @@ function safeFilePart(value: string) {
   return value.replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, "_");
 }
 
+function periodForFile(value: string) {
+  return value.replace("-", "");
+}
+
 function resetPayrollForm(employee: Employee) {
   Object.assign(payrollForm, {
     workDays: 20,
@@ -241,6 +246,7 @@ function applyPayrollInput(payroll: Payroll) {
   payrollForm.fixedDeduction = payroll.fixedDeduction;
   payrollForm.residentTax = payroll.residentTax || 0;
   payrollForm.dormitoryFee = payroll.dormitoryFee || 0;
+  payrollForm.note = payroll.note || "";
 }
 
 async function login() {
@@ -393,7 +399,7 @@ async function downloadPayslipPdf() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `payslip-${payroll.period}-${safeFilePart(payroll.employee.employeeNo)}-${safeFilePart(payroll.employee.name)}.pdf`;
+  link.download = `給与明細_${periodForFile(payroll.period)}_${safeFilePart(payroll.employee.name)}.pdf`;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -425,7 +431,7 @@ async function downloadPayslipPdfRange() {
   const extension = pdfOutputMode.value === "single" ? "pdf" : "zip";
   const link = document.createElement("a");
   link.href = url;
-  link.download = `payslips-${pdfRangeStart.value}-${pdfRangeEnd.value}.${extension}`;
+  link.download = `給与明細_${periodForFile(pdfRangeStart.value)}_${periodForFile(pdfRangeEnd.value)}.${extension}`;
   document.body.appendChild(link);
   link.click();
   link.remove();

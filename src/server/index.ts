@@ -56,6 +56,14 @@ function safeFilePart(value: string) {
   return value.replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, "_");
 }
 
+function periodForFile(value: string) {
+  return value.replace("-", "");
+}
+
+function attachmentDisposition(fileName: string, fallbackFileName: string) {
+  return `attachment; filename="${fallbackFileName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+}
+
 async function findIncomeTaxAmount(input: { fiscalYear: number; dependentCount: number; taxableIncome: number }) {
   const hasFiscalYearTable = await prisma.incomeTaxBracket.count({
     where: { fiscalYear: input.fiscalYear }
@@ -367,12 +375,13 @@ api.get("/payrolls/pdf-range", async (c) => {
         pages.forEach((page) => merged.addPage(page));
       }
       const mergedPdf = await merged.save();
-      const fileName = `payslips-${startPeriod}-${endPeriod}.pdf`;
+      const fileName = `給与明細_${periodForFile(startPeriod)}_${periodForFile(endPeriod)}.pdf`;
+      const fallbackFileName = `payslips-${periodForFile(startPeriod)}-${periodForFile(endPeriod)}.pdf`;
 
       return new Response(new Uint8Array(mergedPdf), {
         headers: {
           "Content-Type": "application/pdf",
-          "Content-Disposition": `attachment; filename="${fileName}"`
+          "Content-Disposition": attachmentDisposition(fileName, fallbackFileName)
         }
       });
     }
@@ -381,17 +390,17 @@ api.get("/payrolls/pdf-range", async (c) => {
     for (const payroll of payrolls) {
       const pdf = await createPayslipPdf(toPayslipPdfInput(payroll));
       const employeeName = safeFilePart(payroll.employee.name);
-      const employeeNo = safeFilePart(payroll.employee.employeeNo);
-      zip.file(`${payroll.period}/payslip-${payroll.period}-${employeeNo}-${employeeName}.pdf`, pdf);
+      zip.file(`${periodForFile(payroll.period)}/給与明細_${periodForFile(payroll.period)}_${employeeName}.pdf`, pdf);
     }
 
     const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
-    const fileName = `payslips-${startPeriod}-${endPeriod}.zip`;
+    const fileName = `給与明細_${periodForFile(startPeriod)}_${periodForFile(endPeriod)}.zip`;
+    const fallbackFileName = `payslips-${periodForFile(startPeriod)}-${periodForFile(endPeriod)}.zip`;
 
     return new Response(new Uint8Array(zipBuffer), {
       headers: {
         "Content-Type": "application/zip",
-        "Content-Disposition": `attachment; filename="${fileName}"`
+        "Content-Disposition": attachmentDisposition(fileName, fallbackFileName)
       }
     });
   } catch (error) {
@@ -530,13 +539,13 @@ api.get("/payrolls/:id/pdf", async (c) => {
     });
     const pdf = await createPayslipPdf(toPayslipPdfInput(payroll));
     const employeeName = safeFilePart(payroll.employee.name);
-    const employeeNo = safeFilePart(payroll.employee.employeeNo);
-    const fileName = `payslip-${payroll.period}-${employeeNo}-${employeeName}.pdf`;
+    const fileName = `給与明細_${periodForFile(payroll.period)}_${employeeName}.pdf`;
+    const fallbackFileName = `payslip-${periodForFile(payroll.period)}-${safeFilePart(payroll.employee.employeeNo)}.pdf`;
 
     return new Response(new Uint8Array(pdf), {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="payslip-${payroll.period}-${employeeNo}.pdf"; filename*=UTF-8''${encodeURIComponent(fileName)}`
+        "Content-Disposition": attachmentDisposition(fileName, fallbackFileName)
       }
     });
   } catch (error) {
