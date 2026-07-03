@@ -283,6 +283,31 @@ async function sendPayslipEmail() {
   await refresh();
 }
 
+async function downloadPayslipPdf() {
+  if (!selectedPayroll.value) {
+    message.value = "先に給与を保存してください";
+    return;
+  }
+
+  const payroll = selectedPayroll.value;
+  const response = await fetch(`/api/payrolls/${payroll.id}/pdf`, { credentials: "include" });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: "PDFダウンロードに失敗しました" }));
+    throw new Error(error.message || "PDFダウンロードに失敗しました");
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `payslip-${payroll.period}-${payroll.employee.employeeNo}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  message.value = "給与明細PDFをダウンロードしました";
+}
+
 function exportCsv() {
   const header = ["支給月", "社員番号", "氏名", "給与区分", "扶養人数", "社会保険加入", "社会保険適用金額", "課税対象額", "所得税", "総支給額", "控除合計", "差引支給額", "メール送信日時"];
   const rows = payrolls.value.map((payroll) => [
@@ -404,6 +429,7 @@ onMounted(async () => {
           <label class="wide">備考<input v-model="payrollForm.note" /></label>
           <div class="form-actions full">
             <button class="primary" @click="savePayroll"><Save :size="16" />給与保存</button>
+            <button @click="downloadPayslipPdf"><Download :size="16" />PDFダウンロード</button>
             <button @click="sendPayslipEmail"><Mail :size="16" />PDFメール送信</button>
           </div>
         </div>

@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
+import type { Employee, Payroll } from "@prisma/client";
 import { Hono } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
 import { cookieName, createSession, requireAuth } from "./auth.js";
@@ -50,6 +51,25 @@ async function findIncomeTaxAmount(input: { fiscalYear: number; dependentCount: 
     orderBy: { minTaxable: "desc" }
   });
   return bracket?.taxAmount;
+}
+
+function toPayslipPdfInput(payroll: Payroll & { employee: Employee }) {
+  return {
+    period: payroll.period,
+    employeeNo: payroll.employee.employeeNo,
+    employeeName: payroll.employee.name,
+    payType: payroll.employee.payType,
+    regularPay: payroll.regularPay,
+    overtimePay: payroll.overtimePay,
+    allowance: payroll.allowance,
+    grossPay: payroll.grossPay,
+    incomeTax: payroll.incomeTax,
+    socialInsurance: payroll.socialInsurance,
+    employmentInsurance: payroll.employmentInsurance,
+    fixedDeduction: payroll.fixedDeduction,
+    totalDeduction: payroll.totalDeduction,
+    netPay: payroll.netPay
+  };
 }
 
 api.post("/login", async (c) => {
@@ -328,6 +348,27 @@ api.post("/payrolls", async (c) => {
   return c.json(payroll);
 });
 
+api.get("/payrolls/:id/pdf", async (c) => {
+  try {
+    const payroll = await prisma.payroll.findUniqueOrThrow({
+      where: { id: c.req.param("id") },
+      include: { employee: true }
+    });
+    const pdf = await createPayslipPdf(toPayslipPdfInput(payroll));
+    const fileName = `payslip-${payroll.period}-${payroll.employee.employeeNo}.pdf`;
+
+    return new Response(new Uint8Array(pdf), {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${fileName}"`
+      }
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "PDF download failed";
+    return c.json({ message }, 500);
+  }
+});
+
 api.post("/payrolls/:id/email", async (c) => {
   try {
     const payroll = await prisma.payroll.findUniqueOrThrow({
@@ -339,22 +380,7 @@ api.post("/payrolls/:id/email", async (c) => {
       return c.json({ message: "社員メールアドレスが未設定です" }, 400);
     }
 
-    const pdf = await createPayslipPdf({
-      period: payroll.period,
-      employeeNo: payroll.employee.employeeNo,
-      employeeName: payroll.employee.name,
-      payType: payroll.employee.payType,
-      regularPay: payroll.regularPay,
-      overtimePay: payroll.overtimePay,
-      allowance: payroll.allowance,
-      grossPay: payroll.grossPay,
-      incomeTax: payroll.incomeTax,
-      socialInsurance: payroll.socialInsurance,
-      employmentInsurance: payroll.employmentInsurance,
-      fixedDeduction: payroll.fixedDeduction,
-      totalDeduction: payroll.totalDeduction,
-      netPay: payroll.netPay
-    });
+    const pdf = await createPayslipPdf(toPayslipPdfInput(payroll));
 
     await sendPayslipMail({
       to: payroll.employee.email,
