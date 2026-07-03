@@ -148,6 +148,22 @@ function safeFilePart(value: string) {
   return value.replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, "_");
 }
 
+function resetPayrollForm(employee: Employee) {
+  Object.assign(payrollForm, {
+    workDays: 20,
+    workHours: 160,
+    overtimeHours: 0,
+    allowance: 0,
+    fixedDeduction: 0,
+    residentTax: 0,
+    dormitoryFee: 0,
+    dependentCount: employee.defaultDependentCount || 0,
+    socialInsuranceEnrolled: true,
+    socialInsuranceBaseAmount: 0,
+    note: ""
+  });
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api${path}`, {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
@@ -185,17 +201,10 @@ function applyEmployee(employee?: Employee) {
   selectedEmployeeId.value = target.id;
 
   const payroll = payrolls.value.find((item) => item.employeeId === target.id);
-  payrollForm.dependentCount = payroll?.dependentCount ?? employeeForm.defaultDependentCount;
-  payrollForm.socialInsuranceEnrolled = payroll?.socialInsuranceEnrolled ?? true;
-  payrollForm.socialInsuranceBaseAmount = payroll?.socialInsuranceBaseAmount || 0;
   if (payroll) {
-    payrollForm.workDays = Number(payroll.workDays);
-    payrollForm.workHours = Number(payroll.workHours);
-    payrollForm.overtimeHours = Number(payroll.overtimeHours);
-    payrollForm.allowance = payroll.allowance;
-    payrollForm.fixedDeduction = payroll.fixedDeduction;
-    payrollForm.residentTax = payroll.residentTax || 0;
-    payrollForm.dormitoryFee = payroll.dormitoryFee || 0;
+    applyPayrollInput(payroll);
+  } else {
+    resetPayrollForm(target);
   }
 }
 
@@ -334,19 +343,24 @@ async function savePayroll() {
 }
 
 async function usePreviousPayrollInput() {
-  if (!selectedEmployee.value) {
+  const currentEmployeeId = employeeForm.id || selectedEmployeeId.value;
+  if (!currentEmployeeId || !selectedEmployee.value) {
     message.value = "社員を選択してください";
     return;
   }
 
   const params = new URLSearchParams({
-    employeeId: selectedEmployee.value.id,
+    employeeId: currentEmployeeId,
     beforePeriod: period.value
   });
   try {
     const payroll = await request<Payroll>(`/payrolls/latest-template?${params.toString()}`);
+    if (payroll.employeeId !== currentEmployeeId) {
+      message.value = "選択中の社員と異なる過去入力のため利用しませんでした";
+      return;
+    }
     applyPayrollInput(payroll);
-    message.value = `${payroll.period} の給与入力を利用しました`;
+    message.value = `${payroll.employee.name}さんの${payroll.period}の給与入力を利用しました`;
   } catch (error) {
     message.value = error instanceof Error ? error.message : "過去入力を利用できませんでした";
   }
@@ -556,7 +570,7 @@ onMounted(async () => {
           <label>固定控除<input v-model.number="payrollForm.fixedDeduction" type="number" min="0" /></label>
           <label class="wide">備考<input v-model="payrollForm.note" /></label>
           <div class="form-actions full">
-            <button @click="usePreviousPayrollInput"><RefreshCw :size="16" />前回入力を利用</button>
+            <button @click="usePreviousPayrollInput"><RefreshCw :size="16" />この社員の前回入力を利用</button>
             <button class="primary" @click="savePayroll"><Save :size="16" />給与保存</button>
             <button @click="downloadPayslipPdf"><Download :size="16" />PDFダウンロード</button>
             <button @click="sendPayslipEmail"><Mail :size="16" />PDFメール送信</button>
