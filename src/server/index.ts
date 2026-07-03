@@ -4,6 +4,7 @@ import type { Employee, Payroll } from "@prisma/client";
 import { Hono } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
 import JSZip from "jszip";
+import { PDFDocument } from "pdf-lib";
 import { cookieName, createSession, requireAuth } from "./auth.js";
 import { prisma } from "./db.js";
 import { sendPayslipMail } from "./mailer.js";
@@ -306,6 +307,8 @@ api.get("/payrolls/pdf-range", async (c) => {
     const startPeriod = c.req.query("startPeriod") || "";
     const endPeriod = c.req.query("endPeriod") || "";
     const employeeId = c.req.query("employeeId") || "";
+    const q = c.req.query("q") || "";
+    const mode = c.req.query("mode") === "single" ? "single" : "zip";
 
     if (!isPeriod(startPeriod) || !isPeriod(endPeriod)) {
       return c.json({ message: "開始月と終了月をYYYY-MM形式で指定してください" }, 400);
@@ -317,7 +320,13 @@ api.get("/payrolls/pdf-range", async (c) => {
     const payrolls = await prisma.payroll.findMany({
       where: {
         period: { gte: startPeriod, lte: endPeriod },
-        employeeId: employeeId || undefined
+        employeeId: employeeId || undefined,
+        employee: q ? {
+          OR: [
+            { name: { contains: q, mode: "insensitive" } },
+            { employeeNo: { contains: q, mode: "insensitive" } }
+          ]
+        } : undefined
       },
       include: { employee: true },
       orderBy: [{ period: "asc" }, { employee: { employeeNo: "asc" } }]
@@ -325,6 +334,25 @@ api.get("/payrolls/pdf-range", async (c) => {
 
     if (!payrolls.length) {
       return c.json({ message: "指定範囲の保存済み給与がありません" }, 404);
+    }
+
+    if (mode === "single") {
+      const merged = await PDFDocument.create();
+      for (const payroll of payrolls) {
+        const pdf = await createPayslipPdf(toPayslipPdfInput(payroll));
+        const source = await PDFDocument.load(pdf);
+        const pages = await merged.copyPages(source, source.getPageIndices());
+        pages.forEach((page) => merged.addPage(page));
+      }
+      const mergedPdf = await merged.save();
+      const fileName = `payslips-${startPeriod}-${endPeriod}.pdf`;
+
+      return new Response(new Uint8Array(mergedPdf), {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="${fileName}"`
+        }
+      });
     }
 
     const zip = new JSZip();

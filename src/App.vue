@@ -79,6 +79,7 @@ const query = ref("");
 const period = ref(today);
 const pdfRangeStart = ref(today);
 const pdfRangeEnd = ref(today);
+const pdfOutputMode = ref<"zip" | "single">("zip");
 const employees = ref<Employee[]>([]);
 const payrolls = ref<Payroll[]>([]);
 const fiscalRates = ref<FiscalRate[]>([]);
@@ -358,8 +359,10 @@ async function downloadPayslipPdfRange() {
 
   const params = new URLSearchParams({
     startPeriod: pdfRangeStart.value,
-    endPeriod: pdfRangeEnd.value
+    endPeriod: pdfRangeEnd.value,
+    mode: pdfOutputMode.value
   });
+  if (query.value.trim()) params.set("q", query.value.trim());
   const response = await fetch(`/api/payrolls/pdf-range?${params.toString()}`, { credentials: "include" });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: "給与明細PDF一括ダウンロードに失敗しました" }));
@@ -369,14 +372,17 @@ async function downloadPayslipPdfRange() {
 
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);
+  const extension = pdfOutputMode.value === "single" ? "pdf" : "zip";
   const link = document.createElement("a");
   link.href = url;
-  link.download = `payslips-${pdfRangeStart.value}-${pdfRangeEnd.value}.zip`;
+  link.download = `payslips-${pdfRangeStart.value}-${pdfRangeEnd.value}.${extension}`;
   document.body.appendChild(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-  message.value = "給与明細PDFを一括ダウンロードしました";
+  message.value = pdfOutputMode.value === "single"
+    ? "給与明細PDFを1つのPDFでダウンロードしました"
+    : "給与明細PDFをZIPで一括ダウンロードしました";
 }
 
 function exportCsv() {
@@ -453,6 +459,7 @@ onMounted(async () => {
       <button class="primary" @click="refresh"><Search :size="16" />検索</button>
       <label>PDF開始月<input v-model="pdfRangeStart" type="month" /></label>
       <label>PDF終了月<input v-model="pdfRangeEnd" type="month" /></label>
+      <label>PDF出力形式<select v-model="pdfOutputMode"><option value="zip">個別PDFをZIP</option><option value="single">1つのPDF</option></select></label>
       <button @click="downloadPayslipPdfRange"><Download :size="16" />PDF一括DL</button>
       <span v-if="message" class="message">{{ message }}</span>
     </section>
