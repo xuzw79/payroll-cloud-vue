@@ -179,7 +179,7 @@ export async function createPayslipPdf(input: PayslipPdfInput) {
       { label: "時間外労働手当", value: "0" },
       { label: "深夜労働手当", value: "0" },
       { label: "休日労働手当", value: "0" },
-      { label: "帰省手当", value: "0" },
+      { label: "手当", value: formatYen(input.allowance) },
       { label: "通勤手当（非課税）", value: "0" },
       { label: "", blank: true }
     ],
