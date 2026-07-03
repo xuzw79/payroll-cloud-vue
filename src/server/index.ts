@@ -63,6 +63,7 @@ function toPayslipPdfInput(payroll: Payroll & { employee: Employee }) {
     overtimePay: payroll.overtimePay,
     allowance: payroll.allowance,
     grossPay: payroll.grossPay,
+    taxableIncome: payroll.taxableIncome,
     incomeTax: payroll.incomeTax,
     socialInsurance: payroll.socialInsurance,
     employmentInsurance: payroll.employmentInsurance,
