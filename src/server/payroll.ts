@@ -22,6 +22,18 @@ export type PayrollInput = {
   dormitoryFee?: number;
 };
 
+export type BonusInput = {
+  bonusAmount: number;
+  incomeTaxRate: number;
+  healthInsuranceRate: number;
+  pensionInsuranceRate: number;
+  childCareSupportRate: number;
+  employmentInsuranceRate: number;
+  socialInsuranceEnrolled?: boolean;
+  employmentInsuranceEnrolled?: boolean;
+  socialInsuranceBaseAmount?: number;
+};
+
 export function calculatePayroll(input: PayrollInput) {
   const regularPay = input.payType === "MONTHLY" ? input.basePay : input.basePay * input.workHours;
   const hourlyRate = input.payType === "MONTHLY" ? input.basePay / Math.max(input.workHours || 160, 1) : input.basePay;
@@ -56,5 +68,32 @@ export function calculatePayroll(input: PayrollInput) {
     dormitoryFee: Math.round(dormitoryFee),
     totalDeduction: Math.round(totalDeduction),
     netPay: Math.round(grossPay - totalDeduction)
+  };
+}
+
+export function calculateBonus(input: BonusInput) {
+  const bonusAmount = Math.max(0, input.bonusAmount || 0);
+  const socialInsuranceBase = input.socialInsuranceBaseAmount && input.socialInsuranceBaseAmount > 0
+    ? input.socialInsuranceBaseAmount
+    : bonusAmount;
+  const healthInsurance = input.socialInsuranceEnrolled === false ? 0 : socialInsuranceBase * input.healthInsuranceRate;
+  const pensionInsurance = input.socialInsuranceEnrolled === false ? 0 : socialInsuranceBase * input.pensionInsuranceRate;
+  const childCareSupport = input.socialInsuranceEnrolled === false ? 0 : socialInsuranceBase * input.childCareSupportRate;
+  const socialInsurance = healthInsurance + pensionInsurance + childCareSupport;
+  const employmentInsurance = input.employmentInsuranceEnrolled === false ? 0 : bonusAmount * input.employmentInsuranceRate;
+  const taxableIncome = Math.max(bonusAmount - socialInsurance - employmentInsurance, 0);
+  const incomeTax = taxableIncome * input.incomeTaxRate;
+  const totalDeduction = incomeTax + socialInsurance + employmentInsurance;
+
+  return {
+    taxableIncome: Math.round(taxableIncome),
+    incomeTax: Math.round(incomeTax),
+    healthInsurance: Math.round(healthInsurance),
+    pensionInsurance: Math.round(pensionInsurance),
+    childCareSupport: Math.round(childCareSupport),
+    socialInsurance: Math.round(socialInsurance),
+    employmentInsurance: Math.round(employmentInsurance),
+    totalDeduction: Math.round(totalDeduction),
+    netPay: Math.round(bonusAmount - totalDeduction)
   };
 }

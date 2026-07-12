@@ -169,7 +169,7 @@ p {
 
 .summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 12px;
 }
 
@@ -304,6 +304,22 @@ p {
   color: #7a4300;
   font-size: 13px;
   line-height: 1.5;
+}
+
+.bonus-guidance {
+  padding: 10px 12px;
+  border: 1px solid #dce4e1;
+  border-radius: 6px;
+  background: #f7f9f9;
+  color: #60706c;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.bonus-guidance.active {
+  border-color: #c8dfd9;
+  background: #e7f2ef;
+  color: #176b5d;
 }
 
 .payslip {

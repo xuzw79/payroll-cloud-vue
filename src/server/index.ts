@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
-import type { Employee, Payroll } from "@prisma/client";
+import type { Bonus, Employee, Payroll } from "@prisma/client";
 import { Hono } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
 import JSZip from "jszip";
@@ -8,8 +8,9 @@ import { PDFDocument } from "pdf-lib";
 import { cookieName, createSession, requireAuth } from "./auth.js";
 import { prisma } from "./db.js";
 import { sendPayslipMail } from "./mailer.js";
+import { createBonusPdf } from "./bonusPdf.js";
 import { createPayslipPdf } from "./pdf.js";
-import { calculatePayroll } from "./payroll.js";
+import { calculateBonus, calculatePayroll } from "./payroll.js";
 
 const app = new Hono();
 const api = new Hono();
@@ -127,6 +128,24 @@ function toPayslipPdfInput(payroll: Payroll & { employee: Employee }) {
     fixedDeduction: payroll.fixedDeduction,
     totalDeduction: payroll.totalDeduction,
     netPay: payroll.netPay
+  };
+}
+
+function toBonusPdfInput(bonus: Bonus & { employee: Employee }) {
+  return {
+    period: bonus.period,
+    employeeNo: bonus.employee.employeeNo,
+    employeeName: bonus.employee.name,
+    bonusAmount: bonus.bonusAmount,
+    taxableIncome: bonus.taxableIncome,
+    incomeTax: bonus.incomeTax,
+    healthInsurance: bonus.healthInsurance,
+    pensionInsurance: bonus.pensionInsurance,
+    childCareSupport: bonus.childCareSupport,
+    socialInsurance: bonus.socialInsurance,
+    employmentInsurance: bonus.employmentInsurance,
+    totalDeduction: bonus.totalDeduction,
+    netPay: bonus.netPay
   };
 }
 
@@ -335,6 +354,112 @@ api.get("/payrolls", async (c) => {
     orderBy: [{ period: "desc" }, { employee: { employeeNo: "asc" } }]
   });
   return c.json(payrolls);
+});
+
+api.get("/bonuses", async (c) => {
+  const period = c.req.query("period");
+  const employeeId = c.req.query("employeeId");
+  const bonuses = await prisma.bonus.findMany({
+    where: { period: period || undefined, employeeId: employeeId || undefined },
+    include: { employee: true },
+    orderBy: [{ period: "desc" }, { employee: { employeeNo: "asc" } }]
+  });
+  return c.json(bonuses);
+});
+
+api.post("/bonuses", async (c) => {
+  const body = await c.req.json();
+  const period = String(body.period);
+  if (!isPeriod(period)) {
+    return c.json({ message: "支給月をYYYY-MM形式で指定してください" }, 400);
+  }
+  if (isPayrollLockedPeriod(period) && body.forceUpdate !== true) {
+    return c.json({
+      message: "28日以降は前月以前の賞与データを通常保存できません。強制変更を選択して保存してください。"
+    }, 423);
+  }
+
+  const employee = await prisma.employee.findUniqueOrThrow({ where: { id: String(body.employeeId) } });
+  const { fiscalYear, rates } = await getRatesForPeriod(period);
+  const bonusAmount = Math.max(0, Math.round(Number(body.bonusAmount || 0)));
+  const incomeTaxRate = Number(body.incomeTaxRate ?? rates.incomeTaxRate);
+  const healthInsuranceRate = Number(body.healthInsuranceRate ?? rates.healthInsuranceRate);
+  const pensionInsuranceRate = Number(body.pensionInsuranceRate ?? rates.pensionInsuranceRate);
+  const childCareSupportRate = Number(body.childCareSupportRate ?? rates.childCareSupportRate);
+  const employmentInsuranceRate = Number(body.employmentInsuranceRate ?? rates.employmentInsuranceRate);
+  const socialInsuranceEnrolled = body.socialInsuranceEnrolled !== false;
+  const employmentInsuranceEnrolled = employee.employmentInsuranceEnrolled !== false;
+  const socialInsuranceBaseAmount = body.socialInsuranceBaseAmount ? Number(body.socialInsuranceBaseAmount) : null;
+  const calculated = calculateBonus({
+    bonusAmount,
+    incomeTaxRate,
+    healthInsuranceRate,
+    pensionInsuranceRate,
+    childCareSupportRate,
+    employmentInsuranceRate,
+    socialInsuranceEnrolled,
+    employmentInsuranceEnrolled,
+    socialInsuranceBaseAmount: socialInsuranceBaseAmount ?? undefined
+  });
+
+  const bonus = await prisma.bonus.upsert({
+    where: { employeeId_period: { employeeId: employee.id, period } },
+    update: {
+      bonusAmount,
+      incomeTaxRate,
+      healthInsuranceRate,
+      pensionInsuranceRate,
+      childCareSupportRate,
+      employmentInsuranceRate,
+      socialInsuranceEnrolled,
+      employmentInsuranceEnrolled,
+      socialInsuranceBaseAmount,
+      fiscalYear,
+      ...calculated,
+      note: body.note || null
+    },
+    create: {
+      employeeId: employee.id,
+      period,
+      bonusAmount,
+      incomeTaxRate,
+      healthInsuranceRate,
+      pensionInsuranceRate,
+      childCareSupportRate,
+      employmentInsuranceRate,
+      socialInsuranceEnrolled,
+      employmentInsuranceEnrolled,
+      socialInsuranceBaseAmount,
+      fiscalYear,
+      ...calculated,
+      note: body.note || null
+    },
+    include: { employee: true }
+  });
+  return c.json(bonus);
+});
+
+api.get("/bonuses/:id/pdf", async (c) => {
+  try {
+    const bonus = await prisma.bonus.findUniqueOrThrow({
+      where: { id: c.req.param("id") },
+      include: { employee: true }
+    });
+    const pdf = await createBonusPdf(toBonusPdfInput(bonus));
+    const employeeName = safeFilePart(bonus.employee.name);
+    const fileName = `賞与明細_${periodForFile(bonus.period)}_${employeeName}.pdf`;
+    const fallbackFileName = `bonus-${periodForFile(bonus.period)}-${safeFilePart(bonus.employee.employeeNo)}.pdf`;
+
+    return new Response(new Uint8Array(pdf), {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": attachmentDisposition(fileName, fallbackFileName)
+      }
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Bonus PDF download failed";
+    return c.json({ message }, 500);
+  }
 });
 
 api.get("/payrolls/latest-template", async (c) => {

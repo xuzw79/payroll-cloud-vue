@@ -50,6 +50,28 @@ type Payroll = {
   employee: Employee;
 };
 
+type Bonus = {
+  id: string;
+  period: string;
+  employeeId: string;
+  bonusAmount: number;
+  incomeTaxRate: string | number;
+  socialInsuranceEnrolled: boolean;
+  socialInsuranceBaseAmount?: number | null;
+  taxableIncome: number;
+  incomeTax: number;
+  healthInsurance: number;
+  pensionInsurance: number;
+  childCareSupport: number;
+  socialInsurance: number;
+  employmentInsurance: number;
+  employmentInsuranceEnrolled: boolean;
+  totalDeduction: number;
+  netPay: number;
+  note?: string | null;
+  employee: Employee;
+};
+
 type FiscalRate = {
   id?: string;
   fiscalYear: number;
@@ -109,7 +131,12 @@ function isPayrollLockedPeriod(value: string) {
   return tokyoDateParts().day >= 28 && value < currentTokyoPeriod();
 }
 
+function monthFromPeriod(value: string) {
+  return Number(value.split("-")[1] || 0);
+}
+
 const today = initialPayrollPeriod();
+const bonusPaymentMonths = [4, 10];
 const thisFiscalYear = new Date().getMonth() + 1 >= 4 ? new Date().getFullYear() : new Date().getFullYear() - 1;
 const loggedIn = ref(false);
 const loading = ref(false);
@@ -121,6 +148,7 @@ const pdfRangeEnd = ref(today);
 const pdfOutputMode = ref<"zip" | "single">("zip");
 const employees = ref<Employee[]>([]);
 const payrolls = ref<Payroll[]>([]);
+const bonuses = ref<Bonus[]>([]);
 const fiscalRates = ref<FiscalRate[]>([]);
 const incomeTaxBrackets = ref<IncomeTaxBracket[]>([]);
 const selectedEmployeeId = ref("");
@@ -151,6 +179,12 @@ const payrollForm = reactive({
   socialInsuranceBaseAmount: 0,
   note: ""
 });
+const bonusForm = reactive({
+  bonusAmount: 0,
+  socialInsuranceEnrolled: true,
+  socialInsuranceBaseAmount: 0,
+  note: ""
+});
 const rateForm = reactive<FiscalRate>({
   fiscalYear: thisFiscalYear,
   overtimeRate: 1.25,
@@ -168,14 +202,30 @@ const taxImport = reactive({
 
 const selectedEmployee = computed(() => employees.value.find((employee) => employee.id === selectedEmployeeId.value));
 const selectedPayroll = computed(() => payrolls.value.find((payroll) => payroll.employeeId === selectedEmployeeId.value));
+const selectedBonus = computed(() => bonuses.value.find((bonus) => bonus.employeeId === selectedEmployeeId.value));
 const activeRate = computed(() => fiscalRates.value.find((rate) => rate.fiscalYear === fiscalYearFromPeriod(period.value)));
 const isPayrollLocked = computed(() => isPayrollLockedPeriod(period.value));
 const payrollLockMessage = computed(() => `${period.value}の給与データは28日以降ロックされています。変更する場合は「強制変更して保存」を押してください。`);
+const bonusLockMessage = computed(() => `${period.value}の賞与データは28日以降ロックされています。変更する場合は「強制変更して保存」を押してください。`);
+const isBonusPaymentMonth = computed(() => bonusPaymentMonths.includes(monthFromPeriod(period.value)));
+const bonusPaymentMessage = computed(() => isBonusPaymentMonth.value
+  ? `${period.value}は通常の賞与支給月です。`
+  : "通常の賞与支給月は4月末・10月末です。臨時賞与がある場合のみ入力してください。"
+);
 const totals = computed(() => payrolls.value.reduce(
   (acc, payroll) => {
     acc.gross += payroll.grossPay;
     acc.deduction += payroll.totalDeduction;
     acc.net += payroll.netPay;
+    return acc;
+  },
+  { gross: 0, deduction: 0, net: 0 }
+));
+const bonusTotals = computed(() => bonuses.value.reduce(
+  (acc, bonus) => {
+    acc.gross += bonus.bonusAmount;
+    acc.deduction += bonus.totalDeduction;
+    acc.net += bonus.netPay;
     return acc;
   },
   { gross: 0, deduction: 0, net: 0 }
@@ -204,6 +254,15 @@ function resetPayrollForm(employee: Employee) {
     residentTax: 0,
     dormitoryFee: 0,
     dependentCount: employee.defaultDependentCount || 0,
+    socialInsuranceEnrolled: true,
+    socialInsuranceBaseAmount: 0,
+    note: ""
+  });
+}
+
+function resetBonusForm() {
+  Object.assign(bonusForm, {
+    bonusAmount: 0,
     socialInsuranceEnrolled: true,
     socialInsuranceBaseAmount: 0,
     note: ""
@@ -254,6 +313,13 @@ function applyEmployee(employee?: Employee) {
   } else {
     resetPayrollForm(target);
   }
+
+  const bonus = bonuses.value.find((item) => item.employeeId === target.id);
+  if (bonus) {
+    applyBonusInput(bonus);
+  } else {
+    resetBonusForm();
+  }
 }
 
 function applyRate(rate: FiscalRate) {
@@ -292,6 +358,13 @@ function applyPayrollInput(payroll: Payroll) {
   payrollForm.note = payroll.note || "";
 }
 
+function applyBonusInput(bonus: Bonus) {
+  bonusForm.bonusAmount = bonus.bonusAmount;
+  bonusForm.socialInsuranceEnrolled = bonus.socialInsuranceEnrolled;
+  bonusForm.socialInsuranceBaseAmount = bonus.socialInsuranceBaseAmount || 0;
+  bonusForm.note = bonus.note || "";
+}
+
 async function login() {
   loading.value = true;
   message.value = "";
@@ -315,14 +388,16 @@ async function refresh() {
   loading.value = true;
   try {
     const fiscalYear = fiscalYearFromPeriod(period.value);
-    const [employeeData, payrollData, fiscalRateData, taxData] = await Promise.all([
+    const [employeeData, payrollData, bonusData, fiscalRateData, taxData] = await Promise.all([
       request<Employee[]>(`/employees?q=${encodeURIComponent(query.value)}`),
       request<Payroll[]>(`/payrolls?period=${encodeURIComponent(period.value)}`),
+      request<Bonus[]>(`/bonuses?period=${encodeURIComponent(period.value)}`),
       request<FiscalRate[]>("/fiscal-rates"),
       request<IncomeTaxBracket[]>(`/income-tax-brackets?fiscalYear=${fiscalYear}`)
     ]);
     employees.value = employeeData;
     payrolls.value = payrollData;
+    bonuses.value = bonusData;
     fiscalRates.value = fiscalRateData;
     incomeTaxBrackets.value = taxData;
     if (!selectedEmployeeId.value && employees.value[0]) applyEmployee(employees.value[0]);
@@ -401,6 +476,33 @@ async function savePayroll(forceUpdate = false) {
   }
 }
 
+async function saveBonus(forceUpdate = false) {
+  if (!selectedEmployee.value) {
+    message.value = "社員を選択してください";
+    return;
+  }
+  if (isPayrollLocked.value && !forceUpdate) {
+    message.value = bonusLockMessage.value;
+    return;
+  }
+  try {
+    await request("/bonuses", {
+      method: "POST",
+      body: JSON.stringify({
+        employeeId: selectedEmployee.value.id,
+        period: period.value,
+        forceUpdate,
+        incomeTaxRate: rateForm.incomeTaxRate,
+        ...bonusForm
+      })
+    });
+    message.value = forceUpdate ? "賞与を強制変更して保存しました。" : "賞与を保存しました。";
+    await refresh();
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : "賞与を保存できませんでした";
+  }
+}
+
 async function usePreviousPayrollInput() {
   const currentEmployeeId = employeeForm.id || selectedEmployeeId.value;
   if (!currentEmployeeId || !selectedEmployee.value) {
@@ -458,6 +560,31 @@ async function downloadPayslipPdf() {
   link.remove();
   URL.revokeObjectURL(url);
   message.value = "給与明細PDFをダウンロードしました";
+}
+
+async function downloadBonusPdf() {
+  if (!selectedBonus.value) {
+    message.value = "先に賞与を保存してください";
+    return;
+  }
+
+  const bonus = selectedBonus.value;
+  const response = await fetch(`/api/bonuses/${bonus.id}/pdf`, { credentials: "include" });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: "賞与明細PDFダウンロードに失敗しました" }));
+    throw new Error(error.message || "賞与明細PDFダウンロードに失敗しました");
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `賞与明細_${periodForFile(bonus.period)}_${safeFilePart(bonus.employee.name)}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  message.value = "賞与明細PDFをダウンロードしました";
 }
 
 async function downloadPayslipPdfRange() {
@@ -528,6 +655,33 @@ function exportCsv() {
   URL.revokeObjectURL(link.href);
 }
 
+function exportBonusCsv() {
+  const header = ["支給月", "社員番号", "氏名", "賞与額", "課税対象額", "賞与所得税", "健康・介護保険", "厚生年金保険", "子ども・子育て支援金", "社会保険合計", "雇用保険適用", "雇用保険", "控除合計", "差引支給額", "備考"];
+  const rows = bonuses.value.map((bonus) => [
+    bonus.period,
+    bonus.employee.employeeNo,
+    bonus.employee.name,
+    bonus.bonusAmount,
+    bonus.taxableIncome,
+    bonus.incomeTax,
+    bonus.healthInsurance,
+    bonus.pensionInsurance,
+    bonus.childCareSupport,
+    bonus.socialInsurance,
+    bonus.employmentInsuranceEnrolled ? "適用" : "対象外",
+    bonus.employmentInsurance,
+    bonus.totalDeduction,
+    bonus.netPay,
+    bonus.note || ""
+  ]);
+  const csv = "\ufeff" + [header, ...rows].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n");
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  link.download = `bonus-${period.value}.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
 onMounted(async () => {
   try {
     await request("/me");
@@ -559,6 +713,7 @@ onMounted(async () => {
       <div class="actions">
         <button @click="refresh"><RefreshCw :size="16" />更新</button>
         <button @click="exportCsv"><Download :size="16" />CSV出力</button>
+        <button @click="exportBonusCsv"><Download :size="16" />賞与CSV出力</button>
         <button @click="logout"><LogOut :size="16" />ログアウト</button>
       </div>
     </header>
@@ -579,6 +734,8 @@ onMounted(async () => {
       <div><span>総支給額</span><strong>{{ yen.format(totals.gross) }}</strong></div>
       <div><span>控除合計</span><strong>{{ yen.format(totals.deduction) }}</strong></div>
       <div><span>差引支給額</span><strong>{{ yen.format(totals.net) }}</strong></div>
+      <div><span>賞与支給額</span><strong>{{ yen.format(bonusTotals.gross) }}</strong></div>
+      <div><span>賞与差引額</span><strong>{{ yen.format(bonusTotals.net) }}</strong></div>
     </section>
 
     <div class="workspace">
@@ -637,6 +794,22 @@ onMounted(async () => {
             <button v-if="isPayrollLocked" class="warning" @click="savePayroll(true)"><Save :size="16" />強制変更して保存</button>
             <button @click="downloadPayslipPdf"><Download :size="16" />PDFダウンロード</button>
             <button @click="sendPayslipEmail"><Mail :size="16" />PDFメール送信</button>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+        <div class="panel-head"><h2>賞与入力</h2></div>
+        <div class="form-grid">
+          <div class="bonus-guidance full" :class="{ active: isBonusPaymentMonth }">{{ bonusPaymentMessage }}</div>
+          <label>賞与額<input v-model.number="bonusForm.bonusAmount" type="number" min="0" /></label>
+          <label>社会保険加入<select v-model="bonusForm.socialInsuranceEnrolled"><option :value="true">加入</option><option :value="false">未加入</option></select></label>
+          <label v-if="bonusForm.socialInsuranceEnrolled">社会保険適用金額<input v-model.number="bonusForm.socialInsuranceBaseAmount" type="number" min="0" placeholder="未入力時は賞与額" /></label>
+          <label class="wide">賞与備考<input v-model="bonusForm.note" /></label>
+          <div v-if="isPayrollLocked" class="lock-warning full">{{ bonusLockMessage }}</div>
+          <div class="form-actions full">
+            <button class="primary" @click="saveBonus()"><Save :size="16" />賞与保存</button>
+            <button v-if="isPayrollLocked" class="warning" @click="saveBonus(true)"><Save :size="16" />賞与を強制変更して保存</button>
+            <button @click="downloadBonusPdf"><Download :size="16" />賞与PDFダウンロード</button>
           </div>
         </div>
       </section>
@@ -702,6 +875,29 @@ onMounted(async () => {
           <p class="message">メール送信: {{ selectedPayroll.emailedAt ? new Date(selectedPayroll.emailedAt).toLocaleString("ja-JP") : "未送信" }}</p>
         </div>
         <div v-else class="empty">この社員の給与はまだ保存されていません。</div>
+
+        <div class="divider"></div>
+        <div class="panel-head"><h2>賞与明細</h2></div>
+        <div v-if="selectedBonus" class="slip">
+          <h3>{{ selectedBonus.employee.name }}</h3>
+          <p class="message">所得税率: {{ Number(selectedBonus.incomeTaxRate).toFixed(6) }}</p>
+          <dl>
+            <dt>賞与額</dt><dd>{{ yen.format(selectedBonus.bonusAmount) }}</dd>
+            <dt>課税対象額</dt><dd>{{ yen.format(selectedBonus.taxableIncome) }}</dd>
+            <dt>賞与所得税</dt><dd>{{ yen.format(selectedBonus.incomeTax) }}</dd>
+            <dt>社会保険加入</dt><dd>{{ selectedBonus.socialInsuranceEnrolled ? "加入" : "未加入" }}</dd>
+            <dt>社会保険適用金額</dt><dd>{{ selectedBonus.socialInsuranceBaseAmount ? yen.format(selectedBonus.socialInsuranceBaseAmount) : "賞与額" }}</dd>
+            <dt>健康・介護保険</dt><dd>{{ yen.format(selectedBonus.healthInsurance) }}</dd>
+            <dt>厚生年金保険</dt><dd>{{ yen.format(selectedBonus.pensionInsurance) }}</dd>
+            <dt>子ども・子育て支援金</dt><dd>{{ yen.format(selectedBonus.childCareSupport) }}</dd>
+            <dt>社会保険合計</dt><dd>{{ yen.format(selectedBonus.socialInsurance) }}</dd>
+            <dt>雇用保険適用</dt><dd>{{ selectedBonus.employmentInsuranceEnrolled ? "適用" : "対象外" }}</dd>
+            <dt>雇用保険</dt><dd>{{ yen.format(selectedBonus.employmentInsurance) }}</dd>
+            <dt>控除合計</dt><dd>{{ yen.format(selectedBonus.totalDeduction) }}</dd>
+          </dl>
+          <div class="net"><span>賞与差引支給額</span><strong>{{ yen.format(selectedBonus.netPay) }}</strong></div>
+        </div>
+        <div v-else class="empty">この社員の賞与はまだ保存されていません。</div>
       </section>
     </div>
   </main>
