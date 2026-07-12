@@ -73,16 +73,40 @@ type IncomeTaxBracket = {
 };
 
 const yen = new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", maximumFractionDigits: 0 });
-function formatYearMonth(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+function formatYearMonth(year: number, month: number) {
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+function tokyoDateParts() {
+  const parts = new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value || 0);
+  return {
+    year: value("year"),
+    month: value("month"),
+    day: value("day")
+  };
+}
+
+function currentTokyoPeriod() {
+  const { year, month } = tokyoDateParts();
+  return formatYearMonth(year, month);
 }
 
 function initialPayrollPeriod() {
-  const date = new Date();
-  if (date.getDate() <= 25) {
-    date.setMonth(date.getMonth() - 1);
+  const { year, month, day } = tokyoDateParts();
+  if (day > 25) {
+    return formatYearMonth(year, month);
   }
-  return formatYearMonth(date);
+  return month === 1 ? formatYearMonth(year - 1, 12) : formatYearMonth(year, month - 1);
+}
+
+function isPayrollLockedPeriod(value: string) {
+  return tokyoDateParts().day >= 28 && value < currentTokyoPeriod();
 }
 
 const today = initialPayrollPeriod();
@@ -145,6 +169,8 @@ const taxImport = reactive({
 const selectedEmployee = computed(() => employees.value.find((employee) => employee.id === selectedEmployeeId.value));
 const selectedPayroll = computed(() => payrolls.value.find((payroll) => payroll.employeeId === selectedEmployeeId.value));
 const activeRate = computed(() => fiscalRates.value.find((rate) => rate.fiscalYear === fiscalYearFromPeriod(period.value)));
+const isPayrollLocked = computed(() => isPayrollLockedPeriod(period.value));
+const payrollLockMessage = computed(() => `${period.value}の給与データは28日以降ロックされています。変更する場合は「強制変更して保存」を押してください。`);
 const totals = computed(() => payrolls.value.reduce(
   (acc, payroll) => {
     acc.gross += payroll.grossPay;
@@ -352,17 +378,27 @@ async function deleteEmployee() {
   await refresh();
 }
 
-async function savePayroll() {
+async function savePayroll(forceUpdate = false) {
   if (!selectedEmployee.value) {
     message.value = "社員を選択してください";
     return;
   }
-  await request("/payrolls", {
-    method: "POST",
-    body: JSON.stringify({ employeeId: selectedEmployee.value.id, period: period.value, ...payrollForm })
-  });
-  message.value = "給与を保存しました。所得税は年度表から自動で参照されます。";
-  await refresh();
+  if (isPayrollLocked.value && !forceUpdate) {
+    message.value = payrollLockMessage.value;
+    return;
+  }
+  try {
+    await request("/payrolls", {
+      method: "POST",
+      body: JSON.stringify({ employeeId: selectedEmployee.value.id, period: period.value, forceUpdate, ...payrollForm })
+    });
+    message.value = forceUpdate
+      ? "給与を強制変更して保存しました。"
+      : "給与を保存しました。所得税は年度表から自動で参照されます。";
+    await refresh();
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : "給与を保存できませんでした";
+  }
 }
 
 async function usePreviousPayrollInput() {
@@ -594,9 +630,11 @@ onMounted(async () => {
           <label>寮使用料<input v-model.number="payrollForm.dormitoryFee" type="number" min="0" /></label>
           <label>固定控除<input v-model.number="payrollForm.fixedDeduction" type="number" min="0" /></label>
           <label class="wide">備考<input v-model="payrollForm.note" /></label>
+          <div v-if="isPayrollLocked" class="lock-warning full">{{ payrollLockMessage }}</div>
           <div class="form-actions full">
             <button @click="usePreviousPayrollInput"><RefreshCw :size="16" />この社員の前回入力を利用</button>
-            <button class="primary" @click="savePayroll"><Save :size="16" />給与保存</button>
+            <button class="primary" @click="savePayroll()"><Save :size="16" />給与保存</button>
+            <button v-if="isPayrollLocked" class="warning" @click="savePayroll(true)"><Save :size="16" />強制変更して保存</button>
             <button @click="downloadPayslipPdf"><Download :size="16" />PDFダウンロード</button>
             <button @click="sendPayslipEmail"><Mail :size="16" />PDFメール送信</button>
           </div>

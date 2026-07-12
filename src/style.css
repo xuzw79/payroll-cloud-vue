@@ -48,6 +48,12 @@ button.primary {
   color: #fff;
 }
 
+button.warning {
+  border-color: #a85c00;
+  background: #a85c00;
+  color: #fff;
+}
+
 input,
 select,
 textarea {
@@ -287,6 +293,16 @@ p {
 .note {
   color: #60706c;
   font-size: 12px;
+  line-height: 1.5;
+}
+
+.lock-warning {
+  padding: 10px 12px;
+  border: 1px solid #e0a35a;
+  border-radius: 6px;
+  background: #fff6e8;
+  color: #7a4300;
+  font-size: 13px;
   line-height: 1.5;
 }
 

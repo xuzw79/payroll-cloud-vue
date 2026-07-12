@@ -60,6 +60,30 @@ function periodForFile(value: string) {
   return value.replace("-", "");
 }
 
+function tokyoDateParts() {
+  const parts = new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value || 0);
+  return {
+    year: value("year"),
+    month: value("month"),
+    day: value("day")
+  };
+}
+
+function currentTokyoPeriod() {
+  const { year, month } = tokyoDateParts();
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+function isPayrollLockedPeriod(period: string) {
+  return tokyoDateParts().day >= 28 && period < currentTokyoPeriod();
+}
+
 function attachmentDisposition(fileName: string, fallbackFileName: string) {
   return `attachment; filename="${fallbackFileName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
 }
@@ -415,6 +439,14 @@ api.get("/payrolls/pdf-range", async (c) => {
 api.post("/payrolls", async (c) => {
   const body = await c.req.json();
   const period = String(body.period);
+  if (!isPeriod(period)) {
+    return c.json({ message: "支給月をYYYY-MM形式で指定してください" }, 400);
+  }
+  if (isPayrollLockedPeriod(period) && body.forceUpdate !== true) {
+    return c.json({
+      message: "28日以降は前月以前の給与データを通常保存できません。強制変更を選択して保存してください。"
+    }, 423);
+  }
   const employee = await prisma.employee.findUniqueOrThrow({ where: { id: String(body.employeeId) } });
   const { fiscalYear, rates } = await getRatesForPeriod(period);
   const overtimeRate = Number(body.overtimeRate ?? rates.overtimeRate);
