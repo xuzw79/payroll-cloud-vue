@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Build
+        run: npm run build
+
+      - name: Prepare release metadata
+        id: meta
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v${VERSION}-${GITHUB_RUN_NUMBER}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "name=Payroll Cloud Vue ${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Package build artifact
+        run: |
+          zip -r payroll-cloud-vue-${{ steps.meta.outputs.tag }}.zip \
+            dist \
+            dist-server \
+            prisma \
+            package.json \
+            package-lock.json \
+            railway.json
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.name }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          files: payroll-cloud-vue-${{ steps.meta.outputs.tag }}.zip

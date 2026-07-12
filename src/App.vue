@@ -73,7 +73,19 @@ type IncomeTaxBracket = {
 };
 
 const yen = new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", maximumFractionDigits: 0 });
-const today = new Date().toISOString().slice(0, 7);
+function formatYearMonth(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function initialPayrollPeriod() {
+  const date = new Date();
+  if (date.getDate() <= 25) {
+    date.setMonth(date.getMonth() - 1);
+  }
+  return formatYearMonth(date);
+}
+
+const today = initialPayrollPeriod();
 const thisFiscalYear = new Date().getMonth() + 1 >= 4 ? new Date().getFullYear() : new Date().getFullYear() - 1;
 const loggedIn = ref(false);
 const loading = ref(false);
