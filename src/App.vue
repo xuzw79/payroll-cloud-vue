@@ -809,7 +809,7 @@ onMounted(async () => {
   <main v-if="!loggedIn" class="login-page">
     <form class="login-panel" @submit.prevent="login">
       <div class="login-brand">
-        <img src="/rcloud.jpg" alt="R Cloud" />
+        <img src="/logo_rcloud.png" alt="R Cloud" />
         <h1>給与管理クラウド</h1>
       </div>
       <label>メールアドレス<input v-model="loginForm.email" type="email" autocomplete="username" required /></label>
@@ -822,7 +822,7 @@ onMounted(async () => {
   <main v-else class="app-shell">
     <header class="topbar">
       <div class="brand">
-        <img src="/rcloud.jpg" alt="R Cloud" />
+        <img src="/logo_rcloud.png" alt="R Cloud" />
         <div>
         <h1>給与管理クラウド</h1>
         <p>{{ me ? `${me.name} / ${roleLabels[me.role]}` : "Vue + Hono + PostgreSQL / Railway" }}</p>
