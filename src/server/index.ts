@@ -692,6 +692,7 @@ api.get("/payrolls/pdf-range", async (c) => {
     const employeeId = c.req.query("employeeId") || "";
     const q = c.req.query("q") || "";
     const mode = c.req.query("mode") === "single" ? "single" : "zip";
+    const includeBonus = c.req.query("includeBonus") === "true";
 
     if (!isPeriod(startPeriod) || !isPeriod(endPeriod)) {
       return c.json({ message: "開始月と終了月をYYYY-MM形式で指定してください" }, 400);
@@ -700,24 +701,39 @@ api.get("/payrolls/pdf-range", async (c) => {
       return c.json({ message: "開始月は終了月以前を指定してください" }, 400);
     }
 
+    const employeeFilter = q ? {
+      OR: [
+        { name: { contains: q, mode: "insensitive" as const } },
+        { employeeNo: { contains: q, mode: "insensitive" as const } }
+      ]
+    } : undefined;
+
     const payrolls = await prisma.payroll.findMany({
       where: {
         period: { gte: startPeriod, lte: endPeriod },
         employeeId: employeeId || undefined,
-        employee: q ? {
-          OR: [
-            { name: { contains: q, mode: "insensitive" } },
-            { employeeNo: { contains: q, mode: "insensitive" } }
-          ]
-        } : undefined
+        employee: employeeFilter
       },
       include: { employee: true },
       orderBy: [{ period: "asc" }, { employee: { employeeNo: "asc" } }]
     });
 
-    if (!payrolls.length) {
-      return c.json({ message: "指定範囲の保存済み給与がありません" }, 404);
+    const bonuses = includeBonus ? await prisma.bonus.findMany({
+      where: {
+        period: { gte: startPeriod, lte: endPeriod },
+        employeeId: employeeId || undefined,
+        employee: employeeFilter
+      },
+      include: { employee: true },
+      orderBy: [{ period: "asc" }, { employee: { employeeNo: "asc" } }]
+    }) : [];
+
+    if (!payrolls.length && !bonuses.length) {
+      return c.json({ message: includeBonus ? "指定範囲の保存済み給与・賞与がありません" : "指定範囲の保存済み給与がありません" }, 404);
     }
+
+    const filePrefix = includeBonus ? "給与賞与明細" : "給与明細";
+    const fallbackPrefix = includeBonus ? "payroll-bonus-statements" : "payslips";
 
     if (mode === "single") {
       const merged = await PDFDocument.create();
@@ -727,9 +743,15 @@ api.get("/payrolls/pdf-range", async (c) => {
         const pages = await merged.copyPages(source, source.getPageIndices());
         pages.forEach((page) => merged.addPage(page));
       }
+      for (const bonus of bonuses) {
+        const pdf = await createBonusPdf(toBonusPdfInput(bonus));
+        const source = await PDFDocument.load(pdf);
+        const pages = await merged.copyPages(source, source.getPageIndices());
+        pages.forEach((page) => merged.addPage(page));
+      }
       const mergedPdf = await merged.save();
-      const fileName = `給与明細_${periodForFile(startPeriod)}_${periodForFile(endPeriod)}.pdf`;
-      const fallbackFileName = `payslips-${periodForFile(startPeriod)}-${periodForFile(endPeriod)}.pdf`;
+      const fileName = `${filePrefix}_${periodForFile(startPeriod)}_${periodForFile(endPeriod)}.pdf`;
+      const fallbackFileName = `${fallbackPrefix}-${periodForFile(startPeriod)}-${periodForFile(endPeriod)}.pdf`;
 
       return new Response(new Uint8Array(mergedPdf), {
         headers: {
@@ -745,10 +767,15 @@ api.get("/payrolls/pdf-range", async (c) => {
       const employeeName = safeFilePart(payroll.employee.name);
       zip.file(`${periodForFile(payroll.period)}/給与明細_${periodForFile(payroll.period)}_${employeeName}.pdf`, pdf);
     }
+    for (const bonus of bonuses) {
+      const pdf = await createBonusPdf(toBonusPdfInput(bonus));
+      const employeeName = safeFilePart(bonus.employee.name);
+      zip.file(`${periodForFile(bonus.period)}/賞与明細_${periodForFile(bonus.period)}_${employeeName}.pdf`, pdf);
+    }
 
     const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
-    const fileName = `給与明細_${periodForFile(startPeriod)}_${periodForFile(endPeriod)}.zip`;
-    const fallbackFileName = `payslips-${periodForFile(startPeriod)}-${periodForFile(endPeriod)}.zip`;
+    const fileName = `${filePrefix}_${periodForFile(startPeriod)}_${periodForFile(endPeriod)}.zip`;
+    const fallbackFileName = `${fallbackPrefix}-${periodForFile(startPeriod)}-${periodForFile(endPeriod)}.zip`;
 
     return new Response(new Uint8Array(zipBuffer), {
       headers: {
