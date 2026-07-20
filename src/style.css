@@ -576,14 +576,58 @@ dd {
     justify-content: flex-start;
   }
 
-  label,
+  .workspace,
+  .summary,
+  .filter-row,
+  .form-grid,
+  .form-grid.compact {
+    grid-template-columns: 1fr;
+  }
+
+  .payslip {
+    grid-column: auto;
+  }
+
   dl,
   .net {
     grid-template-columns: 120px minmax(0, 1fr);
   }
 
   label {
-    background: linear-gradient(to right, #d9d9d9 0 120px, #fff 120px);
-    font-size: 12px;
+    grid-template-columns: 1fr;
+    background: #fff;
+    font-size: 13px;
+  }
+
+  label::before {
+    content: "";
+    display: none;
+  }
+
+  label > input,
+  label > select,
+  label > textarea {
+    grid-column: 1;
+    border-width: 1px 0 0;
+  }
+
+  label {
+    padding-top: 0;
+  }
+
+  label {
+    background: linear-gradient(to bottom, #d9d9d9 0 34px, #fff 34px);
+  }
+
+  .panel-head {
+    min-height: 42px;
+  }
+
+  .panel-head h2 {
+    overflow-wrap: anywhere;
+  }
+
+  .panel-head button {
+    flex-shrink: 0;
   }
 }
