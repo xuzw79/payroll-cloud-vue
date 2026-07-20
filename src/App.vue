@@ -451,10 +451,11 @@ async function refresh() {
   loading.value = true;
   try {
     const fiscalYear = fiscalYearFromPeriod(period.value);
+    const q = encodeURIComponent(query.value);
     const [employeeData, payrollData, bonusData, fiscalRateData, taxData] = await Promise.all([
-      request<Employee[]>(`/employees?q=${encodeURIComponent(query.value)}`),
-      request<Payroll[]>(`/payrolls?period=${encodeURIComponent(period.value)}`),
-      request<Bonus[]>(`/bonuses?period=${encodeURIComponent(period.value)}`),
+      request<Employee[]>(`/employees?q=${q}`),
+      request<Payroll[]>(`/payrolls?period=${encodeURIComponent(period.value)}&q=${q}`),
+      request<Bonus[]>(`/bonuses?period=${encodeURIComponent(period.value)}&q=${q}`),
       request<FiscalRate[]>("/fiscal-rates"),
       request<IncomeTaxBracket[]>(`/income-tax-brackets?fiscalYear=${fiscalYear}`)
     ]);

@@ -534,8 +534,18 @@ api.delete("/employees/:id", async (c) => {
 api.get("/payrolls", async (c) => {
   const period = c.req.query("period");
   const employeeId = readableEmployeeId(c, c.req.query("employeeId"));
+  const q = c.req.query("q") || "";
   const payrolls = await prisma.payroll.findMany({
-    where: { period: period || undefined, employeeId: employeeId || undefined },
+    where: {
+      period: period || undefined,
+      employeeId: employeeId || undefined,
+      employee: q ? {
+        OR: [
+          { name: { contains: q, mode: "insensitive" } },
+          { employeeNo: { contains: q, mode: "insensitive" } }
+        ]
+      } : undefined
+    },
     include: { employee: true },
     orderBy: [{ period: "desc" }, { employee: { employeeNo: "asc" } }]
   });
@@ -545,8 +555,18 @@ api.get("/payrolls", async (c) => {
 api.get("/bonuses", async (c) => {
   const period = c.req.query("period");
   const employeeId = readableEmployeeId(c, c.req.query("employeeId"));
+  const q = c.req.query("q") || "";
   const bonuses = await prisma.bonus.findMany({
-    where: { period: period || undefined, employeeId: employeeId || undefined },
+    where: {
+      period: period || undefined,
+      employeeId: employeeId || undefined,
+      employee: q ? {
+        OR: [
+          { name: { contains: q, mode: "insensitive" } },
+          { employeeNo: { contains: q, mode: "insensitive" } }
+        ]
+      } : undefined
+    },
     include: { employee: true },
     orderBy: [{ period: "desc" }, { employee: { employeeNo: "asc" } }]
   });
