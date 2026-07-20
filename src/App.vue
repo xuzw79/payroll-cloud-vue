@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { Download, LogOut, Mail, Plus, RefreshCw, Save, Search, Trash2, Upload } from "lucide-vue-next";
 
 type PayType = "MONTHLY" | "HOURLY";
@@ -784,7 +784,23 @@ function exportBonusCsv() {
   URL.revokeObjectURL(link.href);
 }
 
+function togglePanelSection(event: MouseEvent) {
+  const target = event.target as HTMLElement | null;
+  const head = target?.closest(".panel-head") as HTMLElement | null;
+  if (!head || target?.closest("button")) return;
+
+  const collapsed = !head.classList.contains("collapsed");
+  head.classList.toggle("collapsed", collapsed);
+
+  let current = head.nextElementSibling as HTMLElement | null;
+  while (current && !current.classList.contains("panel-head")) {
+    current.hidden = collapsed;
+    current = current.nextElementSibling as HTMLElement | null;
+  }
+}
+
 onMounted(async () => {
+  document.addEventListener("click", togglePanelSection);
   try {
     me.value = await request<AppUser>("/me");
     loggedIn.value = true;
@@ -793,6 +809,10 @@ onMounted(async () => {
     loggedIn.value = false;
     me.value = null;
   }
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("click", togglePanelSection);
 });
 </script>
 
@@ -822,14 +842,18 @@ onMounted(async () => {
     </header>
 
     <section class="filters">
-      <label>支給月<input v-model="period" type="month" @change="refresh" /></label>
-      <label v-if="canViewAll">社員検索<input v-model="query" placeholder="氏名・社員番号" @keyup.enter="refresh" /></label>
-      <button v-if="canViewAll" class="primary" @click="refresh"><Search :size="16" />検索</button>
-      <label v-if="canViewAll">PDF開始月<input v-model="pdfRangeStart" type="month" /></label>
-      <label v-if="canViewAll">PDF終了月<input v-model="pdfRangeEnd" type="month" /></label>
-      <label v-if="canViewAll">PDF出力形式<select v-model="pdfOutputMode"><option value="zip">個別PDFをZIP</option><option value="single">1つのPDF</option></select></label>
-      <label v-if="canViewAll" class="inline-check"><input v-model="pdfIncludeBonus" type="checkbox" />賞与含み</label>
-      <button v-if="canViewAll" @click="downloadPayslipPdfRange"><Download :size="16" />PDF一括DL</button>
+      <div class="filter-row search-row">
+        <label>支給月<input v-model="period" type="month" @change="refresh" /></label>
+        <label v-if="canViewAll">社員検索<input v-model="query" placeholder="氏名・社員番号" @keyup.enter="refresh" /></label>
+        <button v-if="canViewAll" class="primary" @click="refresh"><Search :size="16" />検索</button>
+      </div>
+      <div v-if="canViewAll" class="filter-row download-row">
+        <label>PDF開始月<input v-model="pdfRangeStart" type="month" /></label>
+        <label>PDF終了月<input v-model="pdfRangeEnd" type="month" /></label>
+        <label>PDF出力形式<select v-model="pdfOutputMode"><option value="zip">個別PDFをZIP</option><option value="single">1つのPDF</option></select></label>
+        <label class="inline-check"><input v-model="pdfIncludeBonus" type="checkbox" />賞与含み</label>
+        <button @click="downloadPayslipPdfRange"><Download :size="16" />PDF一括DL</button>
+      </div>
       <span v-if="message" class="message">{{ message }}</span>
     </section>
 

@@ -16,6 +16,7 @@ body {
   min-height: 100vh;
   background: #f4f4f4;
   font-size: 14px;
+  line-height: 1.45;
 }
 
 button,
@@ -83,13 +84,13 @@ textarea:focus {
 
 label {
   display: grid;
-  grid-template-columns: 160px minmax(0, 1fr);
+  grid-template-columns: 136px minmax(0, 1fr);
   align-items: center;
   min-height: 36px;
   border: 1px solid #c9d0da;
-  background: linear-gradient(to right, #cfcfcf 0 160px, #fff 160px);
+  background: linear-gradient(to right, #d9d9d9 0 136px, #fff 136px);
   color: #111;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   line-height: 1.35;
   overflow: hidden;
@@ -138,7 +139,7 @@ p {
 .app-shell {
   max-width: none;
   margin: 0;
-  padding: 0 8px 18px;
+  padding: 0 14px 18px;
 }
 
 .topbar {
@@ -147,7 +148,7 @@ p {
   align-items: center;
   gap: 14px;
   min-height: 37px;
-  margin: 0 -8px 40px;
+  margin: 0 -14px 16px;
   padding: 4px 10px;
   background: #5481cf;
   color: #fff;
@@ -181,18 +182,30 @@ p {
 .filters,
 .summary,
 .workspace {
-  margin-bottom: 20px;
+  margin-bottom: 14px;
 }
 
 .filters {
   display: grid;
-  grid-template-columns: repeat(4, minmax(180px, 1fr)) auto auto;
-  align-items: end;
-  gap: 6px;
+  gap: 7px;
   padding: 8px;
   border: 1px solid #c9d0da;
   border-radius: 4px;
   background: #fff;
+}
+
+.filter-row {
+  display: grid;
+  align-items: end;
+  gap: 8px;
+}
+
+.search-row {
+  grid-template-columns: 220px minmax(260px, 1fr) auto;
+}
+
+.download-row {
+  grid-template-columns: 220px 220px minmax(220px, 1fr) auto auto;
 }
 
 .inline-check {
@@ -221,7 +234,7 @@ p {
 .summary {
   display: grid;
   grid-template-columns: repeat(6, minmax(120px, 1fr));
-  gap: 6px;
+  gap: 8px;
 }
 
 .summary div {
@@ -233,7 +246,7 @@ p {
 
 .summary span {
   padding: 6px 8px;
-  background: #cfcfcf;
+  background: #d9d9d9;
   color: #111;
   font-size: 13px;
   font-weight: 700;
@@ -249,8 +262,8 @@ p {
 
 .workspace {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 36px;
+  grid-template-columns: 250px minmax(560px, 1fr) 380px;
+  gap: 14px;
   align-items: start;
 }
 
@@ -268,22 +281,31 @@ p {
   justify-content: space-between;
   gap: 10px;
   min-height: 36px;
-  padding: 4px 9px 4px 46px;
+  padding: 4px 10px 4px 34px;
   border-bottom: 1px solid #466fb4;
   background: #5481cf;
   color: #fff;
   position: relative;
+  cursor: pointer;
+  user-select: none;
 }
 
 .panel-head::before {
-  content: "^";
+  content: "";
   position: absolute;
   left: 12px;
-  top: 6px;
+  top: 13px;
+  width: 8px;
+  height: 8px;
+  border-top: 3px solid #fff;
+  border-left: 3px solid #fff;
+  transform: rotate(45deg);
   color: #fff;
-  font-size: 24px;
-  font-weight: 700;
-  line-height: 1;
+}
+
+.panel-head.collapsed::before {
+  top: 9px;
+  transform: rotate(225deg);
 }
 
 .panel-head h2 {
@@ -338,13 +360,13 @@ p {
 
 .form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 5px 8px;
-  padding: 9px;
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+  gap: 8px;
+  padding: 10px;
 }
 
 .form-grid.compact {
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
 }
 
 .wide,
@@ -430,7 +452,7 @@ dd {
 }
 
 dt {
-  background: #cfcfcf;
+  background: #d9d9d9;
   color: #111;
   font-weight: 700;
 }
@@ -454,7 +476,7 @@ dd {
 }
 
 .net span {
-  background: #cfcfcf;
+  background: #d9d9d9;
   color: #111;
   font-size: 13px;
   font-weight: 700;
@@ -475,27 +497,35 @@ dd {
 @media (max-width: 1180px) {
   .filters,
   .summary,
-  .workspace,
+  .filter-row,
   .form-grid,
   .form-grid.compact {
     grid-template-columns: 1fr;
   }
 
+  .workspace {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+
+  .payslip {
+    grid-column: 1 / -1;
+  }
+
   label {
-    grid-template-columns: 150px minmax(0, 1fr);
-    background: linear-gradient(to right, #cfcfcf 0 150px, #fff 150px);
+    grid-template-columns: 132px minmax(0, 1fr);
+    background: linear-gradient(to right, #d9d9d9 0 132px, #fff 132px);
   }
 }
 
 @media (max-width: 760px) {
   .app-shell {
-    padding: 0 6px 14px;
+    padding: 0 8px 14px;
   }
 
   .topbar {
     align-items: stretch;
     flex-direction: column;
-    margin: 0 -6px 18px;
+    margin: 0 -8px 14px;
   }
 
   .actions {
@@ -509,7 +539,7 @@ dd {
   }
 
   label {
-    background: linear-gradient(to right, #cfcfcf 0 120px, #fff 120px);
+    background: linear-gradient(to right, #d9d9d9 0 120px, #fff 120px);
     font-size: 12px;
   }
 }
