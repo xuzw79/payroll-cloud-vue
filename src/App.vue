@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { Download, LogOut, Mail, Plus, RefreshCw, Save, Search, Trash2, Upload } from "lucide-vue-next";
 
 type PayType = "MONTHLY" | "HOURLY";
@@ -172,6 +172,7 @@ const users = ref<AppUser[]>([]);
 const fiscalRates = ref<FiscalRate[]>([]);
 const incomeTaxBrackets = ref<IncomeTaxBracket[]>([]);
 const selectedEmployeeId = ref("");
+const collapsedSections = reactive<Record<string, boolean>>({});
 
 const loginForm = reactive({ email: "admin@example.com", password: "" });
 const userForm = reactive({
@@ -784,23 +785,15 @@ function exportBonusCsv() {
   URL.revokeObjectURL(link.href);
 }
 
-function togglePanelSection(event: MouseEvent) {
-  const target = event.target as HTMLElement | null;
-  const head = target?.closest(".panel-head") as HTMLElement | null;
-  if (!head || target?.closest("button")) return;
+function toggleSection(id: string) {
+  collapsedSections[id] = !collapsedSections[id];
+}
 
-  const collapsed = !head.classList.contains("collapsed");
-  head.classList.toggle("collapsed", collapsed);
-
-  let current = head.nextElementSibling as HTMLElement | null;
-  while (current && !current.classList.contains("panel-head")) {
-    current.hidden = collapsed;
-    current = current.nextElementSibling as HTMLElement | null;
-  }
+function sectionHeadClass(id: string) {
+  return { collapsed: collapsedSections[id] };
 }
 
 onMounted(async () => {
-  document.addEventListener("click", togglePanelSection);
   try {
     me.value = await request<AppUser>("/me");
     loggedIn.value = true;
@@ -809,10 +802,6 @@ onMounted(async () => {
     loggedIn.value = false;
     me.value = null;
   }
-});
-
-onBeforeUnmount(() => {
-  document.removeEventListener("click", togglePanelSection);
 });
 </script>
 
@@ -868,13 +857,14 @@ onBeforeUnmount(() => {
 
     <div class="workspace">
       <section class="panel employee-list">
-        <div class="panel-head">
+        <div class="panel-head" :class="sectionHeadClass('employees')" @click="toggleSection('employees')">
           <h2>社員</h2>
-          <button v-if="canEditPayroll" @click="applyEmployee()"><Plus :size="16" />追加</button>
+          <button v-if="canEditPayroll" @click.stop="applyEmployee()"><Plus :size="16" />追加</button>
         </div>
         <button
           v-for="employee in employees"
           :key="employee.id"
+          v-show="!collapsedSections.employees"
           class="employee-item"
           :class="{ active: employee.id === selectedEmployeeId }"
           @click="applyEmployee(employee)"
@@ -885,8 +875,8 @@ onBeforeUnmount(() => {
       </section>
 
       <section class="panel">
-        <div class="panel-head"><h2>社員・給与入力</h2></div>
-        <div v-if="canEditPayroll" class="form-grid">
+        <div class="panel-head" :class="sectionHeadClass('employeePayroll')" @click="toggleSection('employeePayroll')"><h2>社員・給与入力</h2></div>
+        <div v-if="canEditPayroll" v-show="!collapsedSections.employeePayroll" class="form-grid">
           <label>社員番号<input v-model="employeeForm.employeeNo" /></label>
           <label>氏名<input v-model="employeeForm.name" /></label>
           <label>メール<input v-model="employeeForm.email" type="email" /></label>
@@ -903,11 +893,11 @@ onBeforeUnmount(() => {
         </div>
 
         <div v-if="canManageUsers" class="divider"></div>
-        <div v-if="canManageUsers" class="panel-head">
+        <div v-if="canManageUsers" class="panel-head" :class="sectionHeadClass('users')" @click="toggleSection('users')">
           <h2>ユーザー権限管理</h2>
-          <button @click="applyUser()"><Plus :size="16" />ユーザー追加</button>
+          <button @click.stop="applyUser()"><Plus :size="16" />ユーザー追加</button>
         </div>
-        <div v-if="canManageUsers" class="form-grid">
+        <div v-if="canManageUsers" v-show="!collapsedSections.users" class="form-grid">
           <label>メール<input v-model="userForm.email" type="email" /></label>
           <label>氏名<input v-model="userForm.name" /></label>
           <label>ロール<select v-model="userForm.role">
@@ -927,17 +917,17 @@ onBeforeUnmount(() => {
             <button class="primary" @click="saveUser"><Save :size="16" />ユーザー保存</button>
           </div>
         </div>
-        <div v-if="canManageUsers" class="user-list">
+        <div v-if="canManageUsers" v-show="!collapsedSections.users" class="user-list">
           <button v-for="user in users" :key="user.id" class="user-item" @click="applyUser(user)">
             <strong>{{ user.name }}</strong>
             <span>{{ user.email }} / {{ roleLabels[user.role] }}{{ user.employee ? ` / ${user.employee.name}` : "" }} / {{ user.isActive ? "有効" : "停止" }}</span>
           </button>
         </div>
 
-        <div v-if="!canEditPayroll" class="empty">閲覧権限です。給与・賞与の保存操作はできません。</div>
+        <div v-if="!canEditPayroll" v-show="!collapsedSections.employeePayroll" class="empty">閲覧権限です。給与・賞与の保存操作はできません。</div>
 
-        <div v-if="canEditPayroll" class="divider"></div>
-        <div v-if="canEditPayroll" class="form-grid">
+        <div v-if="canEditPayroll" v-show="!collapsedSections.employeePayroll" class="divider"></div>
+        <div v-if="canEditPayroll" v-show="!collapsedSections.employeePayroll" class="form-grid">
           <label>所定労働日数<input v-model.number="payrollForm.workDays" type="number" min="0" step="0.5" /></label>
           <label>実働時間<input v-model.number="payrollForm.workHours" type="number" min="0" step="0.25" /></label>
           <label>残業時間<input v-model.number="payrollForm.overtimeHours" type="number" min="0" step="0.25" /></label>
@@ -960,8 +950,8 @@ onBeforeUnmount(() => {
         </div>
 
         <div v-if="canEditPayroll" class="divider"></div>
-        <div v-if="canEditPayroll" class="panel-head"><h2>賞与入力</h2></div>
-        <div v-if="canEditPayroll" class="form-grid">
+        <div v-if="canEditPayroll" class="panel-head" :class="sectionHeadClass('bonusInput')" @click="toggleSection('bonusInput')"><h2>賞与入力</h2></div>
+        <div v-if="canEditPayroll" v-show="!collapsedSections.bonusInput" class="form-grid">
           <div class="bonus-guidance full" :class="{ active: isBonusPaymentMonth }">{{ bonusPaymentMessage }}</div>
           <label>賞与額<input v-model.number="bonusForm.bonusAmount" type="number" min="0" /></label>
           <label>社会保険加入<select v-model="bonusForm.socialInsuranceEnrolled"><option :value="true">加入</option><option :value="false">未加入</option></select></label>
@@ -977,8 +967,8 @@ onBeforeUnmount(() => {
       </section>
 
       <section class="panel payslip">
-        <div v-if="canEditPayroll" class="panel-head"><h2>年度料率</h2></div>
-        <div v-if="canEditPayroll" class="form-grid compact">
+        <div v-if="canEditPayroll" class="panel-head" :class="sectionHeadClass('rates')" @click="toggleSection('rates')"><h2>年度料率</h2></div>
+        <div v-if="canEditPayroll" v-show="!collapsedSections.rates" class="form-grid compact">
           <label>年度<input v-model.number="rateForm.fiscalYear" type="number" /></label>
           <label>残業割増率<input v-model.number="rateForm.overtimeRate" type="number" step="0.000001" /></label>
           <label>所得税率（表なし時）<input v-model.number="rateForm.incomeTaxRate" type="number" step="0.000001" /></label>
@@ -991,15 +981,15 @@ onBeforeUnmount(() => {
             <button class="primary" @click="saveRate"><Save :size="16" />年度料率保存</button>
           </div>
         </div>
-        <div v-if="canEditPayroll" class="rate-list">
+        <div v-if="canEditPayroll" v-show="!collapsedSections.rates" class="rate-list">
           <button v-for="rate in fiscalRates" :key="rate.fiscalYear" @click="applyRate(rate)">
             {{ rate.fiscalYear }}年度
           </button>
         </div>
 
         <div v-if="canEditPayroll" class="divider"></div>
-        <div v-if="canEditPayroll" class="panel-head"><h2>所得税表インポート</h2></div>
-        <div v-if="canEditPayroll" class="tax-import">
+        <div v-if="canEditPayroll" class="panel-head" :class="sectionHeadClass('taxImport')" @click="toggleSection('taxImport')"><h2>所得税表インポート</h2></div>
+        <div v-if="canEditPayroll" v-show="!collapsedSections.taxImport" class="tax-import">
           <p class="note">CSV列: fiscalYear, dependentCount, minTaxable, maxTaxable, taxAmount</p>
           <textarea v-model="taxImport.csv" rows="6"></textarea>
           <div class="form-actions">
@@ -1009,8 +999,8 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="divider"></div>
-        <div class="panel-head"><h2>給与明細</h2></div>
-        <div v-if="selectedPayroll" class="slip">
+        <div class="panel-head" :class="sectionHeadClass('payrollSlip')" @click="toggleSection('payrollSlip')"><h2>給与明細</h2></div>
+        <div v-if="selectedPayroll" v-show="!collapsedSections.payrollSlip" class="slip">
           <h3>{{ selectedPayroll.employee.name }}</h3>
           <p class="message">適用年度: {{ activeRate?.fiscalYear || fiscalYearFromPeriod(period) }}年度</p>
           <dl>
@@ -1039,11 +1029,11 @@ onBeforeUnmount(() => {
             <button @click="downloadPayslipPdf"><Download :size="16" />給与PDFダウンロード</button>
           </div>
         </div>
-        <div v-else class="empty">この社員の給与はまだ保存されていません。</div>
+        <div v-else v-show="!collapsedSections.payrollSlip" class="empty">この社員の給与はまだ保存されていません。</div>
 
         <div class="divider"></div>
-        <div class="panel-head"><h2>賞与明細</h2></div>
-        <div v-if="selectedBonus" class="slip">
+        <div class="panel-head" :class="sectionHeadClass('bonusSlip')" @click="toggleSection('bonusSlip')"><h2>賞与明細</h2></div>
+        <div v-if="selectedBonus" v-show="!collapsedSections.bonusSlip" class="slip">
           <h3>{{ selectedBonus.employee.name }}</h3>
           <p class="message">所得税率: {{ Number(selectedBonus.incomeTaxRate).toFixed(6) }}</p>
           <dl>
@@ -1065,7 +1055,7 @@ onBeforeUnmount(() => {
             <button @click="downloadBonusPdf"><Download :size="16" />賞与PDFダウンロード</button>
           </div>
         </div>
-        <div v-else class="empty">この社員の賞与はまだ保存されていません。</div>
+        <div v-else v-show="!collapsedSections.bonusSlip" class="empty">この社員の賞与はまだ保存されていません。</div>
       </section>
     </div>
   </main>
