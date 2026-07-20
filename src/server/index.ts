@@ -1,11 +1,13 @@
+import { pbkdf2Sync, randomBytes, timingSafeEqual } from "node:crypto";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
-import type { Bonus, Employee, Payroll } from "@prisma/client";
+import type { AppUser, Bonus, Employee, Payroll, UserRole } from "@prisma/client";
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
 import JSZip from "jszip";
 import { PDFDocument } from "pdf-lib";
-import { cookieName, createSession, requireAuth } from "./auth.js";
+import { cookieName, createSession, requireAuth, type SessionUser } from "./auth.js";
 import { prisma } from "./db.js";
 import { sendPayslipMail } from "./mailer.js";
 import { createBonusPdf } from "./bonusPdf.js";
@@ -14,6 +16,88 @@ import { calculateBonus, calculatePayroll } from "./payroll.js";
 
 const app = new Hono();
 const api = new Hono();
+
+const roleRank: Record<UserRole, number> = {
+  EMPLOYEE: 0,
+  VIEWER: 1,
+  ACCOUNTING: 2,
+  ADMIN: 3
+};
+
+function hashPassword(password: string) {
+  const salt = randomBytes(16).toString("base64url");
+  const hash = pbkdf2Sync(password, salt, 120000, 32, "sha256").toString("base64url");
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password: string, stored: string) {
+  const [salt, hash] = stored.split(":");
+  if (!salt || !hash) return false;
+  const actual = pbkdf2Sync(password, salt, 120000, 32, "sha256");
+  const expected = Buffer.from(hash, "base64url");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+function publicUser(user: AppUser & { employee?: Employee | null }) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    employeeId: user.employeeId,
+    isActive: user.isActive,
+    employee: user.employee ? {
+      id: user.employee.id,
+      employeeNo: user.employee.employeeNo,
+      name: user.employee.name
+    } : null
+  };
+}
+
+async function ensureBootstrapAdmin() {
+  const adminEmail = process.env.ADMIN_EMAIL;
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  if (!adminEmail || !adminPassword) return null;
+
+  const existing = await prisma.appUser.findUnique({ where: { email: adminEmail } });
+  if (existing) return existing;
+
+  return prisma.appUser.create({
+    data: {
+      email: adminEmail,
+      name: "Administrator",
+      role: "ADMIN",
+      passwordHash: hashPassword(adminPassword)
+    }
+  });
+}
+
+function currentUser(c: Context) {
+  return c.get("user") as SessionUser;
+}
+
+function hasRole(user: SessionUser, role: UserRole) {
+  return roleRank[user.role] >= roleRank[role];
+}
+
+function requireRole(c: Context, role: UserRole) {
+  const user = currentUser(c);
+  if (!hasRole(user, role)) {
+    return c.json({ message: "権限がありません" }, 403);
+  }
+  return null;
+}
+
+function readableEmployeeId(c: Context, requestedEmployeeId?: string | null) {
+  const user = currentUser(c);
+  if (user.role !== "EMPLOYEE") return requestedEmployeeId || undefined;
+  return user.employeeId || "__none__";
+}
+
+function canAccessEmployee(c: Context, employeeId: string) {
+  const user = currentUser(c);
+  return user.role !== "EMPLOYEE" || user.employeeId === employeeId;
+}
 
 function periodToFiscalYear(period: string) {
   const [year, month] = period.split("-").map(Number);
@@ -150,25 +234,30 @@ function toBonusPdfInput(bonus: Bonus & { employee: Employee }) {
 }
 
 api.post("/login", async (c) => {
-  const adminEmail = process.env.ADMIN_EMAIL;
-  const adminPassword = process.env.ADMIN_PASSWORD;
+  const body = await c.req.json<{ email?: string; password?: string }>();
+  await ensureBootstrapAdmin();
 
-  if (!adminEmail || !adminPassword) {
-    return c.json({ message: "ADMIN_EMAIL and ADMIN_PASSWORD must be set" }, 500);
+  const user = await prisma.appUser.findFirst({
+    where: { email: String(body.email || ""), isActive: true }
+  });
+  if (!user || !verifyPassword(String(body.password || ""), user.passwordHash)) {
+    return c.json({ message: "Invalid email or password" }, 401);
   }
 
-  const body = await c.req.json<{ email?: string; password?: string }>();
-  const ok = body.email === adminEmail && body.password === adminPassword;
-  if (!ok) return c.json({ message: "Invalid email or password" }, 401);
-
-  setCookie(c, cookieName, createSession(adminEmail), {
+  setCookie(c, cookieName, createSession({
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    employeeId: user.employeeId
+  }), {
     httpOnly: true,
     sameSite: "Lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: 60 * 60 * 12
   });
-  return c.json({ email: adminEmail });
+  return c.json(publicUser(user));
 });
 
 api.post("/logout", (c) => {
@@ -178,7 +267,84 @@ api.post("/logout", (c) => {
 
 api.use("*", requireAuth);
 
-api.get("/me", (c) => c.json({ email: process.env.ADMIN_EMAIL ?? "" }));
+api.get("/me", (c) => c.json(currentUser(c)));
+
+api.get("/users", async (c) => {
+  const denied = requireRole(c, "ADMIN");
+  if (denied) return denied;
+
+  const users = await prisma.appUser.findMany({
+    include: { employee: true },
+    orderBy: [{ role: "asc" }, { email: "asc" }]
+  });
+  return c.json(users.map(publicUser));
+});
+
+api.post("/users", async (c) => {
+  const denied = requireRole(c, "ADMIN");
+  if (denied) return denied;
+
+  const body = await c.req.json();
+  const password = String(body.password || "");
+  if (password.length < 8) {
+    return c.json({ message: "パスワードは8文字以上にしてください" }, 400);
+  }
+
+  const role = ["ADMIN", "ACCOUNTING", "VIEWER", "EMPLOYEE"].includes(String(body.role))
+    ? String(body.role) as UserRole
+    : "VIEWER";
+  const user = await prisma.appUser.create({
+    data: {
+      email: String(body.email),
+      name: String(body.name || body.email),
+      role,
+      employeeId: role === "EMPLOYEE" ? body.employeeId || null : body.employeeId || null,
+      passwordHash: hashPassword(password),
+      isActive: body.isActive !== false
+    },
+    include: { employee: true }
+  });
+  return c.json(publicUser(user), 201);
+});
+
+api.put("/users/:id", async (c) => {
+  const denied = requireRole(c, "ADMIN");
+  if (denied) return denied;
+
+  const body = await c.req.json();
+  const role = ["ADMIN", "ACCOUNTING", "VIEWER", "EMPLOYEE"].includes(String(body.role))
+    ? String(body.role) as UserRole
+    : "VIEWER";
+  const password = String(body.password || "");
+  const user = await prisma.appUser.update({
+    where: { id: c.req.param("id") },
+    data: {
+      email: String(body.email),
+      name: String(body.name || body.email),
+      role,
+      employeeId: body.employeeId || null,
+      isActive: body.isActive !== false,
+      ...(password ? { passwordHash: hashPassword(password) } : {})
+    },
+    include: { employee: true }
+  });
+  return c.json(publicUser(user));
+});
+
+api.delete("/users/:id", async (c) => {
+  const denied = requireRole(c, "ADMIN");
+  if (denied) return denied;
+  if (c.req.param("id") === currentUser(c).id) {
+    return c.json({ message: "自分自身は停止できません" }, 400);
+  }
+
+  const user = await prisma.appUser.update({
+    where: { id: c.req.param("id") },
+    data: { isActive: false },
+    include: { employee: true }
+  });
+  return c.json(publicUser(user));
+});
 
 api.get("/settings", async (c) => {
   const currentFiscalYear = new Date().getFullYear();
@@ -191,6 +357,9 @@ api.get("/settings", async (c) => {
 });
 
 api.put("/settings", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
   const body = await c.req.json();
   const healthInsuranceRate = Number(body.healthInsuranceRate ?? Number(body.socialInsuranceRate || 0) / 2);
   const pensionInsuranceRate = Number(body.pensionInsuranceRate ?? Number(body.socialInsuranceRate || 0) / 2);
@@ -229,6 +398,9 @@ api.get("/fiscal-rates", async (c) => {
 });
 
 api.post("/fiscal-rates", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
   const body = await c.req.json();
   const healthInsuranceRate = Number(body.healthInsuranceRate ?? Number(body.socialInsuranceRate || 0) / 2);
   const pensionInsuranceRate = Number(body.pensionInsuranceRate ?? Number(body.socialInsuranceRate || 0) / 2);
@@ -271,6 +443,9 @@ api.get("/income-tax-brackets", async (c) => {
 });
 
 api.post("/income-tax-brackets/import", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
   const body = await c.req.json<{ csv?: string }>();
   const rows = parseCsv(body.csv || "");
   const data = rows.map((row) => ({
@@ -293,9 +468,11 @@ api.post("/income-tax-brackets/import", async (c) => {
 
 api.get("/employees", async (c) => {
   const q = c.req.query("q") || "";
+  const user = currentUser(c);
   const employees = await prisma.employee.findMany({
     where: {
       isActive: true,
+      id: user.role === "EMPLOYEE" ? user.employeeId || "__none__" : undefined,
       OR: q ? [{ name: { contains: q, mode: "insensitive" } }, { employeeNo: { contains: q, mode: "insensitive" } }] : undefined
     },
     orderBy: { employeeNo: "asc" }
@@ -304,6 +481,9 @@ api.get("/employees", async (c) => {
 });
 
 api.post("/employees", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
   const body = await c.req.json();
   const employee = await prisma.employee.create({
     data: {
@@ -322,6 +502,9 @@ api.post("/employees", async (c) => {
 });
 
 api.put("/employees/:id", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
   const body = await c.req.json();
   const employee = await prisma.employee.update({
     where: { id: c.req.param("id") },
@@ -341,13 +524,16 @@ api.put("/employees/:id", async (c) => {
 });
 
 api.delete("/employees/:id", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
   await prisma.employee.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
   return c.json({ ok: true });
 });
 
 api.get("/payrolls", async (c) => {
   const period = c.req.query("period");
-  const employeeId = c.req.query("employeeId");
+  const employeeId = readableEmployeeId(c, c.req.query("employeeId"));
   const payrolls = await prisma.payroll.findMany({
     where: { period: period || undefined, employeeId: employeeId || undefined },
     include: { employee: true },
@@ -358,7 +544,7 @@ api.get("/payrolls", async (c) => {
 
 api.get("/bonuses", async (c) => {
   const period = c.req.query("period");
-  const employeeId = c.req.query("employeeId");
+  const employeeId = readableEmployeeId(c, c.req.query("employeeId"));
   const bonuses = await prisma.bonus.findMany({
     where: { period: period || undefined, employeeId: employeeId || undefined },
     include: { employee: true },
@@ -368,6 +554,9 @@ api.get("/bonuses", async (c) => {
 });
 
 api.post("/bonuses", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
   const body = await c.req.json();
   const period = String(body.period);
   if (!isPeriod(period)) {
@@ -445,6 +634,9 @@ api.get("/bonuses/:id/pdf", async (c) => {
       where: { id: c.req.param("id") },
       include: { employee: true }
     });
+    if (!canAccessEmployee(c, bonus.employeeId)) {
+      return c.json({ message: "権限がありません" }, 403);
+    }
     const pdf = await createBonusPdf(toBonusPdfInput(bonus));
     const employeeName = safeFilePart(bonus.employee.name);
     const fileName = `賞与明細_${periodForFile(bonus.period)}_${employeeName}.pdf`;
@@ -463,6 +655,9 @@ api.get("/bonuses/:id/pdf", async (c) => {
 });
 
 api.get("/payrolls/latest-template", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
   const employeeId = c.req.query("employeeId") || "";
   const beforePeriod = c.req.query("beforePeriod") || "";
 
@@ -485,6 +680,12 @@ api.get("/payrolls/latest-template", async (c) => {
 });
 
 api.get("/payrolls/pdf-range", async (c) => {
+  const denied = requireRole(c, "VIEWER");
+  if (denied) return denied;
+  if (currentUser(c).role === "EMPLOYEE") {
+    return c.json({ message: "権限がありません" }, 403);
+  }
+
   try {
     const startPeriod = c.req.query("startPeriod") || "";
     const endPeriod = c.req.query("endPeriod") || "";
@@ -562,6 +763,9 @@ api.get("/payrolls/pdf-range", async (c) => {
 });
 
 api.post("/payrolls", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
   const body = await c.req.json();
   const period = String(body.period);
   if (!isPeriod(period)) {
@@ -699,6 +903,9 @@ api.get("/payrolls/:id/pdf", async (c) => {
       where: { id: c.req.param("id") },
       include: { employee: true }
     });
+    if (!canAccessEmployee(c, payroll.employeeId)) {
+      return c.json({ message: "権限がありません" }, 403);
+    }
     const pdf = await createPayslipPdf(toPayslipPdfInput(payroll));
     const employeeName = safeFilePart(payroll.employee.name);
     const fileName = `給与明細_${periodForFile(payroll.period)}_${employeeName}.pdf`;
@@ -717,6 +924,9 @@ api.get("/payrolls/:id/pdf", async (c) => {
 });
 
 api.post("/payrolls/:id/email", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
   try {
     const payroll = await prisma.payroll.findUniqueOrThrow({
       where: { id: c.req.param("id") },

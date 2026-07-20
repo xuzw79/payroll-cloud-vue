@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { Download, LogOut, Mail, Plus, RefreshCw, Save, Search, Trash2, Upload } from "lucide-vue-next";
 
 type PayType = "MONTHLY" | "HOURLY";
+type UserRole = "ADMIN" | "ACCOUNTING" | "VIEWER" | "EMPLOYEE";
 
 type Employee = {
   id: string;
@@ -94,6 +95,16 @@ type IncomeTaxBracket = {
   taxAmount: number;
 };
 
+type AppUser = {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  employeeId?: string | null;
+  isActive: boolean;
+  employee?: { id: string; employeeNo: string; name: string } | null;
+};
+
 const yen = new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", maximumFractionDigits: 0 });
 function formatYearMonth(year: number, month: number) {
   return `${year}-${String(month).padStart(2, "0")}`;
@@ -138,9 +149,16 @@ function monthFromPeriod(value: string) {
 const today = initialPayrollPeriod();
 const bonusPaymentMonths = [4, 10];
 const thisFiscalYear = new Date().getMonth() + 1 >= 4 ? new Date().getFullYear() : new Date().getFullYear() - 1;
+const roleLabels: Record<UserRole, string> = {
+  ADMIN: "管理者",
+  ACCOUNTING: "経理担当",
+  VIEWER: "閲覧のみ",
+  EMPLOYEE: "社員本人"
+};
 const loggedIn = ref(false);
 const loading = ref(false);
 const message = ref("");
+const me = ref<AppUser | null>(null);
 const query = ref("");
 const period = ref(today);
 const pdfRangeStart = ref(today);
@@ -149,11 +167,21 @@ const pdfOutputMode = ref<"zip" | "single">("zip");
 const employees = ref<Employee[]>([]);
 const payrolls = ref<Payroll[]>([]);
 const bonuses = ref<Bonus[]>([]);
+const users = ref<AppUser[]>([]);
 const fiscalRates = ref<FiscalRate[]>([]);
 const incomeTaxBrackets = ref<IncomeTaxBracket[]>([]);
 const selectedEmployeeId = ref("");
 
 const loginForm = reactive({ email: "admin@example.com", password: "" });
+const userForm = reactive({
+  id: "",
+  email: "",
+  name: "",
+  role: "VIEWER" as UserRole,
+  employeeId: "",
+  password: "",
+  isActive: true
+});
 const employeeForm = reactive({
   id: "",
   employeeNo: "",
@@ -200,6 +228,10 @@ const taxImport = reactive({
   csv: "fiscalYear,dependentCount,minTaxable,maxTaxable,taxAmount\n2026,0,0,88000,0\n2026,0,88001,99000,130\n2026,1,0,99000,0\n"
 });
 
+const roleRank: Record<UserRole, number> = { EMPLOYEE: 0, VIEWER: 1, ACCOUNTING: 2, ADMIN: 3 };
+const canManageUsers = computed(() => me.value?.role === "ADMIN");
+const canEditPayroll = computed(() => !!me.value && roleRank[me.value.role] >= roleRank.ACCOUNTING);
+const canViewAll = computed(() => !!me.value && me.value.role !== "EMPLOYEE");
 const selectedEmployee = computed(() => employees.value.find((employee) => employee.id === selectedEmployeeId.value));
 const selectedPayroll = computed(() => payrolls.value.find((payroll) => payroll.employeeId === selectedEmployeeId.value));
 const selectedBonus = computed(() => bonuses.value.find((bonus) => bonus.employeeId === selectedEmployeeId.value));
@@ -269,6 +301,18 @@ function resetBonusForm() {
   });
 }
 
+function resetUserForm() {
+  Object.assign(userForm, {
+    id: "",
+    email: "",
+    name: "",
+    role: "VIEWER" as UserRole,
+    employeeId: "",
+    password: "",
+    isActive: true
+  });
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api${path}`, {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
@@ -322,6 +366,22 @@ function applyEmployee(employee?: Employee) {
   }
 }
 
+function applyUser(user?: AppUser) {
+  if (!user) {
+    resetUserForm();
+    return;
+  }
+  Object.assign(userForm, {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    employeeId: user.employeeId || "",
+    password: "",
+    isActive: user.isActive
+  });
+}
+
 function applyRate(rate: FiscalRate) {
   const fallbackSocialInsuranceRate = Number(rate.socialInsuranceRate || 0);
   const healthInsuranceRate = Number(rate.healthInsuranceRate ?? fallbackSocialInsuranceRate / 2);
@@ -369,7 +429,7 @@ async function login() {
   loading.value = true;
   message.value = "";
   try {
-    await request("/login", { method: "POST", body: JSON.stringify(loginForm) });
+    me.value = await request<AppUser>("/login", { method: "POST", body: JSON.stringify(loginForm) });
     loggedIn.value = true;
     await refresh();
   } catch (error) {
@@ -382,6 +442,7 @@ async function login() {
 async function logout() {
   await request("/logout", { method: "POST" });
   loggedIn.value = false;
+  me.value = null;
 }
 
 async function refresh() {
@@ -400,6 +461,7 @@ async function refresh() {
     bonuses.value = bonusData;
     fiscalRates.value = fiscalRateData;
     incomeTaxBrackets.value = taxData;
+    users.value = canManageUsers.value ? await request<AppUser[]>("/users") : [];
     if (!selectedEmployeeId.value && employees.value[0]) applyEmployee(employees.value[0]);
     const current = fiscalRateData.find((rate) => rate.fiscalYear === fiscalYear);
     if (current) applyRate(current);
@@ -409,6 +471,7 @@ async function refresh() {
 }
 
 async function saveRate() {
+  if (!canEditPayroll.value) return;
   const healthInsuranceRate = Number(rateForm.healthInsuranceRate || 0);
   const pensionInsuranceRate = Number(rateForm.pensionInsuranceRate || 0);
   const childCareSupportRate = Number(rateForm.childCareSupportRate || 0);
@@ -427,6 +490,7 @@ async function saveRate() {
 }
 
 async function importIncomeTaxTable() {
+  if (!canEditPayroll.value) return;
   const result = await request<{ imported: number; fiscalYears: number[] }>("/income-tax-brackets/import", {
     method: "POST",
     body: JSON.stringify({ csv: taxImport.csv })
@@ -436,6 +500,7 @@ async function importIncomeTaxTable() {
 }
 
 async function saveEmployee() {
+  if (!canEditPayroll.value) return;
   const method = employeeForm.id ? "PUT" : "POST";
   const path = employeeForm.id ? `/employees/${employeeForm.id}` : "/employees";
   const employee = await request<Employee>(path, { method, body: JSON.stringify(employeeForm) });
@@ -446,6 +511,7 @@ async function saveEmployee() {
 }
 
 async function deleteEmployee() {
+  if (!canEditPayroll.value) return;
   if (!employeeForm.id || !confirm("この社員を非表示にしますか？")) return;
   await request(`/employees/${employeeForm.id}`, { method: "DELETE" });
   selectedEmployeeId.value = "";
@@ -453,7 +519,37 @@ async function deleteEmployee() {
   await refresh();
 }
 
+async function saveUser() {
+  if (!canManageUsers.value) return;
+  if (!userForm.id && !userForm.password) {
+    message.value = "新規ユーザーはパスワードが必要です";
+    return;
+  }
+  const method = userForm.id ? "PUT" : "POST";
+  const path = userForm.id ? `/users/${userForm.id}` : "/users";
+  await request<AppUser>(path, {
+    method,
+    body: JSON.stringify({
+      ...userForm,
+      employeeId: userForm.employeeId || null,
+      password: userForm.password || undefined
+    })
+  });
+  message.value = "ユーザーを保存しました";
+  resetUserForm();
+  await refresh();
+}
+
+async function deactivateUser() {
+  if (!canManageUsers.value || !userForm.id || !confirm("このユーザーを停止しますか？")) return;
+  await request(`/users/${userForm.id}`, { method: "DELETE" });
+  message.value = "ユーザーを停止しました";
+  resetUserForm();
+  await refresh();
+}
+
 async function savePayroll(forceUpdate = false) {
+  if (!canEditPayroll.value) return;
   if (!selectedEmployee.value) {
     message.value = "社員を選択してください";
     return;
@@ -477,6 +573,7 @@ async function savePayroll(forceUpdate = false) {
 }
 
 async function saveBonus(forceUpdate = false) {
+  if (!canEditPayroll.value) return;
   if (!selectedEmployee.value) {
     message.value = "社員を選択してください";
     return;
@@ -504,6 +601,7 @@ async function saveBonus(forceUpdate = false) {
 }
 
 async function usePreviousPayrollInput() {
+  if (!canEditPayroll.value) return;
   const currentEmployeeId = employeeForm.id || selectedEmployeeId.value;
   if (!currentEmployeeId || !selectedEmployee.value) {
     message.value = "社員を選択してください";
@@ -528,6 +626,7 @@ async function usePreviousPayrollInput() {
 }
 
 async function sendPayslipEmail() {
+  if (!canEditPayroll.value) return;
   if (!selectedPayroll.value) {
     message.value = "先に給与を保存してください";
     return;
@@ -684,11 +783,12 @@ function exportBonusCsv() {
 
 onMounted(async () => {
   try {
-    await request("/me");
+    me.value = await request<AppUser>("/me");
     loggedIn.value = true;
     await refresh();
   } catch {
     loggedIn.value = false;
+    me.value = null;
   }
 });
 </script>
@@ -708,24 +808,24 @@ onMounted(async () => {
     <header class="topbar">
       <div>
         <h1>給与管理クラウド</h1>
-        <p>Vue + Hono + PostgreSQL / Railway</p>
+        <p>{{ me ? `${me.name} / ${roleLabels[me.role]}` : "Vue + Hono + PostgreSQL / Railway" }}</p>
       </div>
       <div class="actions">
         <button @click="refresh"><RefreshCw :size="16" />更新</button>
-        <button @click="exportCsv"><Download :size="16" />CSV出力</button>
-        <button @click="exportBonusCsv"><Download :size="16" />賞与CSV出力</button>
+        <button v-if="canViewAll" @click="exportCsv"><Download :size="16" />CSV出力</button>
+        <button v-if="canViewAll" @click="exportBonusCsv"><Download :size="16" />賞与CSV出力</button>
         <button @click="logout"><LogOut :size="16" />ログアウト</button>
       </div>
     </header>
 
     <section class="filters">
       <label>支給月<input v-model="period" type="month" @change="refresh" /></label>
-      <label>社員検索<input v-model="query" placeholder="氏名・社員番号" @keyup.enter="refresh" /></label>
-      <button class="primary" @click="refresh"><Search :size="16" />検索</button>
-      <label>PDF開始月<input v-model="pdfRangeStart" type="month" /></label>
-      <label>PDF終了月<input v-model="pdfRangeEnd" type="month" /></label>
-      <label>PDF出力形式<select v-model="pdfOutputMode"><option value="zip">個別PDFをZIP</option><option value="single">1つのPDF</option></select></label>
-      <button @click="downloadPayslipPdfRange"><Download :size="16" />PDF一括DL</button>
+      <label v-if="canViewAll">社員検索<input v-model="query" placeholder="氏名・社員番号" @keyup.enter="refresh" /></label>
+      <button v-if="canViewAll" class="primary" @click="refresh"><Search :size="16" />検索</button>
+      <label v-if="canViewAll">PDF開始月<input v-model="pdfRangeStart" type="month" /></label>
+      <label v-if="canViewAll">PDF終了月<input v-model="pdfRangeEnd" type="month" /></label>
+      <label v-if="canViewAll">PDF出力形式<select v-model="pdfOutputMode"><option value="zip">個別PDFをZIP</option><option value="single">1つのPDF</option></select></label>
+      <button v-if="canViewAll" @click="downloadPayslipPdfRange"><Download :size="16" />PDF一括DL</button>
       <span v-if="message" class="message">{{ message }}</span>
     </section>
 
@@ -742,7 +842,7 @@ onMounted(async () => {
       <section class="panel employee-list">
         <div class="panel-head">
           <h2>社員</h2>
-          <button @click="applyEmployee()"><Plus :size="16" />追加</button>
+          <button v-if="canEditPayroll" @click="applyEmployee()"><Plus :size="16" />追加</button>
         </div>
         <button
           v-for="employee in employees"
@@ -758,7 +858,7 @@ onMounted(async () => {
 
       <section class="panel">
         <div class="panel-head"><h2>社員・給与入力</h2></div>
-        <div class="form-grid">
+        <div v-if="canEditPayroll" class="form-grid">
           <label>社員番号<input v-model="employeeForm.employeeNo" /></label>
           <label>氏名<input v-model="employeeForm.name" /></label>
           <label>メール<input v-model="employeeForm.email" type="email" /></label>
@@ -774,8 +874,42 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div class="divider"></div>
-        <div class="form-grid">
+        <div v-if="canManageUsers" class="divider"></div>
+        <div v-if="canManageUsers" class="panel-head">
+          <h2>ユーザー権限管理</h2>
+          <button @click="applyUser()"><Plus :size="16" />ユーザー追加</button>
+        </div>
+        <div v-if="canManageUsers" class="form-grid">
+          <label>メール<input v-model="userForm.email" type="email" /></label>
+          <label>氏名<input v-model="userForm.name" /></label>
+          <label>ロール<select v-model="userForm.role">
+            <option value="ADMIN">管理者</option>
+            <option value="ACCOUNTING">経理担当</option>
+            <option value="VIEWER">閲覧のみ</option>
+            <option value="EMPLOYEE">社員本人</option>
+          </select></label>
+          <label>紐付け社員<select v-model="userForm.employeeId">
+            <option value="">なし</option>
+            <option v-for="employee in employees" :key="employee.id" :value="employee.id">{{ employee.employeeNo }} / {{ employee.name }}</option>
+          </select></label>
+          <label>パスワード<input v-model="userForm.password" type="password" placeholder="更新時は空欄で変更なし" /></label>
+          <label>状態<select v-model="userForm.isActive"><option :value="true">有効</option><option :value="false">停止</option></select></label>
+          <div class="form-actions full">
+            <button @click="deactivateUser"><Trash2 :size="16" />停止</button>
+            <button class="primary" @click="saveUser"><Save :size="16" />ユーザー保存</button>
+          </div>
+        </div>
+        <div v-if="canManageUsers" class="user-list">
+          <button v-for="user in users" :key="user.id" class="user-item" @click="applyUser(user)">
+            <strong>{{ user.name }}</strong>
+            <span>{{ user.email }} / {{ roleLabels[user.role] }}{{ user.employee ? ` / ${user.employee.name}` : "" }} / {{ user.isActive ? "有効" : "停止" }}</span>
+          </button>
+        </div>
+
+        <div v-if="!canEditPayroll" class="empty">閲覧権限です。給与・賞与の保存操作はできません。</div>
+
+        <div v-if="canEditPayroll" class="divider"></div>
+        <div v-if="canEditPayroll" class="form-grid">
           <label>所定労働日数<input v-model.number="payrollForm.workDays" type="number" min="0" step="0.5" /></label>
           <label>実働時間<input v-model.number="payrollForm.workHours" type="number" min="0" step="0.25" /></label>
           <label>残業時間<input v-model.number="payrollForm.overtimeHours" type="number" min="0" step="0.25" /></label>
@@ -797,9 +931,9 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div class="divider"></div>
-        <div class="panel-head"><h2>賞与入力</h2></div>
-        <div class="form-grid">
+        <div v-if="canEditPayroll" class="divider"></div>
+        <div v-if="canEditPayroll" class="panel-head"><h2>賞与入力</h2></div>
+        <div v-if="canEditPayroll" class="form-grid">
           <div class="bonus-guidance full" :class="{ active: isBonusPaymentMonth }">{{ bonusPaymentMessage }}</div>
           <label>賞与額<input v-model.number="bonusForm.bonusAmount" type="number" min="0" /></label>
           <label>社会保険加入<select v-model="bonusForm.socialInsuranceEnrolled"><option :value="true">加入</option><option :value="false">未加入</option></select></label>
@@ -815,8 +949,8 @@ onMounted(async () => {
       </section>
 
       <section class="panel payslip">
-        <div class="panel-head"><h2>年度料率</h2></div>
-        <div class="form-grid compact">
+        <div v-if="canEditPayroll" class="panel-head"><h2>年度料率</h2></div>
+        <div v-if="canEditPayroll" class="form-grid compact">
           <label>年度<input v-model.number="rateForm.fiscalYear" type="number" /></label>
           <label>残業割増率<input v-model.number="rateForm.overtimeRate" type="number" step="0.000001" /></label>
           <label>所得税率（表なし時）<input v-model.number="rateForm.incomeTaxRate" type="number" step="0.000001" /></label>
@@ -829,15 +963,15 @@ onMounted(async () => {
             <button class="primary" @click="saveRate"><Save :size="16" />年度料率保存</button>
           </div>
         </div>
-        <div class="rate-list">
+        <div v-if="canEditPayroll" class="rate-list">
           <button v-for="rate in fiscalRates" :key="rate.fiscalYear" @click="applyRate(rate)">
             {{ rate.fiscalYear }}年度
           </button>
         </div>
 
-        <div class="divider"></div>
-        <div class="panel-head"><h2>所得税表インポート</h2></div>
-        <div class="tax-import">
+        <div v-if="canEditPayroll" class="divider"></div>
+        <div v-if="canEditPayroll" class="panel-head"><h2>所得税表インポート</h2></div>
+        <div v-if="canEditPayroll" class="tax-import">
           <p class="note">CSV列: fiscalYear, dependentCount, minTaxable, maxTaxable, taxAmount</p>
           <textarea v-model="taxImport.csv" rows="6"></textarea>
           <div class="form-actions">
@@ -873,6 +1007,9 @@ onMounted(async () => {
           </dl>
           <div class="net"><span>差引支給額</span><strong>{{ yen.format(selectedPayroll.netPay) }}</strong></div>
           <p class="message">メール送信: {{ selectedPayroll.emailedAt ? new Date(selectedPayroll.emailedAt).toLocaleString("ja-JP") : "未送信" }}</p>
+          <div class="form-actions">
+            <button @click="downloadPayslipPdf"><Download :size="16" />給与PDFダウンロード</button>
+          </div>
         </div>
         <div v-else class="empty">この社員の給与はまだ保存されていません。</div>
 
@@ -896,6 +1033,9 @@ onMounted(async () => {
             <dt>控除合計</dt><dd>{{ yen.format(selectedBonus.totalDeduction) }}</dd>
           </dl>
           <div class="net"><span>賞与差引支給額</span><strong>{{ yen.format(selectedBonus.netPay) }}</strong></div>
+          <div class="form-actions">
+            <button @click="downloadBonusPdf"><Download :size="16" />賞与PDFダウンロード</button>
+          </div>
         </div>
         <div v-else class="empty">この社員の賞与はまだ保存されていません。</div>
       </section>

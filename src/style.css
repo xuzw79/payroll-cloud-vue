@@ -254,6 +254,25 @@ p {
   overflow-wrap: anywhere;
 }
 
+.user-list {
+  display: grid;
+  gap: 8px;
+  padding: 0 14px 14px;
+}
+
+.user-item {
+  display: grid;
+  justify-content: stretch;
+  gap: 4px;
+  text-align: left;
+}
+
+.user-item span {
+  color: #60706c;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

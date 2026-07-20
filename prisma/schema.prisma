@@ -12,6 +12,13 @@ enum PayType {
   HOURLY
 }
 
+enum UserRole {
+  ADMIN
+  ACCOUNTING
+  VIEWER
+  EMPLOYEE
+}
+
 model Employee {
   id          String    @id @default(cuid())
   employeeNo  String    @unique
@@ -28,6 +35,23 @@ model Employee {
   updatedAt   DateTime  @updatedAt
   payrolls    Payroll[]
   bonuses     Bonus[]
+  users       AppUser[]
+}
+
+model AppUser {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  role         UserRole  @default(VIEWER)
+  passwordHash String
+  employeeId   String?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  employee     Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+
+  @@index([role])
+  @@index([employeeId])
 }
 
 model Payroll {
