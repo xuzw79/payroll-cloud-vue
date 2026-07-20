@@ -136,9 +136,23 @@ p {
   background: #fff;
 }
 
-.login-panel h1 {
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 8px 10px;
   background: #5481cf;
+  color: #fff;
+}
+
+.login-brand img {
+  width: 44px;
+  height: 32px;
+  object-fit: contain;
+  background: #fff;
+}
+
+.login-panel h1 {
   color: #fff;
   font-size: 18px;
 }
@@ -159,6 +173,20 @@ p {
   padding: 4px 10px;
   background: #5481cf;
   color: #fff;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.brand img {
+  width: 54px;
+  height: 32px;
+  object-fit: contain;
+  background: #fff;
 }
 
 .topbar h1 {
