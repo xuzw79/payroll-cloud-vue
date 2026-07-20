@@ -105,6 +105,10 @@ label > textarea {
   font-weight: 400;
 }
 
+input[type="month"] {
+  min-width: 150px;
+}
+
 h1,
 h2,
 h3,
@@ -201,11 +205,11 @@ p {
 }
 
 .search-row {
-  grid-template-columns: 220px minmax(260px, 1fr) auto;
+  grid-template-columns: 300px minmax(300px, 1fr) auto;
 }
 
 .download-row {
-  grid-template-columns: 220px 220px minmax(220px, 1fr) auto auto;
+  grid-template-columns: 300px 300px minmax(240px, 1fr) auto auto;
 }
 
 .inline-check {
