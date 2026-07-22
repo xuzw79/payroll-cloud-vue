@@ -603,11 +603,13 @@ api.post("/ses/external-members", async (c) => {
 
   const body = await c.req.json();
   const name = String(body.name || "").trim();
+  const customerId = nullableText(body.customerId);
   if (!name) return c.json({ message: "外部メンバー名を入力してください" }, 400);
+  if (!customerId) return c.json({ message: "所属会社を選択してください" }, 400);
 
   const member = await prisma.sesExternalMember.create({
     data: {
-      customerId: nullableText(body.customerId),
+      customerId,
       name,
       code: nullableText(body.code),
       email: nullableText(body.email),

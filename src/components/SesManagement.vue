@@ -110,6 +110,7 @@ const selectedContractId = ref("");
 const contractMembers = ref<ContractMemberForm[]>([]);
 
 const activeMenuInfo = computed(() => subMenus.find((menu) => menu.key === activeSubMenu.value) || subMenus[0]);
+const selectedCustomerExternalMembers = computed(() => externalMembers.value.filter((member) => member.customerId === customerForm.id));
 
 const customerForm = reactive({
   id: "",
@@ -193,6 +194,7 @@ function resetCustomerForm() {
     memo: ""
   });
   selectedCustomerId.value = "";
+  externalMemberForm.customerId = "";
 }
 
 function applyCustomer(customer?: Customer) {
@@ -215,6 +217,7 @@ function applyCustomer(customer?: Customer) {
     memo: customer.memo || ""
   });
   selectedCustomerId.value = customer.id;
+  externalMemberForm.customerId = customer.id;
 }
 
 function resetContractForm() {
@@ -311,9 +314,12 @@ async function deleteCustomer() {
 
 async function saveExternalMember() {
   if (!props.canEditSes) return;
-  const member = await request<ExternalMember>("/ses/external-members", { method: "POST", body: JSON.stringify(externalMemberForm) });
+  const member = await request<ExternalMember>("/ses/external-members", {
+    method: "POST",
+    body: JSON.stringify({ ...externalMemberForm, customerId: externalMemberForm.customerId || customerForm.id })
+  });
   emit("message", "別会社の従業員を登録しました");
-  Object.assign(externalMemberForm, { customerId: "", name: "", code: "", email: "", phone: "", memo: "" });
+  Object.assign(externalMemberForm, { customerId: customerForm.id || "", name: "", code: "", email: "", phone: "", memo: "" });
   await refreshSesMasterData();
   const lastBlank = contractMembers.value.find((row) => row.source === "EXTERNAL" && !row.externalMemberId);
   if (lastBlank) lastBlank.externalMemberId = member.id;
@@ -422,6 +428,26 @@ onMounted(async () => {
             <button v-if="canEditSes" @click="deleteCustomer"><Trash2 :size="16" />非表示</button>
             <button v-if="canEditSes" class="primary" @click="saveCustomer"><Save :size="16" />取引先保存</button>
           </div>
+          <div class="sub-panel full">
+            <h3>別会社の従業員登録</h3>
+            <div class="form-grid compact">
+              <label>所属会社<select v-model="externalMemberForm.customerId"><option value="">未選択</option><option v-for="customer in customers" :key="customer.id" :value="customer.id">{{ customer.name }}</option></select></label>
+              <label>氏名<input v-model="externalMemberForm.name" /></label>
+              <label>コード<input v-model="externalMemberForm.code" /></label>
+              <label>メール<input v-model="externalMemberForm.email" type="email" /></label>
+              <label>電話番号<input v-model="externalMemberForm.phone" /></label>
+              <label class="wide">メモ<input v-model="externalMemberForm.memo" /></label>
+              <div class="form-actions full">
+                <button v-if="canEditSes" @click="saveExternalMember"><Plus :size="16" />外部メンバー登録</button>
+              </div>
+            </div>
+            <div v-if="customerForm.id" class="ses-cards compact-cards">
+              <div v-for="member in selectedCustomerExternalMembers" :key="member.id">
+                <strong>{{ member.name }}</strong>
+                <span>{{ member.code || "コードなし" }} / {{ member.email || "メール未設定" }}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -464,21 +490,6 @@ onMounted(async () => {
             <label>契約開始日<input v-model="contractForm.startDate" type="date" /></label>
             <label>契約終了日<input v-model="contractForm.endDate" type="date" /></label>
             <label class="wide">メモ<input v-model="contractForm.memo" /></label>
-          </div>
-
-          <div class="sub-panel">
-            <h3>別会社の従業員登録</h3>
-            <div class="form-grid compact">
-              <label>所属会社<select v-model="externalMemberForm.customerId"><option value="">未選択</option><option v-for="customer in customers" :key="customer.id" :value="customer.id">{{ customer.name }}</option></select></label>
-              <label>氏名<input v-model="externalMemberForm.name" /></label>
-              <label>コード<input v-model="externalMemberForm.code" /></label>
-              <label>メール<input v-model="externalMemberForm.email" type="email" /></label>
-              <label>電話番号<input v-model="externalMemberForm.phone" /></label>
-              <label class="wide">メモ<input v-model="externalMemberForm.memo" /></label>
-              <div class="form-actions full">
-                <button v-if="canEditSes" @click="saveExternalMember"><Plus :size="16" />外部メンバー登録</button>
-              </div>
-            </div>
           </div>
 
           <div class="sub-panel">
