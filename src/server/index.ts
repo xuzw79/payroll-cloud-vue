@@ -137,6 +137,17 @@ function numberOrDefault(value: unknown, defaultValue: number) {
   return Number.isFinite(parsed) ? parsed : defaultValue;
 }
 
+function nullableText(value: unknown) {
+  const text = String(value ?? "").trim();
+  return text || null;
+}
+
+function nullableInt(value: unknown) {
+  if (value === undefined || value === null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+}
+
 function safeFilePart(value: string) {
   return value.replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, "_");
 }
@@ -478,6 +489,86 @@ api.get("/employees", async (c) => {
     orderBy: { employeeNo: "asc" }
   });
   return c.json(employees);
+});
+
+api.get("/customers", async (c) => {
+  const denied = requireRole(c, "VIEWER");
+  if (denied) return denied;
+
+  const q = c.req.query("q") || "";
+  const customers = await prisma.customer.findMany({
+    where: {
+      isActive: true,
+      OR: q ? [
+        { name: { contains: q, mode: "insensitive" } },
+        { code: { contains: q, mode: "insensitive" } },
+        { contactName: { contains: q, mode: "insensitive" } }
+      ] : undefined
+    },
+    orderBy: [{ name: "asc" }]
+  });
+  return c.json(customers);
+});
+
+api.post("/customers", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
+  const body = await c.req.json();
+  const name = String(body.name || "").trim();
+  if (!name) return c.json({ message: "取引先名を入力してください" }, 400);
+
+  const customer = await prisma.customer.create({
+    data: {
+      name,
+      code: nullableText(body.code),
+      contactName: nullableText(body.contactName),
+      email: nullableText(body.email),
+      phone: nullableText(body.phone),
+      postalCode: nullableText(body.postalCode),
+      address: nullableText(body.address),
+      invoiceNumber: nullableText(body.invoiceNumber),
+      closingDay: nullableInt(body.closingDay),
+      paymentSiteDays: nullableInt(body.paymentSiteDays),
+      memo: nullableText(body.memo)
+    }
+  });
+  return c.json(customer, 201);
+});
+
+api.put("/customers/:id", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
+  const body = await c.req.json();
+  const name = String(body.name || "").trim();
+  if (!name) return c.json({ message: "取引先名を入力してください" }, 400);
+
+  const customer = await prisma.customer.update({
+    where: { id: c.req.param("id") },
+    data: {
+      name,
+      code: nullableText(body.code),
+      contactName: nullableText(body.contactName),
+      email: nullableText(body.email),
+      phone: nullableText(body.phone),
+      postalCode: nullableText(body.postalCode),
+      address: nullableText(body.address),
+      invoiceNumber: nullableText(body.invoiceNumber),
+      closingDay: nullableInt(body.closingDay),
+      paymentSiteDays: nullableInt(body.paymentSiteDays),
+      memo: nullableText(body.memo)
+    }
+  });
+  return c.json(customer);
+});
+
+api.delete("/customers/:id", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
+  await prisma.customer.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
+  return c.json({ ok: true });
 });
 
 api.post("/employees", async (c) => {

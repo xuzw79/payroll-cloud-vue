@@ -223,9 +223,30 @@ p {
   justify-content: flex-end;
 }
 
+.main-menu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 8px;
+  border: 1px solid #c9d0da;
+  background: #fff;
+}
+
+.main-menu button {
+  min-width: 120px;
+}
+
+.main-menu button.active {
+  border-color: #3f6fbf;
+  background: #5481cf;
+  color: #fff;
+}
+
 .filters,
 .summary,
-.workspace {
+.workspace,
+.ses-workspace {
   margin-bottom: 14px;
 }
 
@@ -250,6 +271,11 @@ p {
 
 .download-row {
   grid-template-columns: 300px 300px minmax(240px, 1fr) auto auto;
+}
+
+.ses-search {
+  grid-template-columns: minmax(240px, 1fr) auto;
+  padding: 0 8px 8px;
 }
 
 .inline-check {
@@ -309,6 +335,24 @@ p {
   grid-template-columns: 250px minmax(560px, 1fr) 380px;
   gap: 14px;
   align-items: start;
+}
+
+.ses-workspace {
+  display: grid;
+  gap: 14px;
+}
+
+.ses-layout {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px;
+}
+
+.ses-list {
+  display: grid;
+  align-content: start;
+  gap: 0;
 }
 
 .panel {
@@ -436,6 +480,27 @@ p {
   padding: 9px;
 }
 
+.ses-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+}
+
+.ses-cards div {
+  display: grid;
+  gap: 6px;
+  min-height: 80px;
+  padding: 10px;
+  border: 1px solid #c9d0da;
+  background: #fff;
+}
+
+.ses-cards span {
+  color: #555;
+  font-size: 12px;
+}
+
 .note {
   color: #555;
   font-size: 12px;
@@ -542,6 +607,8 @@ dd {
   .filters,
   .summary,
   .filter-row,
+  .ses-layout,
+  .ses-cards,
   .form-grid,
   .form-grid.compact {
     grid-template-columns: 1fr;
@@ -579,6 +646,8 @@ dd {
   .workspace,
   .summary,
   .filter-row,
+  .ses-layout,
+  .ses-cards,
   .form-grid,
   .form-grid.compact {
     grid-template-columns: 1fr;

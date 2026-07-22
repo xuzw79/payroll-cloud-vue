@@ -172,3 +172,24 @@ model IncomeTaxBracket {
 
   @@index([fiscalYear, dependentCount, minTaxable])
 }
+
+model Customer {
+  id              String   @id @default(cuid())
+  name            String
+  code            String?  @unique
+  contactName     String?
+  email           String?
+  phone           String?
+  postalCode      String?
+  address         String?
+  invoiceNumber   String?
+  closingDay      Int?
+  paymentSiteDays Int?
+  memo            String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([name])
+  @@index([isActive])
+}

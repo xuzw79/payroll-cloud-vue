@@ -105,6 +105,21 @@ type AppUser = {
   employee?: { id: string; employeeNo: string; name: string } | null;
 };
 
+type Customer = {
+  id: string;
+  name: string;
+  code?: string | null;
+  contactName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  postalCode?: string | null;
+  address?: string | null;
+  invoiceNumber?: string | null;
+  closingDay?: number | null;
+  paymentSiteDays?: number | null;
+  memo?: string | null;
+};
+
 const yen = new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", maximumFractionDigits: 0 });
 function formatYearMonth(year: number, month: number) {
   return `${year}-${String(month).padStart(2, "0")}`;
@@ -159,7 +174,9 @@ const loggedIn = ref(false);
 const loading = ref(false);
 const message = ref("");
 const me = ref<AppUser | null>(null);
+const activeMenu = ref<"payroll" | "ses">("payroll");
 const query = ref("");
+const sesQuery = ref("");
 const period = ref(today);
 const pdfRangeStart = ref(today);
 const pdfRangeEnd = ref(today);
@@ -169,9 +186,11 @@ const employees = ref<Employee[]>([]);
 const payrolls = ref<Payroll[]>([]);
 const bonuses = ref<Bonus[]>([]);
 const users = ref<AppUser[]>([]);
+const customers = ref<Customer[]>([]);
 const fiscalRates = ref<FiscalRate[]>([]);
 const incomeTaxBrackets = ref<IncomeTaxBracket[]>([]);
 const selectedEmployeeId = ref("");
+const selectedCustomerId = ref("");
 const collapsedSections = reactive<Record<string, boolean>>({});
 
 const loginForm = reactive({ email: "admin@example.com", password: "" });
@@ -229,11 +248,26 @@ const rateForm = reactive<FiscalRate>({
 const taxImport = reactive({
   csv: "fiscalYear,dependentCount,minTaxable,maxTaxable,taxAmount\n2026,0,0,88000,0\n2026,0,88001,99000,130\n2026,1,0,99000,0\n"
 });
+const customerForm = reactive({
+  id: "",
+  name: "",
+  code: "",
+  contactName: "",
+  email: "",
+  phone: "",
+  postalCode: "",
+  address: "",
+  invoiceNumber: "",
+  closingDay: null as number | null,
+  paymentSiteDays: null as number | null,
+  memo: ""
+});
 
 const roleRank: Record<UserRole, number> = { EMPLOYEE: 0, VIEWER: 1, ACCOUNTING: 2, ADMIN: 3 };
 const canManageUsers = computed(() => me.value?.role === "ADMIN");
 const canEditPayroll = computed(() => !!me.value && roleRank[me.value.role] >= roleRank.ACCOUNTING);
 const canViewAll = computed(() => !!me.value && me.value.role !== "EMPLOYEE");
+const canEditSes = computed(() => canEditPayroll.value);
 const selectedEmployee = computed(() => employees.value.find((employee) => employee.id === selectedEmployeeId.value));
 const selectedPayroll = computed(() => payrolls.value.find((payroll) => payroll.employeeId === selectedEmployeeId.value));
 const selectedBonus = computed(() => bonuses.value.find((bonus) => bonus.employeeId === selectedEmployeeId.value));
@@ -315,6 +349,24 @@ function resetUserForm() {
   });
 }
 
+function resetCustomerForm() {
+  Object.assign(customerForm, {
+    id: "",
+    name: "",
+    code: "",
+    contactName: "",
+    email: "",
+    phone: "",
+    postalCode: "",
+    address: "",
+    invoiceNumber: "",
+    closingDay: null,
+    paymentSiteDays: null,
+    memo: ""
+  });
+  selectedCustomerId.value = "";
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api${path}`, {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
@@ -382,6 +434,28 @@ function applyUser(user?: AppUser) {
     password: "",
     isActive: user.isActive
   });
+}
+
+function applyCustomer(customer?: Customer) {
+  if (!customer) {
+    resetCustomerForm();
+    return;
+  }
+  Object.assign(customerForm, {
+    id: customer.id,
+    name: customer.name,
+    code: customer.code || "",
+    contactName: customer.contactName || "",
+    email: customer.email || "",
+    phone: customer.phone || "",
+    postalCode: customer.postalCode || "",
+    address: customer.address || "",
+    invoiceNumber: customer.invoiceNumber || "",
+    closingDay: customer.closingDay ?? null,
+    paymentSiteDays: customer.paymentSiteDays ?? null,
+    memo: customer.memo || ""
+  });
+  selectedCustomerId.value = customer.id;
 }
 
 function applyRate(rate: FiscalRate) {
@@ -465,6 +539,7 @@ async function refresh() {
     fiscalRates.value = fiscalRateData;
     incomeTaxBrackets.value = taxData;
     users.value = canManageUsers.value ? await request<AppUser[]>("/users") : [];
+    customers.value = canViewAll.value ? await request<Customer[]>(`/customers?q=${encodeURIComponent(sesQuery.value)}`) : [];
     if (!selectedEmployeeId.value && employees.value[0]) applyEmployee(employees.value[0]);
     const current = fiscalRateData.find((rate) => rate.fiscalYear === fiscalYear);
     if (current) applyRate(current);
@@ -548,6 +623,24 @@ async function deactivateUser() {
   await request(`/users/${userForm.id}`, { method: "DELETE" });
   message.value = "ユーザーを停止しました";
   resetUserForm();
+  await refresh();
+}
+
+async function saveCustomer() {
+  if (!canEditSes.value) return;
+  const method = customerForm.id ? "PUT" : "POST";
+  const path = customerForm.id ? `/customers/${customerForm.id}` : "/customers";
+  const customer = await request<Customer>(path, { method, body: JSON.stringify(customerForm) });
+  message.value = "取引先を保存しました";
+  await refresh();
+  applyCustomer(customer);
+}
+
+async function deleteCustomer() {
+  if (!canEditSes.value || !customerForm.id || !confirm("この取引先を非表示にしますか？")) return;
+  await request(`/customers/${customerForm.id}`, { method: "DELETE" });
+  message.value = "取引先を非表示にしました";
+  resetCustomerForm();
   await refresh();
 }
 
@@ -837,7 +930,12 @@ onMounted(async () => {
       </div>
     </header>
 
-    <section class="filters">
+    <nav class="main-menu">
+      <button :class="{ active: activeMenu === 'payroll' }" @click="activeMenu = 'payroll'">給与管理</button>
+      <button v-if="canViewAll" :class="{ active: activeMenu === 'ses' }" @click="activeMenu = 'ses'">SES管理</button>
+    </nav>
+
+    <section v-if="activeMenu === 'payroll'" class="filters">
       <div class="filter-row search-row">
         <label>支給月<input v-model="period" type="month" @change="refresh" /></label>
         <label v-if="canViewAll">社員検索<input v-model="query" placeholder="氏名・社員番号" @keyup.enter="refresh" /></label>
@@ -853,7 +951,7 @@ onMounted(async () => {
       <span v-if="message" class="message">{{ message }}</span>
     </section>
 
-    <section class="summary">
+    <section v-if="activeMenu === 'payroll'" class="summary">
       <div><span>社員数</span><strong>{{ employees.length }}名</strong></div>
       <div><span>総支給額</span><strong>{{ yen.format(totals.gross) }}</strong></div>
       <div><span>控除合計</span><strong>{{ yen.format(totals.deduction) }}</strong></div>
@@ -862,7 +960,7 @@ onMounted(async () => {
       <div><span>賞与差引額</span><strong>{{ yen.format(bonusTotals.net) }}</strong></div>
     </section>
 
-    <div class="workspace">
+    <div v-if="activeMenu === 'payroll'" class="workspace">
       <section class="panel employee-list">
         <div class="panel-head" :class="sectionHeadClass('employees')" @click="toggleSection('employees')">
           <h2>社員</h2>
@@ -1063,6 +1161,61 @@ onMounted(async () => {
           </div>
         </div>
         <div v-else v-show="!collapsedSections.bonusSlip" class="empty">この社員の賞与はまだ保存されていません。</div>
+      </section>
+    </div>
+
+    <div v-if="activeMenu === 'ses' && canViewAll" class="ses-workspace">
+      <section class="panel">
+        <div class="panel-head" :class="sectionHeadClass('sesCustomers')" @click="toggleSection('sesCustomers')">
+          <h2>取引先管理</h2>
+          <button v-if="canEditSes" @click.stop="applyCustomer()"><Plus :size="16" />追加</button>
+        </div>
+        <div v-show="!collapsedSections.sesCustomers" class="ses-layout">
+          <div class="ses-list">
+            <div class="filter-row ses-search">
+              <label>取引先検索<input v-model="sesQuery" placeholder="会社名・コード・担当者" @keyup.enter="refresh" /></label>
+              <button class="primary" @click="refresh"><Search :size="16" />検索</button>
+            </div>
+            <button
+              v-for="customer in customers"
+              :key="customer.id"
+              class="employee-item"
+              :class="{ active: customer.id === selectedCustomerId }"
+              @click="applyCustomer(customer)"
+            >
+              <strong>{{ customer.name }}</strong>
+              <span>{{ customer.code || "コードなし" }} / {{ customer.contactName || "担当者未設定" }}</span>
+            </button>
+            <div v-if="!customers.length" class="empty">取引先が登録されていません。</div>
+          </div>
+          <div class="form-grid">
+            <label>取引先名<input v-model="customerForm.name" /></label>
+            <label>取引先コード<input v-model="customerForm.code" /></label>
+            <label>担当者<input v-model="customerForm.contactName" /></label>
+            <label>メール<input v-model="customerForm.email" type="email" /></label>
+            <label>電話番号<input v-model="customerForm.phone" /></label>
+            <label>郵便番号<input v-model="customerForm.postalCode" /></label>
+            <label class="wide">住所<input v-model="customerForm.address" /></label>
+            <label>インボイス番号<input v-model="customerForm.invoiceNumber" /></label>
+            <label>締日<input v-model.number="customerForm.closingDay" type="number" min="1" max="31" /></label>
+            <label>支払サイト日数<input v-model.number="customerForm.paymentSiteDays" type="number" min="0" /></label>
+            <label class="wide">メモ<input v-model="customerForm.memo" /></label>
+            <div class="form-actions full">
+              <button v-if="canEditSes" @click="deleteCustomer"><Trash2 :size="16" />非表示</button>
+              <button v-if="canEditSes" class="primary" @click="saveCustomer"><Save :size="16" />取引先保存</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel ses-placeholder">
+        <div class="panel-head"><h2>SES機能追加予定</h2></div>
+        <div class="ses-cards">
+          <div><strong>案件・契約管理</strong><span>月額請負額、契約期間、作業者、顧客を管理</span></div>
+          <div><strong>月次売上入力</strong><span>社員別・案件別の売上を登録</span></div>
+          <div><strong>外注費入力</strong><span>協力会社への月額支払を登録</span></div>
+          <div><strong>個人別利益</strong><span>売上 - 給与/外注費で利益を確認</span></div>
+        </div>
       </section>
     </div>
   </main>
