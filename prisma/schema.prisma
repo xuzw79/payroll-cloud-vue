@@ -207,6 +207,7 @@ model Customer {
   updatedAt       DateTime @updatedAt
   sesContracts    SesContract[]
   externalMembers SesExternalMember[]
+  sesInvoices     SesInvoice[]
 
   @@index([name])
   @@index([isActive])
@@ -245,6 +246,7 @@ model SesContract {
   updatedAt       DateTime @updatedAt
   customer        Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
   members         SesContractMember[]
+  invoices        SesInvoice[]
 
   @@index([customerId])
   @@index([title])
@@ -275,4 +277,47 @@ model SesContractMember {
   @@index([contractId])
   @@index([employeeId])
   @@index([externalMemberId])
+}
+
+model SesInvoice {
+  id              String   @id @default(cuid())
+  customerId      String
+  contractId      String?
+  period          String
+  invoiceNo       String?
+  issueDate       String
+  dueDate         String?
+  title           String
+  subtotal        Int      @default(0)
+  taxRate         Decimal  @db.Decimal(8, 6) @default(0.100000)
+  taxAmount       Int      @default(0)
+  totalAmount     Int      @default(0)
+  note            String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  customer        Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  contract        SesContract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  items           SesInvoiceItem[]
+
+  @@index([customerId])
+  @@index([contractId])
+  @@index([period])
+  @@index([isActive])
+}
+
+model SesInvoiceItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  description String
+  quantity    Decimal  @db.Decimal(10, 2) @default(1)
+  unit         String   @default("式")
+  unitPrice   Int      @default(0)
+  amount      Int      @default(0)
+  memo        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  invoice     SesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
 }

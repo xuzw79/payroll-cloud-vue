@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { Plus, Save, Search, Trash2 } from "lucide-vue-next";
+import { Download, Plus, Save, Search, Trash2 } from "lucide-vue-next";
 
-type SesSubMenu = "customers" | "projects" | "revenue" | "partnerCosts" | "profit";
+type SesSubMenu = "customers" | "projects" | "invoices" | "revenue" | "partnerCosts" | "profit";
 type MemberSource = "EMPLOYEE" | "EXTERNAL";
 type BillingType = "FIXED" | "TIME_RANGE";
 type ContractType = "SALES" | "PURCHASE";
@@ -70,6 +70,32 @@ type Contract = {
   members: ContractMember[];
 };
 
+type InvoiceItem = {
+  id: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  amount: number;
+};
+
+type Invoice = {
+  id: string;
+  customerId: string;
+  contractId?: string | null;
+  period: string;
+  invoiceNo?: string | null;
+  issueDate: string;
+  dueDate?: string | null;
+  title: string;
+  subtotal: number;
+  taxAmount: number;
+  totalAmount: number;
+  customer: Customer;
+  contract?: Contract | null;
+  items: InvoiceItem[];
+};
+
 type ContractMemberForm = {
   key: string;
   source: MemberSource;
@@ -92,6 +118,7 @@ const emit = defineEmits<{ message: [value: string] }>();
 const subMenus: { key: SesSubMenu; label: string; description: string }[] = [
   { key: "customers", label: "取引先管理", description: "顧客・協力会社の基本情報を管理します。" },
   { key: "projects", label: "案件・契約管理", description: "請求契約と仕入契約、契約期間、作業者、契約先を管理します。" },
+  { key: "invoices", label: "請求管理", description: "請求契約から請求書を作成し、PDFを出力します。" },
   { key: "revenue", label: "月次売上入力", description: "社員別・案件別の毎月売上を登録します。" },
   { key: "partnerCosts", label: "外注費入力", description: "協力会社への月額支払を登録します。" },
   { key: "profit", label: "個人別利益", description: "売上、給与、外注費から利益を確認します。" }
@@ -101,16 +128,20 @@ const activeSubMenu = ref<SesSubMenu>("customers");
 const loading = ref(false);
 const customerQuery = ref("");
 const contractQuery = ref("");
+const invoiceQuery = ref("");
 const customers = ref<Customer[]>([]);
 const employees = ref<Employee[]>([]);
 const externalMembers = ref<ExternalMember[]>([]);
 const contracts = ref<Contract[]>([]);
+const invoices = ref<Invoice[]>([]);
 const selectedCustomerId = ref("");
 const selectedContractId = ref("");
+const selectedInvoiceId = ref("");
 const contractMembers = ref<ContractMemberForm[]>([]);
 
 const activeMenuInfo = computed(() => subMenus.find((menu) => menu.key === activeSubMenu.value) || subMenus[0]);
 const selectedCustomerExternalMembers = computed(() => externalMembers.value.filter((member) => member.customerId === customerForm.id));
+const salesContracts = computed(() => contracts.value.filter((contract) => contract.contractType === "SALES"));
 
 const customerForm = reactive({
   id: "",
@@ -145,6 +176,16 @@ const contractForm = reactive({
   startDate: "",
   endDate: "",
   memo: ""
+});
+
+const invoiceForm = reactive({
+  contractId: "",
+  period: new Date().toISOString().slice(0, 7),
+  issueDate: new Date().toISOString().slice(0, 10),
+  dueDate: "",
+  invoiceNo: "",
+  title: "",
+  note: ""
 });
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -281,6 +322,11 @@ async function refreshContracts() {
   contracts.value = await request<Contract[]>(`/ses/contracts?q=${encodeURIComponent(contractQuery.value)}`);
 }
 
+async function refreshInvoices() {
+  const params = new URLSearchParams({ q: invoiceQuery.value, period: invoiceForm.period });
+  invoices.value = await request<Invoice[]>(`/ses/invoices?${params.toString()}`);
+}
+
 async function refreshSesMasterData() {
   const [employeeData, externalMemberData] = await Promise.all([
     request<Employee[]>("/employees"),
@@ -291,7 +337,7 @@ async function refreshSesMasterData() {
 }
 
 async function refreshAll() {
-  await Promise.all([refreshCustomers(), refreshContracts(), refreshSesMasterData()]);
+  await Promise.all([refreshCustomers(), refreshContracts(), refreshSesMasterData(), refreshInvoices()]);
 }
 
 async function saveCustomer() {
@@ -359,6 +405,43 @@ async function deleteContract() {
   emit("message", "契約を非表示にしました");
   resetContractForm();
   await refreshContracts();
+}
+
+async function generateInvoice() {
+  if (!props.canEditSes) return;
+  const invoice = await request<Invoice>("/ses/invoices/generate", {
+    method: "POST",
+    body: JSON.stringify(invoiceForm)
+  });
+  emit("message", "請求書を作成しました");
+  selectedInvoiceId.value = invoice.id;
+  await refreshInvoices();
+}
+
+async function deleteInvoice(invoice: Invoice) {
+  if (!props.canEditSes || !confirm("この請求書を非表示にしますか？")) return;
+  await request(`/ses/invoices/${invoice.id}`, { method: "DELETE" });
+  emit("message", "請求書を非表示にしました");
+  if (selectedInvoiceId.value === invoice.id) selectedInvoiceId.value = "";
+  await refreshInvoices();
+}
+
+async function downloadInvoicePdf(invoice: Invoice) {
+  const response = await fetch(`/api/ses/invoices/${invoice.id}/pdf`, { credentials: "include" });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: "請求書PDFダウンロードに失敗しました" }));
+    throw new Error(error.message || "請求書PDFダウンロードに失敗しました");
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `請求書_${invoice.customer.name}_${invoice.period.replace("-", "")}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  emit("message", "請求書PDFをダウンロードしました");
 }
 
 function memberName(member: ContractMember) {
@@ -533,6 +616,65 @@ onMounted(async () => {
           <div class="form-actions full">
             <button v-if="canEditSes" @click="deleteContract"><Trash2 :size="16" />非表示</button>
             <button v-if="canEditSes" class="primary" @click="saveContract"><Save :size="16" />契約保存</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section v-else-if="activeSubMenu === 'invoices'" class="panel">
+      <div class="panel-head">
+        <h2>請求管理</h2>
+      </div>
+      <div class="ses-layout contract-layout">
+        <div class="ses-list">
+          <div class="filter-row ses-search">
+            <label>対象月<input v-model="invoiceForm.period" type="month" @change="refreshInvoices" /></label>
+            <label>請求検索<input v-model="invoiceQuery" placeholder="請求書番号・契約名・取引先" @keyup.enter="refreshInvoices" /></label>
+            <button class="primary" @click="refreshInvoices"><Search :size="16" />検索</button>
+          </div>
+          <button
+            v-for="invoice in invoices"
+            :key="invoice.id"
+            class="employee-item"
+            :class="{ active: invoice.id === selectedInvoiceId }"
+            @click="selectedInvoiceId = invoice.id"
+          >
+            <strong>{{ invoice.title }}</strong>
+            <span>{{ invoice.customer.name }} / {{ invoice.invoiceNo || "番号なし" }}</span>
+            <span>{{ Number(invoice.totalAmount || 0).toLocaleString("ja-JP") }}円</span>
+          </button>
+          <div v-if="!invoices.length" class="empty">請求書が登録されていません。</div>
+        </div>
+
+        <div class="contract-editor">
+          <div class="ses-flow-note">
+            請求契約から対象月の請求書を作成します。明細は契約メンバーの単価から自動作成し、PDFには社印を印字します。
+          </div>
+          <div class="form-grid">
+            <label class="wide">請求元契約<select v-model="invoiceForm.contractId"><option value="">選択</option><option v-for="contract in salesContracts" :key="contract.id" :value="contract.id">{{ contract.customer.name }} / {{ contract.title }}</option></select></label>
+            <label>対象月<input v-model="invoiceForm.period" type="month" /></label>
+            <label>発行日<input v-model="invoiceForm.issueDate" type="date" /></label>
+            <label>支払期限<input v-model="invoiceForm.dueDate" type="date" /></label>
+            <label>請求書番号<input v-model="invoiceForm.invoiceNo" /></label>
+            <label class="wide">件名<input v-model="invoiceForm.title" placeholder="未入力時は契約名から自動作成" /></label>
+            <label class="wide">備考<input v-model="invoiceForm.note" /></label>
+            <div class="form-actions full">
+              <button v-if="canEditSes" class="primary" @click="generateInvoice"><Save :size="16" />契約から請求書作成</button>
+            </div>
+          </div>
+
+          <div class="sub-panel">
+            <h3>請求書一覧</h3>
+            <div class="ses-cards compact-cards">
+              <div v-for="invoice in invoices" :key="invoice.id">
+                <strong>{{ invoice.title }}</strong>
+                <span>{{ invoice.customer.name }} / 合計 {{ Number(invoice.totalAmount || 0).toLocaleString("ja-JP") }}円</span>
+                <div class="form-actions">
+                  <button @click="downloadInvoicePdf(invoice)"><Download :size="16" />PDF</button>
+                  <button v-if="canEditSes" @click="deleteInvoice(invoice)"><Trash2 :size="16" />非表示</button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

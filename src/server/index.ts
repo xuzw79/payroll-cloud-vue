@@ -11,6 +11,7 @@ import { cookieName, createSession, requireAuth, type SessionUser } from "./auth
 import { prisma } from "./db.js";
 import { sendPayslipMail } from "./mailer.js";
 import { createBonusPdf } from "./bonusPdf.js";
+import { createInvoicePdf } from "./invoicePdf.js";
 import { createPayslipPdf } from "./pdf.js";
 import { calculateBonus, calculatePayroll } from "./payroll.js";
 
@@ -160,6 +161,22 @@ function safeFilePart(value: string) {
 
 function periodForFile(value: string) {
   return value.replace("-", "");
+}
+
+function todayIso() {
+  return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
+}
+
+function endOfMonthIso(period: string) {
+  const [year, month] = period.split("-").map(Number);
+  if (!year || !month) return "";
+  return new Date(year, month, 0).toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
+}
+
+function addDaysIso(dateValue: string, days: number) {
+  const date = new Date(`${dateValue}T00:00:00+09:00`);
+  date.setDate(date.getDate() + days);
+  return date.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
 }
 
 function tokyoDateParts() {
@@ -750,6 +767,160 @@ api.delete("/ses/contracts/:id", async (c) => {
 
   await prisma.sesContract.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
   return c.json({ ok: true });
+});
+
+api.get("/ses/invoices", async (c) => {
+  const denied = requireRole(c, "VIEWER");
+  if (denied) return denied;
+
+  const q = c.req.query("q") || "";
+  const period = c.req.query("period") || "";
+  const invoices = await prisma.sesInvoice.findMany({
+    where: {
+      isActive: true,
+      period: period || undefined,
+      OR: q ? [
+        { title: { contains: q, mode: "insensitive" } },
+        { invoiceNo: { contains: q, mode: "insensitive" } },
+        { customer: { name: { contains: q, mode: "insensitive" } } },
+        { contract: { title: { contains: q, mode: "insensitive" } } }
+      ] : undefined
+    },
+    include: { customer: true, contract: true, items: { orderBy: { createdAt: "asc" } } },
+    orderBy: [{ issueDate: "desc" }, { updatedAt: "desc" }]
+  });
+  return c.json(invoices);
+});
+
+function memberDisplayName(member: { source: string; employee?: { name: string } | null; externalMember?: { name: string; customer?: { name: string } | null } | null }) {
+  if (member.source === "EMPLOYEE") return member.employee?.name || "社員未設定";
+  const company = member.externalMember?.customer?.name;
+  const name = member.externalMember?.name || "外部メンバー未設定";
+  return company ? `${company} ${name}` : name;
+}
+
+function invoiceItemFromContractMember(member: {
+  billingType: string;
+  unitPrice: number;
+  lowerLimitHours?: unknown;
+  upperLimitHours?: unknown;
+  employee?: { name: string } | null;
+  externalMember?: { name: string; customer?: { name: string } | null } | null;
+  source: string;
+}) {
+  const range = member.billingType === "TIME_RANGE"
+    ? `（${member.lowerLimitHours ?? "-"}-${member.upperLimitHours ?? "-"}h）`
+    : "";
+  const description = `${memberDisplayName(member)} 作業費${range}`;
+  const amount = Number(member.unitPrice || 0);
+  return {
+    description,
+    quantity: 1,
+    unit: "人月",
+    unitPrice: amount,
+    amount
+  };
+}
+
+api.post("/ses/invoices/generate", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
+  const body = await c.req.json();
+  const contractId = nullableText(body.contractId);
+  const period = String(body.period || "");
+  if (!contractId) return c.json({ message: "契約を選択してください" }, 400);
+  if (!isPeriod(period)) return c.json({ message: "請求対象月を指定してください" }, 400);
+
+  const contract = await prisma.sesContract.findUnique({
+    where: { id: contractId },
+    include: {
+      customer: true,
+      members: { include: { employee: true, externalMember: { include: { customer: true } } }, orderBy: { createdAt: "asc" } }
+    }
+  });
+  if (!contract || !contract.isActive) return c.json({ message: "契約が見つかりません" }, 404);
+  if (contract.contractType !== "SALES") return c.json({ message: "請求書は請求契約から作成してください" }, 400);
+
+  const issueDate = nullableText(body.issueDate) || todayIso();
+  const dueDate = nullableText(body.dueDate) || addDaysIso(endOfMonthIso(period), contract.customer.paymentSiteDays || 30);
+  const items = contract.members.map(invoiceItemFromContractMember);
+  const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
+  const taxRate = numberOrDefault(body.taxRate, 0.1);
+  const taxAmount = Math.round(subtotal * taxRate);
+  const totalAmount = subtotal + taxAmount;
+  const invoiceNo = nullableText(body.invoiceNo) || `INV-${periodForFile(period)}-${contract.contractNo || contract.id.slice(-6)}`;
+  const title = nullableText(body.title) || `${period} ${contract.title}`;
+
+  const invoice = await prisma.sesInvoice.create({
+    data: {
+      customerId: contract.customerId,
+      contractId: contract.id,
+      period,
+      invoiceNo,
+      issueDate,
+      dueDate,
+      title,
+      subtotal,
+      taxRate,
+      taxAmount,
+      totalAmount,
+      note: nullableText(body.note),
+      items: { create: items }
+    },
+    include: { customer: true, contract: true, items: { orderBy: { createdAt: "asc" } } }
+  });
+  return c.json(invoice, 201);
+});
+
+api.delete("/ses/invoices/:id", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
+  await prisma.sesInvoice.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
+  return c.json({ ok: true });
+});
+
+api.get("/ses/invoices/:id/pdf", async (c) => {
+  const denied = requireRole(c, "VIEWER");
+  if (denied) return denied;
+
+  const invoice = await prisma.sesInvoice.findUnique({
+    where: { id: c.req.param("id") },
+    include: { customer: true, items: { orderBy: { createdAt: "asc" } } }
+  });
+  if (!invoice || !invoice.isActive) return c.json({ message: "請求書が見つかりません" }, 404);
+
+  const pdf = await createInvoicePdf({
+    invoiceNo: invoice.invoiceNo,
+    period: invoice.period,
+    issueDate: invoice.issueDate,
+    dueDate: invoice.dueDate,
+    title: invoice.title,
+    customerName: invoice.customer.name,
+    customerAddress: invoice.customer.address,
+    customerInvoiceNumber: invoice.customer.invoiceNumber,
+    subtotal: invoice.subtotal,
+    taxAmount: invoice.taxAmount,
+    totalAmount: invoice.totalAmount,
+    note: invoice.note,
+    items: invoice.items.map((item) => ({
+      description: item.description,
+      quantity: Number(item.quantity),
+      unit: item.unit,
+      unitPrice: item.unitPrice,
+      amount: item.amount
+    }))
+  });
+  const customerName = safeFilePart(invoice.customer.name);
+  const fileName = `請求書_${customerName}_${periodForFile(invoice.period)}.pdf`;
+  const fallbackFileName = `invoice-${periodForFile(invoice.period)}-${safeFilePart(invoice.customer.id)}.pdf`;
+  return new Response(new Uint8Array(pdf), {
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": attachmentDisposition(fileName, fallbackFileName)
+    }
+  });
 });
 
 api.post("/employees", async (c) => {
