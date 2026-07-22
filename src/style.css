@@ -223,7 +223,8 @@ p {
   justify-content: flex-end;
 }
 
-.main-menu {
+.main-menu,
+.sub-menu {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -233,11 +234,13 @@ p {
   background: #fff;
 }
 
-.main-menu button {
+.main-menu button,
+.sub-menu button {
   min-width: 120px;
 }
 
-.main-menu button.active {
+.main-menu button.active,
+.sub-menu button.active {
   border-color: #3f6fbf;
   background: #5481cf;
   color: #fff;
