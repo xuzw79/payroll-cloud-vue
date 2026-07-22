@@ -19,6 +19,21 @@ enum UserRole {
   EMPLOYEE
 }
 
+enum SesBillingType {
+  FIXED
+  TIME_RANGE
+}
+
+enum SesMemberSource {
+  EMPLOYEE
+  EXTERNAL
+}
+
+enum SesContractType {
+  SALES
+  PURCHASE
+}
+
 model Employee {
   id          String    @id @default(cuid())
   employeeNo  String    @unique
@@ -36,6 +51,7 @@ model Employee {
   payrolls    Payroll[]
   bonuses     Bonus[]
   users       AppUser[]
+  sesContractMembers SesContractMember[]
 }
 
 model AppUser {
@@ -189,7 +205,74 @@ model Customer {
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+  sesContracts    SesContract[]
+  externalMembers SesExternalMember[]
 
   @@index([name])
   @@index([isActive])
+}
+
+model SesExternalMember {
+  id                String   @id @default(cuid())
+  customerId        String?
+  name              String
+  code              String?
+  email             String?
+  phone             String?
+  memo              String?
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  customer          Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  contractMembers   SesContractMember[]
+
+  @@index([customerId])
+  @@index([name])
+  @@index([isActive])
+}
+
+model SesContract {
+  id              String   @id @default(cuid())
+  customerId      String
+  contractType    SesContractType @default(SALES)
+  contractNo      String?
+  title           String
+  startDate       String?
+  endDate         String?
+  memo            String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  customer        Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  members         SesContractMember[]
+
+  @@index([customerId])
+  @@index([title])
+  @@index([isActive])
+}
+
+model SesContractMember {
+  id                  String          @id @default(cuid())
+  contractId          String
+  source              SesMemberSource
+  employeeId          String?
+  externalMemberId    String?
+  billingType         SesBillingType  @default(FIXED)
+  unitPrice           Int             @default(0)
+  lowerLimitHours     Decimal?        @db.Decimal(8, 2)
+  upperLimitHours     Decimal?        @db.Decimal(8, 2)
+  deductionHourlyRate Int             @default(0)
+  excessHourlyRate    Int             @default(0)
+  startDate           String?
+  endDate             String?
+  memo                String?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  contract            SesContract     @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  employee            Employee?       @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  externalMember      SesExternalMember? @relation(fields: [externalMemberId], references: [id], onDelete: SetNull)
+
+  @@index([contractId])
+  @@index([employeeId])
+  @@index([externalMemberId])
 }

@@ -148,6 +148,12 @@ function nullableInt(value: unknown) {
   return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
 }
 
+function nullableDecimal(value: unknown) {
+  if (value === undefined || value === null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function safeFilePart(value: string) {
   return value.replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, "_");
 }
@@ -568,6 +574,179 @@ api.delete("/customers/:id", async (c) => {
   if (denied) return denied;
 
   await prisma.customer.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
+  return c.json({ ok: true });
+});
+
+api.get("/ses/external-members", async (c) => {
+  const denied = requireRole(c, "VIEWER");
+  if (denied) return denied;
+
+  const q = c.req.query("q") || "";
+  const members = await prisma.sesExternalMember.findMany({
+    where: {
+      isActive: true,
+      OR: q ? [
+        { name: { contains: q, mode: "insensitive" } },
+        { code: { contains: q, mode: "insensitive" } },
+        { customer: { name: { contains: q, mode: "insensitive" } } }
+      ] : undefined
+    },
+    include: { customer: true },
+    orderBy: [{ name: "asc" }]
+  });
+  return c.json(members);
+});
+
+api.post("/ses/external-members", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
+  const body = await c.req.json();
+  const name = String(body.name || "").trim();
+  if (!name) return c.json({ message: "外部メンバー名を入力してください" }, 400);
+
+  const member = await prisma.sesExternalMember.create({
+    data: {
+      customerId: nullableText(body.customerId),
+      name,
+      code: nullableText(body.code),
+      email: nullableText(body.email),
+      phone: nullableText(body.phone),
+      memo: nullableText(body.memo)
+    },
+    include: { customer: true }
+  });
+  return c.json(member, 201);
+});
+
+api.get("/ses/contracts", async (c) => {
+  const denied = requireRole(c, "VIEWER");
+  if (denied) return denied;
+
+  const q = c.req.query("q") || "";
+  const contracts = await prisma.sesContract.findMany({
+    where: {
+      isActive: true,
+      OR: q ? [
+        { title: { contains: q, mode: "insensitive" } },
+        { contractNo: { contains: q, mode: "insensitive" } },
+        { customer: { name: { contains: q, mode: "insensitive" } } }
+      ] : undefined
+    },
+    include: {
+      customer: true,
+      members: {
+        include: { employee: true, externalMember: { include: { customer: true } } },
+        orderBy: { createdAt: "asc" }
+      }
+    },
+    orderBy: [{ updatedAt: "desc" }]
+  });
+  return c.json(contracts);
+});
+
+function contractMemberData(member: Record<string, unknown>) {
+  const source = member.source === "EXTERNAL" ? "EXTERNAL" : "EMPLOYEE";
+  const employeeId = source === "EMPLOYEE" ? nullableText(member.employeeId) : null;
+  const externalMemberId = source === "EXTERNAL" ? nullableText(member.externalMemberId) : null;
+  if (source === "EMPLOYEE" && !employeeId) throw new Error("社員メンバーを選択してください");
+  if (source === "EXTERNAL" && !externalMemberId) throw new Error("別会社の従業員を選択してください");
+
+  return {
+    source,
+    employeeId,
+    externalMemberId,
+    billingType: member.billingType === "TIME_RANGE" ? "TIME_RANGE" : "FIXED",
+    unitPrice: numberOrDefault(member.unitPrice, 0),
+    lowerLimitHours: nullableDecimal(member.lowerLimitHours),
+    upperLimitHours: nullableDecimal(member.upperLimitHours),
+    deductionHourlyRate: numberOrDefault(member.deductionHourlyRate, 0),
+    excessHourlyRate: numberOrDefault(member.excessHourlyRate, 0),
+    startDate: nullableText(member.startDate),
+    endDate: nullableText(member.endDate),
+    memo: nullableText(member.memo)
+  };
+}
+
+api.post("/ses/contracts", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
+  const body = await c.req.json();
+  const customerId = nullableText(body.customerId);
+  const title = String(body.title || "").trim();
+  if (!customerId) return c.json({ message: "取引先を選択してください" }, 400);
+  if (!title) return c.json({ message: "契約名を入力してください" }, 400);
+  const contractType = body.contractType === "PURCHASE" ? "PURCHASE" : "SALES";
+
+  try {
+    const members = Array.isArray(body.members) ? body.members.map(contractMemberData) : [];
+    const contract = await prisma.sesContract.create({
+      data: {
+        customerId,
+        contractType,
+        contractNo: nullableText(body.contractNo),
+        title,
+        startDate: nullableText(body.startDate),
+        endDate: nullableText(body.endDate),
+        memo: nullableText(body.memo),
+        members: { create: members }
+      },
+      include: {
+        customer: true,
+        members: { include: { employee: true, externalMember: { include: { customer: true } } } }
+      }
+    });
+    return c.json(contract, 201);
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : "契約を保存できませんでした" }, 400);
+  }
+});
+
+api.put("/ses/contracts/:id", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
+  const body = await c.req.json();
+  const customerId = nullableText(body.customerId);
+  const title = String(body.title || "").trim();
+  if (!customerId) return c.json({ message: "取引先を選択してください" }, 400);
+  if (!title) return c.json({ message: "契約名を入力してください" }, 400);
+  const contractType = body.contractType === "PURCHASE" ? "PURCHASE" : "SALES";
+
+  try {
+    const members = Array.isArray(body.members) ? body.members.map(contractMemberData) : [];
+    const contract = await prisma.$transaction(async (tx) => {
+      await tx.sesContractMember.deleteMany({ where: { contractId: c.req.param("id") } });
+      return tx.sesContract.update({
+        where: { id: c.req.param("id") },
+        data: {
+          customerId,
+          contractType,
+          contractNo: nullableText(body.contractNo),
+          title,
+          startDate: nullableText(body.startDate),
+          endDate: nullableText(body.endDate),
+          memo: nullableText(body.memo),
+          members: { create: members }
+        },
+        include: {
+          customer: true,
+          members: { include: { employee: true, externalMember: { include: { customer: true } } } }
+        }
+      });
+    });
+    return c.json(contract);
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : "契約を保存できませんでした" }, 400);
+  }
+});
+
+api.delete("/ses/contracts/:id", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
+  await prisma.sesContract.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
   return c.json({ ok: true });
 });
 

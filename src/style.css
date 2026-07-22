@@ -352,10 +352,64 @@ p {
   padding: 10px;
 }
 
+.contract-layout {
+  grid-template-columns: 320px minmax(0, 1fr);
+}
+
 .ses-list {
   display: grid;
   align-content: start;
   gap: 0;
+}
+
+.contract-editor {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ses-flow-note {
+  padding: 8px 10px;
+  border: 1px solid #c9d0da;
+  background: #fff;
+  color: #344054;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.sub-panel {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #c9d0da;
+  background: #f8fafc;
+}
+
+.sub-panel h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.sub-panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.contract-member-list {
+  display: grid;
+  gap: 8px;
+}
+
+.contract-member-row {
+  padding: 8px;
+  border: 1px solid #c9d0da;
+  background: #fff;
+}
+
+.compact-cards {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
 .panel {

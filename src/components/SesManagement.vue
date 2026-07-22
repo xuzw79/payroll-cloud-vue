@@ -3,6 +3,9 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { Plus, Save, Search, Trash2 } from "lucide-vue-next";
 
 type SesSubMenu = "customers" | "projects" | "revenue" | "partnerCosts" | "profit";
+type MemberSource = "EMPLOYEE" | "EXTERNAL";
+type BillingType = "FIXED" | "TIME_RANGE";
+type ContractType = "SALES" | "PURCHASE";
 
 type Customer = {
   id: string;
@@ -19,12 +22,76 @@ type Customer = {
   memo?: string | null;
 };
 
+type Employee = {
+  id: string;
+  employeeNo: string;
+  name: string;
+};
+
+type ExternalMember = {
+  id: string;
+  customerId?: string | null;
+  name: string;
+  code?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  memo?: string | null;
+  customer?: Customer | null;
+};
+
+type ContractMember = {
+  id?: string;
+  source: MemberSource;
+  employeeId?: string | null;
+  externalMemberId?: string | null;
+  billingType: BillingType;
+  unitPrice: number;
+  lowerLimitHours?: number | null;
+  upperLimitHours?: number | null;
+  deductionHourlyRate: number;
+  excessHourlyRate: number;
+  startDate?: string | null;
+  endDate?: string | null;
+  memo?: string | null;
+  employee?: Employee | null;
+  externalMember?: ExternalMember | null;
+};
+
+type Contract = {
+  id: string;
+  customerId: string;
+  contractType: ContractType;
+  contractNo?: string | null;
+  title: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  memo?: string | null;
+  customer: Customer;
+  members: ContractMember[];
+};
+
+type ContractMemberForm = {
+  key: string;
+  source: MemberSource;
+  employeeId: string;
+  externalMemberId: string;
+  billingType: BillingType;
+  unitPrice: number;
+  lowerLimitHours: number | null;
+  upperLimitHours: number | null;
+  deductionHourlyRate: number;
+  excessHourlyRate: number;
+  startDate: string;
+  endDate: string;
+  memo: string;
+};
+
 const props = defineProps<{ canEditSes: boolean }>();
 const emit = defineEmits<{ message: [value: string] }>();
 
 const subMenus: { key: SesSubMenu; label: string; description: string }[] = [
   { key: "customers", label: "取引先管理", description: "顧客・協力会社の基本情報を管理します。" },
-  { key: "projects", label: "案件・契約管理", description: "月額請負額、契約期間、作業者、顧客を管理します。" },
+  { key: "projects", label: "案件・契約管理", description: "請求契約と仕入契約、契約期間、作業者、契約先を管理します。" },
   { key: "revenue", label: "月次売上入力", description: "社員別・案件別の毎月売上を登録します。" },
   { key: "partnerCosts", label: "外注費入力", description: "協力会社への月額支払を登録します。" },
   { key: "profit", label: "個人別利益", description: "売上、給与、外注費から利益を確認します。" }
@@ -32,9 +99,15 @@ const subMenus: { key: SesSubMenu; label: string; description: string }[] = [
 
 const activeSubMenu = ref<SesSubMenu>("customers");
 const loading = ref(false);
-const query = ref("");
+const customerQuery = ref("");
+const contractQuery = ref("");
 const customers = ref<Customer[]>([]);
+const employees = ref<Employee[]>([]);
+const externalMembers = ref<ExternalMember[]>([]);
+const contracts = ref<Contract[]>([]);
 const selectedCustomerId = ref("");
+const selectedContractId = ref("");
+const contractMembers = ref<ContractMemberForm[]>([]);
 
 const activeMenuInfo = computed(() => subMenus.find((menu) => menu.key === activeSubMenu.value) || subMenus[0]);
 
@@ -53,6 +126,26 @@ const customerForm = reactive({
   memo: ""
 });
 
+const externalMemberForm = reactive({
+  customerId: "",
+  name: "",
+  code: "",
+  email: "",
+  phone: "",
+  memo: ""
+});
+
+const contractForm = reactive({
+  id: "",
+  customerId: "",
+  contractType: "SALES" as ContractType,
+  contractNo: "",
+  title: "",
+  startDate: "",
+  endDate: "",
+  memo: ""
+});
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api${path}`, {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
@@ -64,6 +157,24 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new Error(error.message || "通信に失敗しました");
   }
   return response.json();
+}
+
+function newMemberRow(): ContractMemberForm {
+  return {
+    key: crypto.randomUUID(),
+    source: "EMPLOYEE",
+    employeeId: "",
+    externalMemberId: "",
+    billingType: "FIXED",
+    unitPrice: 0,
+    lowerLimitHours: null,
+    upperLimitHours: null,
+    deductionHourlyRate: 0,
+    excessHourlyRate: 0,
+    startDate: contractForm.startDate,
+    endDate: contractForm.endDate,
+    memo: ""
+  };
 }
 
 function resetCustomerForm() {
@@ -106,13 +217,78 @@ function applyCustomer(customer?: Customer) {
   selectedCustomerId.value = customer.id;
 }
 
+function resetContractForm() {
+  Object.assign(contractForm, {
+    id: "",
+    customerId: "",
+    contractType: "SALES",
+    contractNo: "",
+    title: "",
+    startDate: "",
+    endDate: "",
+    memo: ""
+  });
+  selectedContractId.value = "";
+  contractMembers.value = [newMemberRow()];
+}
+
+function applyContract(contract?: Contract) {
+  if (!contract) {
+    resetContractForm();
+    return;
+  }
+  Object.assign(contractForm, {
+    id: contract.id,
+    customerId: contract.customerId,
+    contractType: contract.contractType,
+    contractNo: contract.contractNo || "",
+    title: contract.title,
+    startDate: contract.startDate || "",
+    endDate: contract.endDate || "",
+    memo: contract.memo || ""
+  });
+  selectedContractId.value = contract.id;
+  contractMembers.value = contract.members.length ? contract.members.map((member) => ({
+    key: member.id || crypto.randomUUID(),
+    source: member.source,
+    employeeId: member.employeeId || "",
+    externalMemberId: member.externalMemberId || "",
+    billingType: member.billingType,
+    unitPrice: Number(member.unitPrice || 0),
+    lowerLimitHours: member.lowerLimitHours == null ? null : Number(member.lowerLimitHours),
+    upperLimitHours: member.upperLimitHours == null ? null : Number(member.upperLimitHours),
+    deductionHourlyRate: Number(member.deductionHourlyRate || 0),
+    excessHourlyRate: Number(member.excessHourlyRate || 0),
+    startDate: member.startDate || "",
+    endDate: member.endDate || "",
+    memo: member.memo || ""
+  })) : [newMemberRow()];
+}
+
 async function refreshCustomers() {
   loading.value = true;
   try {
-    customers.value = await request<Customer[]>(`/customers?q=${encodeURIComponent(query.value)}`);
+    customers.value = await request<Customer[]>(`/customers?q=${encodeURIComponent(customerQuery.value)}`);
   } finally {
     loading.value = false;
   }
+}
+
+async function refreshContracts() {
+  contracts.value = await request<Contract[]>(`/ses/contracts?q=${encodeURIComponent(contractQuery.value)}`);
+}
+
+async function refreshSesMasterData() {
+  const [employeeData, externalMemberData] = await Promise.all([
+    request<Employee[]>("/employees"),
+    request<ExternalMember[]>("/ses/external-members")
+  ]);
+  employees.value = employeeData;
+  externalMembers.value = externalMemberData;
+}
+
+async function refreshAll() {
+  await Promise.all([refreshCustomers(), refreshContracts(), refreshSesMasterData()]);
 }
 
 async function saveCustomer() {
@@ -133,7 +309,62 @@ async function deleteCustomer() {
   await refreshCustomers();
 }
 
-onMounted(refreshCustomers);
+async function saveExternalMember() {
+  if (!props.canEditSes) return;
+  const member = await request<ExternalMember>("/ses/external-members", { method: "POST", body: JSON.stringify(externalMemberForm) });
+  emit("message", "別会社の従業員を登録しました");
+  Object.assign(externalMemberForm, { customerId: "", name: "", code: "", email: "", phone: "", memo: "" });
+  await refreshSesMasterData();
+  const lastBlank = contractMembers.value.find((row) => row.source === "EXTERNAL" && !row.externalMemberId);
+  if (lastBlank) lastBlank.externalMemberId = member.id;
+}
+
+function addContractMember() {
+  contractMembers.value.push(newMemberRow());
+}
+
+function removeContractMember(index: number) {
+  contractMembers.value.splice(index, 1);
+  if (!contractMembers.value.length) contractMembers.value.push(newMemberRow());
+}
+
+function onMemberSourceChange(member: ContractMemberForm) {
+  member.employeeId = "";
+  member.externalMemberId = "";
+}
+
+async function saveContract() {
+  if (!props.canEditSes) return;
+  const payload = {
+    ...contractForm,
+    members: contractMembers.value.map(({ key, ...member }) => member)
+  };
+  const method = contractForm.id ? "PUT" : "POST";
+  const path = contractForm.id ? `/ses/contracts/${contractForm.id}` : "/ses/contracts";
+  const contract = await request<Contract>(path, { method, body: JSON.stringify(payload) });
+  emit("message", "契約を保存しました");
+  await refreshContracts();
+  applyContract(contract);
+}
+
+async function deleteContract() {
+  if (!props.canEditSes || !contractForm.id || !confirm("この契約を非表示にしますか？")) return;
+  await request(`/ses/contracts/${contractForm.id}`, { method: "DELETE" });
+  emit("message", "契約を非表示にしました");
+  resetContractForm();
+  await refreshContracts();
+}
+
+function memberName(member: ContractMember) {
+  return member.source === "EMPLOYEE"
+    ? member.employee?.name || "社員未設定"
+    : member.externalMember?.name || "外部メンバー未設定";
+}
+
+onMounted(async () => {
+  resetContractForm();
+  await refreshAll();
+});
 </script>
 
 <template>
@@ -157,7 +388,7 @@ onMounted(refreshCustomers);
       <div class="ses-layout">
         <div class="ses-list">
           <div class="filter-row ses-search">
-            <label>取引先検索<input v-model="query" placeholder="会社名・コード・担当者" @keyup.enter="refreshCustomers" /></label>
+            <label>取引先検索<input v-model="customerQuery" placeholder="会社名・コード・担当者" @keyup.enter="refreshCustomers" /></label>
             <button class="primary" @click="refreshCustomers"><Search :size="16" />検索</button>
           </div>
           <button
@@ -190,6 +421,107 @@ onMounted(refreshCustomers);
           <div class="form-actions full">
             <button v-if="canEditSes" @click="deleteCustomer"><Trash2 :size="16" />非表示</button>
             <button v-if="canEditSes" class="primary" @click="saveCustomer"><Save :size="16" />取引先保存</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section v-else-if="activeSubMenu === 'projects'" class="panel">
+      <div class="panel-head">
+        <h2>案件・契約管理</h2>
+        <button v-if="canEditSes" @click="applyContract()"><Plus :size="16" />契約追加</button>
+      </div>
+      <div class="ses-layout contract-layout">
+        <div class="ses-list">
+          <div class="filter-row ses-search">
+            <label>契約検索<input v-model="contractQuery" placeholder="契約名・契約番号・契約先" @keyup.enter="refreshContracts" /></label>
+            <button class="primary" @click="refreshContracts"><Search :size="16" />検索</button>
+          </div>
+          <button
+            v-for="contract in contracts"
+            :key="contract.id"
+            class="employee-item"
+            :class="{ active: contract.id === selectedContractId }"
+            @click="applyContract(contract)"
+          >
+            <strong>{{ contract.title }}</strong>
+            <span>{{ contract.contractType === "SALES" ? "請求契約" : "仕入契約" }} / {{ contract.customer.name }}</span>
+            <span>{{ contract.startDate || "-" }} - {{ contract.endDate || "-" }}</span>
+            <span>メンバー {{ contract.members.length }}名</span>
+          </button>
+          <div v-if="!contracts.length" class="empty">契約が登録されていません。</div>
+        </div>
+
+        <div class="contract-editor">
+          <div class="ses-flow-note">
+            請求契約: 弊社とA社の契約、A社へ請求。仕入契約: 弊社とB社の契約、B社から弊社へ請求。別会社従業員は所属会社をB社として登録します。
+          </div>
+          <div class="form-grid">
+            <label>契約区分<select v-model="contractForm.contractType"><option value="SALES">請求契約（弊社から契約先へ請求）</option><option value="PURCHASE">仕入契約（契約先から弊社へ請求）</option></select></label>
+            <label>契約先<select v-model="contractForm.customerId"><option value="">選択</option><option v-for="customer in customers" :key="customer.id" :value="customer.id">{{ customer.name }}</option></select></label>
+            <label>契約番号<input v-model="contractForm.contractNo" /></label>
+            <label class="wide">契約名<input v-model="contractForm.title" /></label>
+            <label>契約開始日<input v-model="contractForm.startDate" type="date" /></label>
+            <label>契約終了日<input v-model="contractForm.endDate" type="date" /></label>
+            <label class="wide">メモ<input v-model="contractForm.memo" /></label>
+          </div>
+
+          <div class="sub-panel">
+            <h3>別会社の従業員登録</h3>
+            <div class="form-grid compact">
+              <label>所属会社<select v-model="externalMemberForm.customerId"><option value="">未選択</option><option v-for="customer in customers" :key="customer.id" :value="customer.id">{{ customer.name }}</option></select></label>
+              <label>氏名<input v-model="externalMemberForm.name" /></label>
+              <label>コード<input v-model="externalMemberForm.code" /></label>
+              <label>メール<input v-model="externalMemberForm.email" type="email" /></label>
+              <label>電話番号<input v-model="externalMemberForm.phone" /></label>
+              <label class="wide">メモ<input v-model="externalMemberForm.memo" /></label>
+              <div class="form-actions full">
+                <button v-if="canEditSes" @click="saveExternalMember"><Plus :size="16" />外部メンバー登録</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="sub-panel">
+            <div class="sub-panel-head">
+              <h3>契約メンバー</h3>
+              <button v-if="canEditSes" @click="addContractMember"><Plus :size="16" />メンバー追加</button>
+            </div>
+            <div class="contract-member-list">
+              <div v-for="(member, index) in contractMembers" :key="member.key" class="contract-member-row">
+                <div class="form-grid compact">
+                  <label>区分<select v-model="member.source" @change="onMemberSourceChange(member)"><option value="EMPLOYEE">社員</option><option value="EXTERNAL">別会社従業員</option></select></label>
+                  <label v-if="member.source === 'EMPLOYEE'">社員<select v-model="member.employeeId"><option value="">選択</option><option v-for="employee in employees" :key="employee.id" :value="employee.id">{{ employee.employeeNo }} / {{ employee.name }}</option></select></label>
+                  <label v-else>別会社従業員<select v-model="member.externalMemberId"><option value="">選択</option><option v-for="externalMember in externalMembers" :key="externalMember.id" :value="externalMember.id">{{ externalMember.customer?.name || "所属未設定" }} / {{ externalMember.name }}</option></select></label>
+                  <label>単価区分<select v-model="member.billingType"><option value="FIXED">定額</option><option value="TIME_RANGE">精算時間範囲</option></select></label>
+                  <label>単価<input v-model.number="member.unitPrice" type="number" min="0" /></label>
+                  <label v-if="member.billingType === 'TIME_RANGE'">下限時間<input v-model.number="member.lowerLimitHours" type="number" min="0" step="0.01" /></label>
+                  <label v-if="member.billingType === 'TIME_RANGE'">上限時間<input v-model.number="member.upperLimitHours" type="number" min="0" step="0.01" /></label>
+                  <label v-if="member.billingType === 'TIME_RANGE'">控除時給<input v-model.number="member.deductionHourlyRate" type="number" min="0" /></label>
+                  <label v-if="member.billingType === 'TIME_RANGE'">超過時給<input v-model.number="member.excessHourlyRate" type="number" min="0" /></label>
+                  <label>開始日<input v-model="member.startDate" type="date" /></label>
+                  <label>終了日<input v-model="member.endDate" type="date" /></label>
+                  <label class="wide">メモ<input v-model="member.memo" /></label>
+                  <div class="form-actions full">
+                    <button v-if="canEditSes" @click="removeContractMember(index)"><Trash2 :size="16" />行削除</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="selectedContractId" class="sub-panel">
+            <h3>登録済みメンバー</h3>
+            <div class="ses-cards compact-cards">
+              <div v-for="member in contracts.find((contract) => contract.id === selectedContractId)?.members || []" :key="member.id">
+                <strong>{{ memberName(member) }}</strong>
+                <span>{{ member.billingType === "FIXED" ? "定額" : "精算時間範囲" }} / {{ Number(member.unitPrice || 0).toLocaleString("ja-JP") }}円</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-actions full">
+            <button v-if="canEditSes" @click="deleteContract"><Trash2 :size="16" />非表示</button>
+            <button v-if="canEditSes" class="primary" @click="saveContract"><Save :size="16" />契約保存</button>
           </div>
         </div>
       </div>
