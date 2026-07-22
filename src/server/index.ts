@@ -426,6 +426,53 @@ api.put("/settings", async (c) => {
   return c.json(settings);
 });
 
+api.get("/ses/company-setting", async (c) => {
+  const denied = requireRole(c, "VIEWER");
+  if (denied) return denied;
+
+  const settings = await prisma.companySetting.upsert({
+    where: { id: "default" },
+    update: {},
+    create: { id: "default", currentFiscalYear: new Date().getFullYear() }
+  });
+  return c.json(settings);
+});
+
+api.put("/ses/company-setting", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
+  const body = await c.req.json();
+  const settings = await prisma.companySetting.upsert({
+    where: { id: "default" },
+    update: {
+      invoiceCompanyName: nullableText(body.invoiceCompanyName),
+      invoicePostalCode: nullableText(body.invoicePostalCode),
+      invoiceAddress: nullableText(body.invoiceAddress),
+      invoiceTel: nullableText(body.invoiceTel),
+      invoiceRegistrationNo: nullableText(body.invoiceRegistrationNo),
+      invoiceBankName: nullableText(body.invoiceBankName),
+      invoiceBankBranch: nullableText(body.invoiceBankBranch),
+      invoiceBankAccount: nullableText(body.invoiceBankAccount),
+      invoiceBankHolder: nullableText(body.invoiceBankHolder)
+    },
+    create: {
+      id: "default",
+      currentFiscalYear: new Date().getFullYear(),
+      invoiceCompanyName: nullableText(body.invoiceCompanyName),
+      invoicePostalCode: nullableText(body.invoicePostalCode),
+      invoiceAddress: nullableText(body.invoiceAddress),
+      invoiceTel: nullableText(body.invoiceTel),
+      invoiceRegistrationNo: nullableText(body.invoiceRegistrationNo),
+      invoiceBankName: nullableText(body.invoiceBankName),
+      invoiceBankBranch: nullableText(body.invoiceBankBranch),
+      invoiceBankAccount: nullableText(body.invoiceBankAccount),
+      invoiceBankHolder: nullableText(body.invoiceBankHolder)
+    }
+  });
+  return c.json(settings);
+});
+
 api.get("/fiscal-rates", async (c) => {
   const rates = await prisma.fiscalRate.findMany({ orderBy: { fiscalYear: "desc" } });
   return c.json(rates);
@@ -676,6 +723,7 @@ function contractMemberData(member: Record<string, unknown>) {
     employeeId,
     externalMemberId,
     billingType: member.billingType === "TIME_RANGE" ? "TIME_RANGE" : "FIXED",
+    itemDescription: nullableText(member.itemDescription),
     unitPrice: numberOrDefault(member.unitPrice, 0),
     lowerLimitHours: nullableDecimal(member.lowerLimitHours),
     upperLimitHours: nullableDecimal(member.upperLimitHours),
@@ -800,26 +848,65 @@ function memberDisplayName(member: { source: string; employee?: { name: string }
 }
 
 function invoiceItemFromContractMember(member: {
+  id: string;
   billingType: string;
+  itemDescription?: string | null;
   unitPrice: number;
   lowerLimitHours?: unknown;
   upperLimitHours?: unknown;
+  deductionHourlyRate: number;
+  excessHourlyRate: number;
   employee?: { name: string } | null;
   externalMember?: { name: string; customer?: { name: string } | null } | null;
   source: string;
-}) {
+}, workHoursByMember: Record<string, unknown>) {
   const range = member.billingType === "TIME_RANGE"
     ? `（${member.lowerLimitHours ?? "-"}-${member.upperLimitHours ?? "-"}h）`
     : "";
-  const description = `${memberDisplayName(member)} 作業費${range}`;
+  const description = member.itemDescription || `${memberDisplayName(member)} 作業費${range}`;
   const amount = Number(member.unitPrice || 0);
-  return {
+  const items = [{
     description,
     quantity: 1,
     unit: "人月",
     unitPrice: amount,
     amount
-  };
+  }];
+
+  if (member.billingType !== "TIME_RANGE") return items;
+
+  const rawWorkHours = workHoursByMember[member.id];
+  if (rawWorkHours === undefined || rawWorkHours === null || rawWorkHours === "") {
+    throw new Error(`${description} の作業時間を入力してください`);
+  }
+  const workHours = Number(rawWorkHours);
+  if (!Number.isFinite(workHours)) throw new Error(`${description} の作業時間が不正です`);
+
+  const lowerLimitHours = member.lowerLimitHours == null ? null : Number(member.lowerLimitHours);
+  const upperLimitHours = member.upperLimitHours == null ? null : Number(member.upperLimitHours);
+  if (lowerLimitHours !== null && workHours < lowerLimitHours) {
+    const shortageHours = Number((lowerLimitHours - workHours).toFixed(2));
+    const unitPrice = Number(member.deductionHourlyRate || 0);
+    items.push({
+      description: `${description} 控除（${workHours}h / 下限${lowerLimitHours}h）`,
+      quantity: shortageHours,
+      unit: "時間",
+      unitPrice: -unitPrice,
+      amount: -Math.round(shortageHours * unitPrice)
+    });
+  }
+  if (upperLimitHours !== null && workHours > upperLimitHours) {
+    const excessHours = Number((workHours - upperLimitHours).toFixed(2));
+    const unitPrice = Number(member.excessHourlyRate || 0);
+    items.push({
+      description: `${description} 超過（${workHours}h / 上限${upperLimitHours}h）`,
+      quantity: excessHours,
+      unit: "時間",
+      unitPrice,
+      amount: Math.round(excessHours * unitPrice)
+    });
+  }
+  return items;
 }
 
 api.post("/ses/invoices/generate", async (c) => {
@@ -844,7 +931,13 @@ api.post("/ses/invoices/generate", async (c) => {
 
   const issueDate = nullableText(body.issueDate) || todayIso();
   const dueDate = nullableText(body.dueDate) || addDaysIso(endOfMonthIso(period), contract.customer.paymentSiteDays || 30);
-  const items = contract.members.map(invoiceItemFromContractMember);
+  const workHoursByMember = (body.workHoursByMember || {}) as Record<string, unknown>;
+  let items: ReturnType<typeof invoiceItemFromContractMember>[number][];
+  try {
+    items = contract.members.flatMap((member) => invoiceItemFromContractMember(member, workHoursByMember));
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : "請求明細を作成できませんでした" }, 400);
+  }
   const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
   const taxRate = numberOrDefault(body.taxRate, 0.1);
   const taxAmount = Math.round(subtotal * taxRate);
@@ -890,6 +983,11 @@ api.get("/ses/invoices/:id/pdf", async (c) => {
     include: { customer: true, items: { orderBy: { createdAt: "asc" } } }
   });
   if (!invoice || !invoice.isActive) return c.json({ message: "請求書が見つかりません" }, 404);
+  const settings = await prisma.companySetting.upsert({
+    where: { id: "default" },
+    update: {},
+    create: { id: "default", currentFiscalYear: new Date().getFullYear() }
+  });
 
   const pdf = await createInvoicePdf({
     invoiceNo: invoice.invoiceNo,
@@ -904,6 +1002,15 @@ api.get("/ses/invoices/:id/pdf", async (c) => {
     taxAmount: invoice.taxAmount,
     totalAmount: invoice.totalAmount,
     note: invoice.note,
+    companyName: settings.invoiceCompanyName,
+    companyPostalCode: settings.invoicePostalCode,
+    companyAddress: settings.invoiceAddress,
+    companyTel: settings.invoiceTel,
+    companyRegistrationNo: settings.invoiceRegistrationNo,
+    bankName: settings.invoiceBankName,
+    bankBranch: settings.invoiceBankBranch,
+    bankAccount: settings.invoiceBankAccount,
+    bankHolder: settings.invoiceBankHolder,
     items: invoice.items.map((item) => ({
       description: item.description,
       quantity: Number(item.quantity),

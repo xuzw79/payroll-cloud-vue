@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { Download, Plus, Save, Search, Trash2 } from "lucide-vue-next";
 
-type SesSubMenu = "customers" | "projects" | "invoices" | "revenue" | "partnerCosts" | "profit";
+type SesSubMenu = "customers" | "projects" | "invoices" | "masters" | "revenue" | "partnerCosts" | "profit";
 type MemberSource = "EMPLOYEE" | "EXTERNAL";
 type BillingType = "FIXED" | "TIME_RANGE";
 type ContractType = "SALES" | "PURCHASE";
@@ -45,6 +45,7 @@ type ContractMember = {
   employeeId?: string | null;
   externalMemberId?: string | null;
   billingType: BillingType;
+  itemDescription?: string | null;
   unitPrice: number;
   lowerLimitHours?: number | null;
   upperLimitHours?: number | null;
@@ -96,12 +97,25 @@ type Invoice = {
   items: InvoiceItem[];
 };
 
+type CompanySetting = {
+  invoiceCompanyName?: string | null;
+  invoicePostalCode?: string | null;
+  invoiceAddress?: string | null;
+  invoiceTel?: string | null;
+  invoiceRegistrationNo?: string | null;
+  invoiceBankName?: string | null;
+  invoiceBankBranch?: string | null;
+  invoiceBankAccount?: string | null;
+  invoiceBankHolder?: string | null;
+};
+
 type ContractMemberForm = {
   key: string;
   source: MemberSource;
   employeeId: string;
   externalMemberId: string;
   billingType: BillingType;
+  itemDescription: string;
   unitPrice: number;
   lowerLimitHours: number | null;
   upperLimitHours: number | null;
@@ -119,6 +133,7 @@ const subMenus: { key: SesSubMenu; label: string; description: string }[] = [
   { key: "customers", label: "取引先管理", description: "顧客・協力会社の基本情報を管理します。" },
   { key: "projects", label: "案件・契約管理", description: "請求契約と仕入契約、契約期間、作業者、契約先を管理します。" },
   { key: "invoices", label: "請求管理", description: "請求契約から請求書を作成し、PDFを出力します。" },
+  { key: "masters", label: "マスタ管理", description: "自社情報、振込先など共通マスタを管理します。" },
   { key: "revenue", label: "月次売上入力", description: "社員別・案件別の毎月売上を登録します。" },
   { key: "partnerCosts", label: "外注費入力", description: "協力会社への月額支払を登録します。" },
   { key: "profit", label: "個人別利益", description: "売上、給与、外注費から利益を確認します。" }
@@ -138,10 +153,15 @@ const selectedCustomerId = ref("");
 const selectedContractId = ref("");
 const selectedInvoiceId = ref("");
 const contractMembers = ref<ContractMemberForm[]>([]);
+const invoiceWorkHours = reactive<Record<string, number | null>>({});
 
 const activeMenuInfo = computed(() => subMenus.find((menu) => menu.key === activeSubMenu.value) || subMenus[0]);
 const selectedCustomerExternalMembers = computed(() => externalMembers.value.filter((member) => member.customerId === customerForm.id));
 const salesContracts = computed(() => contracts.value.filter((contract) => contract.contractType === "SALES"));
+const selectedInvoiceContract = computed(() => salesContracts.value.find((contract) => contract.id === invoiceForm.contractId));
+const selectedInvoiceTimeRangeMembers = computed(() => selectedInvoiceContract.value?.members.filter(
+  (member): member is ContractMember & { id: string } => member.billingType === "TIME_RANGE" && !!member.id
+) || []);
 
 const customerForm = reactive({
   id: "",
@@ -165,6 +185,18 @@ const externalMemberForm = reactive({
   email: "",
   phone: "",
   memo: ""
+});
+
+const companyForm = reactive({
+  invoiceCompanyName: "",
+  invoicePostalCode: "",
+  invoiceAddress: "",
+  invoiceTel: "",
+  invoiceRegistrationNo: "",
+  invoiceBankName: "",
+  invoiceBankBranch: "",
+  invoiceBankAccount: "",
+  invoiceBankHolder: ""
 });
 
 const contractForm = reactive({
@@ -208,6 +240,7 @@ function newMemberRow(): ContractMemberForm {
     employeeId: "",
     externalMemberId: "",
     billingType: "FIXED",
+    itemDescription: "",
     unitPrice: 0,
     lowerLimitHours: null,
     upperLimitHours: null,
@@ -298,6 +331,7 @@ function applyContract(contract?: Contract) {
     employeeId: member.employeeId || "",
     externalMemberId: member.externalMemberId || "",
     billingType: member.billingType,
+    itemDescription: member.itemDescription || "",
     unitPrice: Number(member.unitPrice || 0),
     lowerLimitHours: member.lowerLimitHours == null ? null : Number(member.lowerLimitHours),
     upperLimitHours: member.upperLimitHours == null ? null : Number(member.upperLimitHours),
@@ -327,6 +361,21 @@ async function refreshInvoices() {
   invoices.value = await request<Invoice[]>(`/ses/invoices?${params.toString()}`);
 }
 
+async function refreshCompanySetting() {
+  const setting = await request<CompanySetting>("/ses/company-setting");
+  Object.assign(companyForm, {
+    invoiceCompanyName: setting.invoiceCompanyName || "",
+    invoicePostalCode: setting.invoicePostalCode || "",
+    invoiceAddress: setting.invoiceAddress || "",
+    invoiceTel: setting.invoiceTel || "",
+    invoiceRegistrationNo: setting.invoiceRegistrationNo || "",
+    invoiceBankName: setting.invoiceBankName || "",
+    invoiceBankBranch: setting.invoiceBankBranch || "",
+    invoiceBankAccount: setting.invoiceBankAccount || "",
+    invoiceBankHolder: setting.invoiceBankHolder || ""
+  });
+}
+
 async function refreshSesMasterData() {
   const [employeeData, externalMemberData] = await Promise.all([
     request<Employee[]>("/employees"),
@@ -337,7 +386,7 @@ async function refreshSesMasterData() {
 }
 
 async function refreshAll() {
-  await Promise.all([refreshCustomers(), refreshContracts(), refreshSesMasterData(), refreshInvoices()]);
+  await Promise.all([refreshCustomers(), refreshContracts(), refreshSesMasterData(), refreshInvoices(), refreshCompanySetting()]);
 }
 
 async function saveCustomer() {
@@ -407,11 +456,17 @@ async function deleteContract() {
   await refreshContracts();
 }
 
+async function saveCompanySetting() {
+  if (!props.canEditSes) return;
+  await request<CompanySetting>("/ses/company-setting", { method: "PUT", body: JSON.stringify(companyForm) });
+  emit("message", "請求書用の自社情報を保存しました");
+}
+
 async function generateInvoice() {
   if (!props.canEditSes) return;
   const invoice = await request<Invoice>("/ses/invoices/generate", {
     method: "POST",
-    body: JSON.stringify(invoiceForm)
+    body: JSON.stringify({ ...invoiceForm, workHoursByMember: invoiceWorkHours })
   });
   emit("message", "請求書を作成しました");
   selectedInvoiceId.value = invoice.id;
@@ -587,6 +642,7 @@ onMounted(async () => {
                   <label v-if="member.source === 'EMPLOYEE'">社員<select v-model="member.employeeId"><option value="">選択</option><option v-for="employee in employees" :key="employee.id" :value="employee.id">{{ employee.employeeNo }} / {{ employee.name }}</option></select></label>
                   <label v-else>別会社従業員<select v-model="member.externalMemberId"><option value="">選択</option><option v-for="externalMember in externalMembers" :key="externalMember.id" :value="externalMember.id">{{ externalMember.customer?.name || "所属未設定" }} / {{ externalMember.name }}</option></select></label>
                   <label>単価区分<select v-model="member.billingType"><option value="FIXED">定額</option><option value="TIME_RANGE">精算時間範囲</option></select></label>
+                  <label class="wide">品名・摘要<input v-model="member.itemDescription" placeholder="請求書明細に印字" /></label>
                   <label>単価<input v-model.number="member.unitPrice" type="number" min="0" /></label>
                   <label v-if="member.billingType === 'TIME_RANGE'">下限時間<input v-model.number="member.lowerLimitHours" type="number" min="0" step="0.01" /></label>
                   <label v-if="member.billingType === 'TIME_RANGE'">上限時間<input v-model.number="member.upperLimitHours" type="number" min="0" step="0.01" /></label>
@@ -648,7 +704,7 @@ onMounted(async () => {
 
         <div class="contract-editor">
           <div class="ses-flow-note">
-            請求契約から対象月の請求書を作成します。明細は契約メンバーの単価から自動作成し、PDFには社印を印字します。
+            請求契約から対象月の請求書を作成します。定額は作業時間入力不要、精算時間範囲は作業時間から控除・超過を自動反映します。
           </div>
           <div class="form-grid">
             <label class="wide">請求元契約<select v-model="invoiceForm.contractId"><option value="">選択</option><option v-for="contract in salesContracts" :key="contract.id" :value="contract.id">{{ contract.customer.name }} / {{ contract.title }}</option></select></label>
@@ -663,6 +719,16 @@ onMounted(async () => {
             </div>
           </div>
 
+          <div v-if="selectedInvoiceTimeRangeMembers.length" class="sub-panel">
+            <h3>精算時間入力</h3>
+            <div class="form-grid compact">
+              <label v-for="member in selectedInvoiceTimeRangeMembers" :key="member.id">
+                {{ member.itemDescription || memberName(member) }}
+                <input v-model.number="invoiceWorkHours[member.id]" type="number" min="0" step="0.01" />
+              </label>
+            </div>
+          </div>
+
           <div class="sub-panel">
             <h3>請求書一覧</h3>
             <div class="ses-cards compact-cards">
@@ -674,6 +740,34 @@ onMounted(async () => {
                   <button v-if="canEditSes" @click="deleteInvoice(invoice)"><Trash2 :size="16" />非表示</button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section v-else-if="activeSubMenu === 'masters'" class="panel">
+      <div class="panel-head">
+        <h2>マスタ管理</h2>
+      </div>
+      <div class="contract-editor">
+        <div class="ses-flow-note">
+          請求書PDFに印字する自社情報と振込先を登録します。
+        </div>
+        <div class="sub-panel">
+          <h3>自社情報</h3>
+          <div class="form-grid compact">
+            <label>会社名<input v-model="companyForm.invoiceCompanyName" /></label>
+            <label>郵便番号<input v-model="companyForm.invoicePostalCode" /></label>
+            <label class="wide">住所<input v-model="companyForm.invoiceAddress" /></label>
+            <label>電話番号<input v-model="companyForm.invoiceTel" /></label>
+            <label>登録番号<input v-model="companyForm.invoiceRegistrationNo" /></label>
+            <label>振込先銀行<input v-model="companyForm.invoiceBankName" /></label>
+            <label>支店<input v-model="companyForm.invoiceBankBranch" /></label>
+            <label>口座<input v-model="companyForm.invoiceBankAccount" /></label>
+            <label>口座名義<input v-model="companyForm.invoiceBankHolder" /></label>
+            <div class="form-actions full">
+              <button v-if="canEditSes" class="primary" @click="saveCompanySetting"><Save :size="16" />自社情報保存</button>
             </div>
           </div>
         </div>

@@ -126,6 +126,15 @@ model CompanySetting {
   pensionInsuranceRate     Decimal  @db.Decimal(8, 6) @default(0.100000)
   childCareSupportRate     Decimal  @db.Decimal(8, 6) @default(0.000000)
   employmentInsuranceRate  Decimal  @db.Decimal(8, 6) @default(0.006000)
+  invoiceCompanyName       String?
+  invoicePostalCode        String?
+  invoiceAddress           String?
+  invoiceTel               String?
+  invoiceRegistrationNo    String?
+  invoiceBankName          String?
+  invoiceBankBranch        String?
+  invoiceBankAccount       String?
+  invoiceBankHolder        String?
   updatedAt                DateTime @updatedAt
 }
 
@@ -260,6 +269,7 @@ model SesContractMember {
   employeeId          String?
   externalMemberId    String?
   billingType         SesBillingType  @default(FIXED)
+  itemDescription     String?
   unitPrice           Int             @default(0)
   lowerLimitHours     Decimal?        @db.Decimal(8, 2)
   upperLimitHours     Decimal?        @db.Decimal(8, 2)
@@ -314,6 +324,7 @@ model SesInvoiceItem {
   unit         String   @default("式")
   unitPrice   Int      @default(0)
   amount      Int      @default(0)
+  workHours   Decimal? @db.Decimal(8, 2)
   memo        String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

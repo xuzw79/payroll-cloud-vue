@@ -27,6 +27,15 @@ export type InvoicePdfInput = {
   taxAmount: number;
   totalAmount: number;
   note?: string | null;
+  companyName?: string | null;
+  companyPostalCode?: string | null;
+  companyAddress?: string | null;
+  companyTel?: string | null;
+  companyRegistrationNo?: string | null;
+  bankName?: string | null;
+  bankBranch?: string | null;
+  bankAccount?: string | null;
+  bankHolder?: string | null;
   items: InvoicePdfItem[];
 };
 
@@ -42,22 +51,24 @@ function fontPath(weight: "regular" | "bold") {
   return path.join(process.cwd(), "node_modules", "@expo-google-fonts", "noto-sans-jp", folder, file);
 }
 
-function companyLines() {
+function companyLines(input: InvoicePdfInput) {
+  const tel = input.companyTel || process.env.COMPANY_TEL || "";
+  const registrationNo = input.companyRegistrationNo || process.env.COMPANY_INVOICE_NUMBER || "";
   return [
-    process.env.COMPANY_NAME || "アイウィル株式会社",
-    process.env.COMPANY_POSTAL_CODE || "",
-    process.env.COMPANY_ADDRESS || "",
-    process.env.COMPANY_TEL ? `TEL ${process.env.COMPANY_TEL}` : "",
-    process.env.COMPANY_INVOICE_NUMBER ? `登録番号 ${process.env.COMPANY_INVOICE_NUMBER}` : ""
+    input.companyName || process.env.COMPANY_NAME || "アイウィル株式会社",
+    input.companyPostalCode || process.env.COMPANY_POSTAL_CODE || "",
+    input.companyAddress || process.env.COMPANY_ADDRESS || "",
+    tel ? `TEL ${tel}` : "",
+    registrationNo ? `登録番号 ${registrationNo}` : ""
   ].filter(Boolean);
 }
 
-function bankLines() {
+function bankLines(input: InvoicePdfInput) {
   return [
-    process.env.INVOICE_BANK_NAME || "振込先銀行を環境変数 INVOICE_BANK_NAME に設定してください",
-    process.env.INVOICE_BANK_BRANCH || "",
-    process.env.INVOICE_BANK_ACCOUNT || "",
-    process.env.INVOICE_BANK_HOLDER || ""
+    input.bankName || process.env.INVOICE_BANK_NAME || "振込先銀行を登録してください",
+    input.bankBranch || process.env.INVOICE_BANK_BRANCH || "",
+    input.bankAccount || process.env.INVOICE_BANK_ACCOUNT || "",
+    input.bankHolder || process.env.INVOICE_BANK_HOLDER || ""
   ].filter(Boolean);
 }
 
@@ -106,7 +117,7 @@ export async function createInvoicePdf(input: InvoicePdfInput) {
   if (input.customerAddress) doc.text(input.customerAddress, 56, 120, { width: 250 });
   if (input.customerInvoiceNumber) doc.text(`登録番号: ${input.customerInvoiceNumber}`, 56, 144, { width: 250 });
 
-  const lines = companyLines();
+  const lines = companyLines(input);
   doc.font("NotoSansJPBold").fontSize(10).text(lines[0] || "", 360, 146, { width: 155, align: "left" });
   doc.font("NotoSansJP").fontSize(8.2);
   lines.slice(1).forEach((line, index) => doc.text(line, 360, 164 + index * 13, { width: 155 }));
@@ -168,10 +179,12 @@ export async function createInvoicePdf(input: InvoicePdfInput) {
 
   doc.font("NotoSansJPBold").fontSize(9).text("振込先", 56, sumY, { width: 80 });
   doc.font("NotoSansJP").fontSize(8.2);
-  bankLines().forEach((line, index) => doc.text(line, 56, sumY + 18 + index * 13, { width: 260 }));
+  const transferLines = bankLines(input);
+  transferLines.forEach((line, index) => doc.text(line, 56, sumY + 18 + index * 13, { width: 260 }));
   if (input.note) {
-    doc.font("NotoSansJPBold").fontSize(9).text("備考", 56, 720, { width: 50 });
-    doc.font("NotoSansJP").fontSize(8.2).text(input.note, 92, 720, { width: 390 });
+    const noteY = Math.min(sumY + 28 + transferLines.length * 13, 760);
+    doc.font("NotoSansJPBold").fontSize(9).text("備考", 56, noteY, { width: 50 });
+    doc.font("NotoSansJP").fontSize(8.2).text(input.note, 92, noteY, { width: 390 });
   }
 
   doc.end();
