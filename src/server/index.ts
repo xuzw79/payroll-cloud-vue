@@ -909,6 +909,23 @@ function invoiceItemFromContractMember(member: {
   return items;
 }
 
+async function nextSesInvoiceNo(period: string) {
+  const prefix = `${periodForFile(period)}-`;
+  const invoices = await prisma.sesInvoice.findMany({
+    where: {
+      period,
+      invoiceNo: { startsWith: prefix }
+    },
+    select: { invoiceNo: true }
+  });
+  const maxNo = invoices.reduce((max, invoice) => {
+    const suffix = invoice.invoiceNo?.slice(prefix.length) || "";
+    const number = /^\d{3}$/.test(suffix) ? Number(suffix) : 0;
+    return Math.max(max, number);
+  }, 0);
+  return `${prefix}${String(maxNo + 1).padStart(3, "0")}`;
+}
+
 api.post("/ses/invoices/generate", async (c) => {
   const denied = requireRole(c, "ACCOUNTING");
   if (denied) return denied;
@@ -942,7 +959,7 @@ api.post("/ses/invoices/generate", async (c) => {
   const taxRate = numberOrDefault(body.taxRate, 0.1);
   const taxAmount = Math.round(subtotal * taxRate);
   const totalAmount = subtotal + taxAmount;
-  const invoiceNo = nullableText(body.invoiceNo) || `INV-${periodForFile(period)}-${contract.contractNo || contract.id.slice(-6)}`;
+  const invoiceNo = nullableText(body.invoiceNo) || await nextSesInvoiceNo(period);
   const title = nullableText(body.title) || `${period} ${contract.title}`;
 
   const invoice = await prisma.sesInvoice.create({

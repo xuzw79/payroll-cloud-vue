@@ -45,6 +45,14 @@ function formatYen(value?: number | null) {
   return yen.format(Math.round(value || 0));
 }
 
+function formatJapaneseDate(value?: string | null) {
+  if (!value) return "-";
+  const match = value.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (!match) return value;
+  const [, year, month, day] = match;
+  return `${year}年${Number(month)}月${Number(day)}日`;
+}
+
 function fontPath(weight: "regular" | "bold") {
   const folder = weight === "bold" ? "700Bold" : "400Regular";
   const file = weight === "bold" ? "NotoSansJP_700Bold.ttf" : "NotoSansJP_400Regular.ttf";
@@ -125,7 +133,7 @@ export async function createInvoicePdf(input: InvoicePdfInput) {
   const tableX = 52;
   const tableW = 500;
   const companyX = 286;
-  const companyTextW = 170;
+  const companyTextW = 145;
   const rightInfoX = 372;
 
   doc.font("NotoSansJPBold").fontSize(13);
@@ -138,7 +146,7 @@ export async function createInvoicePdf(input: InvoicePdfInput) {
   drawText(doc, "御　請　求　書", 0, 124, pageW, { align: "center" });
 
   doc.font("NotoSansJPBold").fontSize(11);
-  drawText(doc, `発　行　日： ${input.issueDate}`, rightInfoX, 72, 170);
+  drawText(doc, `発　行　日： ${formatJapaneseDate(input.issueDate)}`, rightInfoX, 72, 170);
   drawText(doc, `請求書番号： ${input.invoiceNo || "-"}`, rightInfoX, 89, 170);
   drawText(doc, `登録番号： ${input.companyRegistrationNo || process.env.COMPANY_INVOICE_NUMBER || "-"}`, rightInfoX, 106, 170);
 
@@ -146,8 +154,8 @@ export async function createInvoicePdf(input: InvoicePdfInput) {
   doc.font("NotoSansJPBold").fontSize(13);
   drawText(doc, lines[0] || "", companyX, 170, companyTextW);
   doc.font("NotoSansJP").fontSize(10);
-  lines.slice(1).forEach((line, index) => drawText(doc, line, companyX, 190 + index * 15, 225));
-  drawSeal(doc, 492, 176);
+  lines.slice(1).forEach((line, index) => drawText(doc, line, companyX, 205 + index * 15, 225));
+  drawSeal(doc, 450, 176);
 
   doc.font("NotoSansJP").fontSize(11);
   drawText(doc, "毎度ありがとうございます。", leftX, 224, 230);
@@ -159,11 +167,11 @@ export async function createInvoicePdf(input: InvoicePdfInput) {
   doc.moveTo(leftX, 309).lineTo(leftX + 260, 309).stroke();
   doc.font("NotoSansJPBold").fontSize(12);
   drawText(doc, "お　支　払　日：", leftX, 314, 130);
-  drawText(doc, input.dueDate || "-", leftX + 128, 314, 132, { align: "right" });
+  drawText(doc, formatJapaneseDate(input.dueDate), leftX + 128, 314, 132, { align: "right" });
   doc.moveTo(leftX, 334).lineTo(leftX + 260, 334).stroke();
 
   const approvalX = 355;
-  const approvalY = 258;
+  const approvalY = 278;
   const approvalW = 178;
   const approvalH = 84;
   drawBox(doc, approvalX, approvalY, approvalW, approvalH);
