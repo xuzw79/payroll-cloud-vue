@@ -125,6 +125,7 @@ export async function createInvoicePdf(input: InvoicePdfInput) {
   const tableX = 52;
   const tableW = 500;
   const companyX = 286;
+  const companyTextW = 170;
   const rightInfoX = 372;
 
   doc.font("NotoSansJPBold").fontSize(13);
@@ -143,10 +144,10 @@ export async function createInvoicePdf(input: InvoicePdfInput) {
 
   const lines = companyLines(input);
   doc.font("NotoSansJPBold").fontSize(13);
-  drawText(doc, lines[0] || "", companyX, 170, 195);
+  drawText(doc, lines[0] || "", companyX, 170, companyTextW);
   doc.font("NotoSansJP").fontSize(10);
-  lines.slice(1).forEach((line, index) => drawText(doc, line, companyX, 190 + index * 15, 205));
-  drawSeal(doc, 508, 176);
+  lines.slice(1).forEach((line, index) => drawText(doc, line, companyX, 190 + index * 15, 225));
+  drawSeal(doc, 492, 176);
 
   doc.font("NotoSansJP").fontSize(11);
   drawText(doc, "毎度ありがとうございます。", leftX, 224, 230);
@@ -154,11 +155,11 @@ export async function createInvoicePdf(input: InvoicePdfInput) {
 
   doc.font("NotoSansJPBold").fontSize(16);
   drawText(doc, "ご 請 求 金 額：", leftX, 286, 130);
-  drawText(doc, `￥${formatYen(input.totalAmount)}`, leftX + 128, 284, 150, { align: "right" });
+  drawText(doc, `￥${formatYen(input.totalAmount)}`, leftX + 128, 284, 132, { align: "right" });
   doc.moveTo(leftX, 309).lineTo(leftX + 260, 309).stroke();
   doc.font("NotoSansJPBold").fontSize(12);
   drawText(doc, "お　支　払　日：", leftX, 314, 130);
-  drawText(doc, input.dueDate || "-", leftX + 128, 314, 150, { align: "right" });
+  drawText(doc, input.dueDate || "-", leftX + 128, 314, 132, { align: "right" });
   doc.moveTo(leftX, 334).lineTo(leftX + 260, 334).stroke();
 
   const approvalX = 355;

@@ -144,6 +144,7 @@ const loading = ref(false);
 const customerQuery = ref("");
 const contractQuery = ref("");
 const invoiceQuery = ref("");
+const invoiceSearchPeriod = ref(new Date().toISOString().slice(0, 7));
 const customers = ref<Customer[]>([]);
 const employees = ref<Employee[]>([]);
 const externalMembers = ref<ExternalMember[]>([]);
@@ -357,7 +358,7 @@ async function refreshContracts() {
 }
 
 async function refreshInvoices() {
-  const params = new URLSearchParams({ q: invoiceQuery.value, period: invoiceForm.period });
+  const params = new URLSearchParams({ q: invoiceQuery.value, period: invoiceSearchPeriod.value });
   invoices.value = await request<Invoice[]>(`/ses/invoices?${params.toString()}`);
 }
 
@@ -683,8 +684,8 @@ onMounted(async () => {
       </div>
       <div class="ses-layout contract-layout">
         <div class="ses-list">
-          <div class="filter-row ses-search">
-            <label>対象月<input v-model="invoiceForm.period" type="month" @change="refreshInvoices" /></label>
+          <div class="filter-row ses-search invoice-search">
+            <label>請求対象月<input v-model="invoiceSearchPeriod" type="month" @change="refreshInvoices" /></label>
             <label>請求検索<input v-model="invoiceQuery" placeholder="請求書番号・契約名・取引先" @keyup.enter="refreshInvoices" /></label>
             <button class="primary" @click="refreshInvoices"><Search :size="16" />検索</button>
           </div>
