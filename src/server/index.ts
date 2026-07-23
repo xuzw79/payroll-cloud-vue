@@ -724,7 +724,7 @@ function contractMemberData(member: Record<string, unknown>) {
     source,
     employeeId,
     externalMemberId,
-    billingType: member.billingType === "TIME_RANGE" ? "TIME_RANGE" : "FIXED",
+    billingType: member.billingType === "HOURLY" ? "HOURLY" : member.billingType === "TIME_RANGE" ? "TIME_RANGE" : "FIXED",
     itemDescription: nullableText(member.itemDescription),
     unitPrice: numberOrDefault(member.unitPrice, 0),
     lowerLimitHours: nullableDecimal(member.lowerLimitHours),
@@ -866,6 +866,38 @@ function invoiceItemFromContractMember(member: {
     ? `（${member.lowerLimitHours ?? "-"}-${member.upperLimitHours ?? "-"}h）`
     : "";
   const description = member.itemDescription || `${memberDisplayName(member)} 作業費${range}`;
+  if (member.billingType === "HOURLY") {
+    const rawWorkHours = workHoursByMember[member.id];
+    if (rawWorkHours === undefined || rawWorkHours === null || rawWorkHours === "") {
+      throw new Error(`${description} の作業時間を入力してください`);
+    }
+    const workHours = Number(rawWorkHours);
+    if (!Number.isFinite(workHours)) throw new Error(`${description} の作業時間が不正です`);
+
+    const standardHours = member.upperLimitHours == null ? null : Number(member.upperLimitHours);
+    const hourlyRate = Number(member.unitPrice || 0);
+    const overtimeRate = Number(member.excessHourlyRate || hourlyRate);
+    const normalHours = standardHours === null ? workHours : Math.min(workHours, standardHours);
+    const overtimeHours = standardHours === null ? 0 : Math.max(0, Number((workHours - standardHours).toFixed(2)));
+    const items = [{
+      description: `${description} 時給（${workHours}h）`,
+      quantity: Number(normalHours.toFixed(2)),
+      unit: "時間",
+      unitPrice: hourlyRate,
+      amount: Math.round(normalHours * hourlyRate)
+    }];
+    if (overtimeHours > 0) {
+      items.push({
+        description: `${description} 時給超過（${workHours}h / 営業時間${standardHours}h）`,
+        quantity: overtimeHours,
+        unit: "時間",
+        unitPrice: overtimeRate,
+        amount: Math.round(overtimeHours * overtimeRate)
+      });
+    }
+    return items;
+  }
+
   const amount = Number(member.unitPrice || 0);
   const items = [{
     description,

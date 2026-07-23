@@ -22,6 +22,7 @@ enum UserRole {
 enum SesBillingType {
   FIXED
   TIME_RANGE
+  HOURLY
 }
 
 enum SesMemberSource {

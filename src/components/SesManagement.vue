@@ -4,7 +4,7 @@ import { Download, Plus, Save, Search, Trash2 } from "lucide-vue-next";
 
 type SesSubMenu = "customers" | "projects" | "invoices" | "masters" | "revenue" | "partnerCosts" | "profit";
 type MemberSource = "EMPLOYEE" | "EXTERNAL";
-type BillingType = "FIXED" | "TIME_RANGE";
+type BillingType = "FIXED" | "TIME_RANGE" | "HOURLY";
 type ContractType = "SALES" | "PURCHASE";
 
 type Customer = {
@@ -161,8 +161,8 @@ const activeMenuInfo = computed(() => subMenus.find((menu) => menu.key === activ
 const selectedCustomerExternalMembers = computed(() => externalMembers.value.filter((member) => member.customerId === customerForm.id));
 const salesContracts = computed(() => contracts.value.filter((contract) => contract.contractType === "SALES"));
 const selectedInvoiceContract = computed(() => salesContracts.value.find((contract) => contract.id === invoiceForm.contractId));
-const selectedInvoiceTimeRangeMembers = computed(() => selectedInvoiceContract.value?.members.filter(
-  (member): member is ContractMember & { id: string } => member.billingType === "TIME_RANGE" && !!member.id
+const selectedInvoiceWorkHourMembers = computed(() => selectedInvoiceContract.value?.members.filter(
+  (member): member is ContractMember & { id: string } => member.billingType !== "FIXED" && !!member.id
 ) || []);
 
 const customerForm = reactive({
@@ -648,13 +648,14 @@ onMounted(async () => {
                   <label>区分<select v-model="member.source" @change="onMemberSourceChange(member)"><option value="EMPLOYEE">社員</option><option value="EXTERNAL">別会社従業員</option></select></label>
                   <label v-if="member.source === 'EMPLOYEE'">社員<select v-model="member.employeeId"><option value="">選択</option><option v-for="employee in employees" :key="employee.id" :value="employee.id">{{ employee.employeeNo }} / {{ employee.name }}</option></select></label>
                   <label v-else>別会社従業員<select v-model="member.externalMemberId"><option value="">選択</option><option v-for="externalMember in externalMembers" :key="externalMember.id" :value="externalMember.id">{{ externalMember.customer?.name || "所属未設定" }} / {{ externalMember.name }}</option></select></label>
-                  <label>単価区分<select v-model="member.billingType"><option value="FIXED">定額</option><option value="TIME_RANGE">精算時間範囲</option></select></label>
+                  <label>単価区分<select v-model="member.billingType"><option value="FIXED">定額</option><option value="TIME_RANGE">精算時間範囲</option><option value="HOURLY">時給</option></select></label>
                   <label class="wide">品名・摘要<input v-model="member.itemDescription" placeholder="請求書明細に印字" /></label>
-                  <label>単価<input v-model.number="member.unitPrice" type="number" min="0" /></label>
+                  <label>{{ member.billingType === "HOURLY" ? "通常時給" : "単価" }}<input v-model.number="member.unitPrice" type="number" min="0" /></label>
                   <label v-if="member.billingType === 'TIME_RANGE'">下限時間<input v-model.number="member.lowerLimitHours" type="number" min="0" step="0.01" /></label>
                   <label v-if="member.billingType === 'TIME_RANGE'">上限時間<input v-model.number="member.upperLimitHours" type="number" min="0" step="0.01" /></label>
+                  <label v-if="member.billingType === 'HOURLY'">営業時間<input v-model.number="member.upperLimitHours" type="number" min="0" step="0.01" /></label>
                   <label v-if="member.billingType === 'TIME_RANGE'">控除時給<input v-model.number="member.deductionHourlyRate" type="number" min="0" /></label>
-                  <label v-if="member.billingType === 'TIME_RANGE'">超過時給<input v-model.number="member.excessHourlyRate" type="number" min="0" /></label>
+                  <label v-if="member.billingType !== 'FIXED'">超過時給<input v-model.number="member.excessHourlyRate" type="number" min="0" /></label>
                   <label>開始日<input v-model="member.startDate" type="date" /></label>
                   <label>終了日<input v-model="member.endDate" type="date" /></label>
                   <label class="wide">メモ<input v-model="member.memo" /></label>
@@ -671,7 +672,7 @@ onMounted(async () => {
             <div class="ses-cards compact-cards">
               <div v-for="member in contracts.find((contract) => contract.id === selectedContractId)?.members || []" :key="member.id">
                 <strong>{{ memberName(member) }}</strong>
-                <span>{{ member.billingType === "FIXED" ? "定額" : "精算時間範囲" }} / {{ Number(member.unitPrice || 0).toLocaleString("ja-JP") }}円</span>
+                <span>{{ member.billingType === "FIXED" ? "定額" : member.billingType === "HOURLY" ? "時給" : "精算時間範囲" }} / {{ Number(member.unitPrice || 0).toLocaleString("ja-JP") }}円</span>
               </div>
             </div>
           </div>
@@ -688,13 +689,13 @@ onMounted(async () => {
       <div class="panel-head">
         <h2>請求管理</h2>
       </div>
+      <div class="filter-row ses-search invoice-search">
+        <label>請求対象月<input v-model="invoiceSearchPeriod" type="month" @change="refreshInvoices" /></label>
+        <label>請求検索<input v-model="invoiceQuery" placeholder="請求書番号・契約名・取引先" @keyup.enter="refreshInvoices" /></label>
+        <button class="primary" @click="refreshInvoices"><Search :size="16" />検索</button>
+      </div>
       <div class="ses-layout contract-layout">
         <div class="ses-list">
-          <div class="filter-row ses-search invoice-search">
-            <label>請求対象月<input v-model="invoiceSearchPeriod" type="month" @change="refreshInvoices" /></label>
-            <label>請求検索<input v-model="invoiceQuery" placeholder="請求書番号・契約名・取引先" @keyup.enter="refreshInvoices" /></label>
-            <button class="primary" @click="refreshInvoices"><Search :size="16" />検索</button>
-          </div>
           <button
             v-for="invoice in invoices"
             :key="invoice.id"
@@ -726,10 +727,10 @@ onMounted(async () => {
             </div>
           </div>
 
-          <div v-if="selectedInvoiceTimeRangeMembers.length" class="sub-panel">
-            <h3>精算時間入力</h3>
+          <div v-if="selectedInvoiceWorkHourMembers.length" class="sub-panel">
+            <h3>作業時間入力</h3>
             <div class="form-grid compact">
-              <label v-for="member in selectedInvoiceTimeRangeMembers" :key="member.id">
+              <label v-for="member in selectedInvoiceWorkHourMembers" :key="member.id">
                 {{ member.itemDescription || memberName(member) }}
                 <input v-model.number="invoiceWorkHours[member.id]" type="number" min="0" step="0.01" />
               </label>
