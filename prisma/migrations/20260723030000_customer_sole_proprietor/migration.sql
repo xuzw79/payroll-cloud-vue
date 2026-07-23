@@ -1,0 +1,1 @@
+ALTER TABLE "Customer" ADD COLUMN "isSoleProprietor" BOOLEAN NOT NULL DEFAULT false;

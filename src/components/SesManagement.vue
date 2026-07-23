@@ -17,6 +17,7 @@ type Customer = {
   postalCode?: string | null;
   address?: string | null;
   invoiceNumber?: string | null;
+  isSoleProprietor?: boolean | null;
   closingDay?: number | null;
   paymentSiteDays?: number | null;
   memo?: string | null;
@@ -174,6 +175,7 @@ const customerForm = reactive({
   postalCode: "",
   address: "",
   invoiceNumber: "",
+  isSoleProprietor: false,
   closingDay: null as number | null,
   paymentSiteDays: null as number | null,
   memo: ""
@@ -264,6 +266,7 @@ function resetCustomerForm() {
     postalCode: "",
     address: "",
     invoiceNumber: "",
+    isSoleProprietor: false,
     closingDay: null,
     paymentSiteDays: null,
     memo: ""
@@ -287,6 +290,7 @@ function applyCustomer(customer?: Customer) {
     postalCode: customer.postalCode || "",
     address: customer.address || "",
     invoiceNumber: customer.invoiceNumber || "",
+    isSoleProprietor: customer.isSoleProprietor ?? false,
     closingDay: customer.closingDay ?? null,
     paymentSiteDays: customer.paymentSiteDays ?? null,
     memo: customer.memo || ""
@@ -544,6 +548,7 @@ onMounted(async () => {
             @click="applyCustomer(customer)"
           >
             <strong>{{ customer.name }}</strong>
+            <span>{{ customer.isSoleProprietor ? "個人事業主" : "法人" }}</span>
             <span>{{ customer.code || "コードなし" }} / {{ customer.contactName || "担当者未設定" }}</span>
           </button>
           <div v-if="!customers.length" class="empty">
@@ -553,6 +558,7 @@ onMounted(async () => {
 
         <div class="form-grid">
           <label>取引先名<input v-model="customerForm.name" /></label>
+          <label>取引先区分<select v-model="customerForm.isSoleProprietor"><option :value="false">法人</option><option :value="true">個人事業主</option></select></label>
           <label>取引先コード<input v-model="customerForm.code" /></label>
           <label>担当者<input v-model="customerForm.contactName" /></label>
           <label>メール<input v-model="customerForm.email" type="email" /></label>

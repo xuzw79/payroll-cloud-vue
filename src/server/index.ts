@@ -598,6 +598,7 @@ api.post("/customers", async (c) => {
       postalCode: nullableText(body.postalCode),
       address: nullableText(body.address),
       invoiceNumber: nullableText(body.invoiceNumber),
+      isSoleProprietor: body.isSoleProprietor === true,
       closingDay: nullableInt(body.closingDay),
       paymentSiteDays: nullableInt(body.paymentSiteDays),
       memo: nullableText(body.memo)
@@ -625,6 +626,7 @@ api.put("/customers/:id", async (c) => {
       postalCode: nullableText(body.postalCode),
       address: nullableText(body.address),
       invoiceNumber: nullableText(body.invoiceNumber),
+      isSoleProprietor: body.isSoleProprietor === true,
       closingDay: nullableInt(body.closingDay),
       paymentSiteDays: nullableInt(body.paymentSiteDays),
       memo: nullableText(body.memo)

@@ -208,6 +208,7 @@ model Customer {
   postalCode      String?
   address         String?
   invoiceNumber   String?
+  isSoleProprietor Boolean  @default(false)
   closingDay      Int?
   paymentSiteDays Int?
   memo            String?
