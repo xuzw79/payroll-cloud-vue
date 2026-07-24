@@ -142,6 +142,18 @@ function monthPeriods(startPeriod: string, endPeriod: string) {
   return periods;
 }
 
+function memberActiveInPeriod(member: { startDate?: string | null; endDate?: string | null }, period: string) {
+  const startPeriod = member.startDate?.slice(0, 7);
+  const endPeriod = member.endDate?.slice(0, 7);
+  return (!startPeriod || startPeriod <= period) && (!endPeriod || endPeriod >= period);
+}
+
+function contractActiveInPeriod(contract: { startDate?: string | null; endDate?: string | null }, period: string) {
+  const startPeriod = contract.startDate?.slice(0, 7);
+  const endPeriod = contract.endDate?.slice(0, 7);
+  return (!startPeriod || startPeriod <= period) && (!endPeriod || endPeriod >= period);
+}
+
 function normalizeClosingMonth(value: unknown) {
   const month = numberOrDefault(value, 3);
   return month >= 1 && month <= 12 ? Math.trunc(month) : 3;
@@ -879,39 +891,120 @@ api.get("/ses/revenues", async (c) => {
   const fiscalYear = Number(c.req.query("fiscalYear") || settings.currentFiscalYear || fiscalYearFromDateByClosingMonth(new Date(), closingMonth));
   const q = c.req.query("q") || "";
   const { startPeriod, endPeriod } = fiscalPeriodRange(fiscalYear, closingMonth);
-  const revenues = await prisma.sesRevenue.findMany({
-    where: {
-      isActive: true,
-      period: { gte: startPeriod, lte: endPeriod },
-      OR: q ? [
-        { title: { contains: q, mode: "insensitive" } },
-        { memo: { contains: q, mode: "insensitive" } },
-        { customer: { name: { contains: q, mode: "insensitive" } } },
-        { contract: { title: { contains: q, mode: "insensitive" } } },
-        { employee: { name: { contains: q, mode: "insensitive" } } },
-        { externalMember: { name: { contains: q, mode: "insensitive" } } }
-      ] : undefined
-    },
-    include: {
-      customer: true,
-      contract: true,
-      employee: true,
-      externalMember: { include: { customer: true } }
-    },
-    orderBy: [{ period: "asc" }, { updatedAt: "desc" }]
+  const periods = monthPeriods(startPeriod, endPeriod);
+  const [revenues, expenses, invoices, payrolls, bonuses, purchaseContracts] = await Promise.all([
+    prisma.sesRevenue.findMany({
+      where: {
+        isActive: true,
+        period: { gte: startPeriod, lte: endPeriod },
+        OR: q ? [
+          { title: { contains: q, mode: "insensitive" } },
+          { memo: { contains: q, mode: "insensitive" } },
+          { customer: { name: { contains: q, mode: "insensitive" } } },
+          { contract: { title: { contains: q, mode: "insensitive" } } },
+          { employee: { name: { contains: q, mode: "insensitive" } } },
+          { externalMember: { name: { contains: q, mode: "insensitive" } } }
+        ] : undefined
+      },
+      include: {
+        customer: true,
+        contract: true,
+        employee: true,
+        externalMember: { include: { customer: true } }
+      },
+      orderBy: [{ period: "asc" }, { updatedAt: "desc" }]
+    }),
+    prisma.sesExpense.findMany({
+      where: {
+        isActive: true,
+        period: { gte: startPeriod, lte: endPeriod },
+        OR: q ? [
+          { title: { contains: q, mode: "insensitive" } },
+          { memo: { contains: q, mode: "insensitive" } },
+          { customer: { name: { contains: q, mode: "insensitive" } } },
+          { contract: { title: { contains: q, mode: "insensitive" } } },
+          { employee: { name: { contains: q, mode: "insensitive" } } },
+          { externalMember: { name: { contains: q, mode: "insensitive" } } }
+        ] : undefined
+      },
+      include: {
+        customer: true,
+        contract: true,
+        employee: true,
+        externalMember: { include: { customer: true } }
+      },
+      orderBy: [{ period: "asc" }, { updatedAt: "desc" }]
+    }),
+    prisma.sesInvoice.findMany({
+      where: { isActive: true, period: { gte: startPeriod, lte: endPeriod } },
+      select: { period: true, totalAmount: true }
+    }),
+    prisma.payroll.findMany({
+      where: { period: { gte: startPeriod, lte: endPeriod } },
+      select: { period: true, grossPay: true, socialInsurance: true }
+    }),
+    prisma.bonus.findMany({
+      where: { period: { gte: startPeriod, lte: endPeriod } },
+      select: { period: true, bonusAmount: true, socialInsurance: true }
+    }),
+    prisma.sesContract.findMany({
+      where: {
+        isActive: true,
+        contractType: "PURCHASE",
+        OR: [
+          { startDate: null },
+          { startDate: { lte: `${endPeriod}-31` } }
+        ],
+        AND: [
+          { OR: [{ endDate: null }, { endDate: { gte: `${startPeriod}-01` } }] }
+        ]
+      },
+      include: { members: true }
+    })
+  ]);
+  const monthlyTotals = periods.map((period) => {
+    const invoiceRevenueAmount = invoices.filter((invoice) => invoice.period === period).reduce((sum, invoice) => sum + invoice.totalAmount, 0);
+    const individualRevenueAmount = revenues.filter((revenue) => revenue.period === period).reduce((sum, revenue) => sum + revenue.amount, 0);
+    const payrollAmount = payrolls.filter((payroll) => payroll.period === period).reduce((sum, payroll) => sum + payroll.grossPay, 0);
+    const bonusAmount = bonuses.filter((bonus) => bonus.period === period).reduce((sum, bonus) => sum + bonus.bonusAmount, 0);
+    const payrollSocialAmount = payrolls.filter((payroll) => payroll.period === period).reduce((sum, payroll) => sum + payroll.socialInsurance, 0);
+    const bonusSocialAmount = bonuses.filter((bonus) => bonus.period === period).reduce((sum, bonus) => sum + bonus.socialInsurance, 0);
+    const socialInsuranceAmount = payrollSocialAmount + bonusSocialAmount;
+    const partnerCostAmount = purchaseContracts
+      .filter((contract) => contractActiveInPeriod(contract, period))
+      .flatMap((contract) => contract.members)
+      .filter((member) => memberActiveInPeriod(member, period))
+      .reduce((sum, member) => sum + member.unitPrice, 0);
+    const individualExpenseAmount = expenses.filter((expense) => expense.period === period).reduce((sum, expense) => sum + expense.amount, 0);
+    const revenueAmount = invoiceRevenueAmount + individualRevenueAmount;
+    const expenseAmount = payrollAmount + bonusAmount + socialInsuranceAmount + partnerCostAmount + individualExpenseAmount;
+    return {
+      period,
+      amount: revenueAmount,
+      revenueAmount,
+      invoiceRevenueAmount,
+      individualRevenueAmount,
+      expenseAmount,
+      payrollAmount,
+      bonusAmount,
+      socialInsuranceAmount,
+      partnerCostAmount,
+      individualExpenseAmount,
+      profitAmount: revenueAmount - expenseAmount
+    };
   });
-  const monthlyTotals = monthPeriods(startPeriod, endPeriod).map((period) => ({
-    period,
-    amount: revenues.filter((revenue) => revenue.period === period).reduce((sum, revenue) => sum + revenue.amount, 0)
-  }));
   return c.json({
     fiscalYear,
     closingMonth,
     startPeriod,
     endPeriod,
-    totalAmount: monthlyTotals.reduce((sum, row) => sum + row.amount, 0),
+    totalAmount: monthlyTotals.reduce((sum, row) => sum + row.revenueAmount, 0),
+    totalRevenueAmount: monthlyTotals.reduce((sum, row) => sum + row.revenueAmount, 0),
+    totalExpenseAmount: monthlyTotals.reduce((sum, row) => sum + row.expenseAmount, 0),
+    totalProfitAmount: monthlyTotals.reduce((sum, row) => sum + row.profitAmount, 0),
     monthlyTotals,
-    revenues
+    revenues,
+    expenses
   });
 });
 
@@ -992,6 +1085,83 @@ api.delete("/ses/revenues/:id", async (c) => {
   if (denied) return denied;
 
   await prisma.sesRevenue.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
+  return c.json({ ok: true });
+});
+
+async function expenseData(body: Record<string, unknown>) {
+  const period = String(body.period || "");
+  const title = String(body.title || "").trim();
+  const amount = numberOrDefault(body.amount, 0);
+  const contractId = nullableText(body.contractId);
+  if (!isPeriod(period)) throw new Error("支出月を指定してください");
+  if (!title) throw new Error("支出名を入力してください");
+
+  let customerId = nullableText(body.customerId);
+  if (contractId) {
+    const contract = await prisma.sesContract.findUnique({ where: { id: contractId }, select: { customerId: true } });
+    customerId = contract?.customerId || customerId;
+  }
+
+  return {
+    period,
+    customerId,
+    contractId,
+    employeeId: nullableText(body.employeeId),
+    externalMemberId: nullableText(body.externalMemberId),
+    title,
+    amount,
+    memo: nullableText(body.memo)
+  };
+}
+
+api.post("/ses/expenses", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
+  try {
+    const body = await c.req.json();
+    const expense = await prisma.sesExpense.create({
+      data: await expenseData(body),
+      include: {
+        customer: true,
+        contract: true,
+        employee: true,
+        externalMember: { include: { customer: true } }
+      }
+    });
+    return c.json(expense, 201);
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : "支出を保存できませんでした" }, 400);
+  }
+});
+
+api.put("/ses/expenses/:id", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
+  try {
+    const body = await c.req.json();
+    const expense = await prisma.sesExpense.update({
+      where: { id: c.req.param("id") },
+      data: await expenseData(body),
+      include: {
+        customer: true,
+        contract: true,
+        employee: true,
+        externalMember: { include: { customer: true } }
+      }
+    });
+    return c.json(expense);
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : "支出を保存できませんでした" }, 400);
+  }
+});
+
+api.delete("/ses/expenses/:id", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
+  await prisma.sesExpense.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
   return c.json({ ok: true });
 });
 

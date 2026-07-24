@@ -114,14 +114,35 @@ type Revenue = {
   externalMember?: ExternalMember | null;
 };
 
+type Expense = Revenue;
+
+type MonthlyTotal = {
+  period: string;
+  amount: number;
+  revenueAmount: number;
+  invoiceRevenueAmount: number;
+  individualRevenueAmount: number;
+  expenseAmount: number;
+  payrollAmount: number;
+  bonusAmount: number;
+  socialInsuranceAmount: number;
+  partnerCostAmount: number;
+  individualExpenseAmount: number;
+  profitAmount: number;
+};
+
 type RevenueResponse = {
   fiscalYear: number;
   closingMonth: number;
   startPeriod: string;
   endPeriod: string;
   totalAmount: number;
-  monthlyTotals: { period: string; amount: number }[];
+  totalRevenueAmount: number;
+  totalExpenseAmount: number;
+  totalProfitAmount: number;
+  monthlyTotals: MonthlyTotal[];
   revenues: Revenue[];
+  expenses: Expense[];
 };
 
 type CompanySetting = {
@@ -193,12 +214,14 @@ const contracts = ref<Contract[]>([]);
 const invoices = ref<Invoice[]>([]);
 const periodInvoices = ref<Invoice[]>([]);
 const revenues = ref<Revenue[]>([]);
-const revenueMonthlyTotals = ref<{ period: string; amount: number }[]>([]);
-const revenueRange = reactive({ startPeriod: "", endPeriod: "", totalAmount: 0 });
+const expenses = ref<Expense[]>([]);
+const revenueMonthlyTotals = ref<MonthlyTotal[]>([]);
+const revenueRange = reactive({ startPeriod: "", endPeriod: "", totalAmount: 0, totalExpenseAmount: 0, totalProfitAmount: 0 });
 const selectedCustomerId = ref("");
 const selectedContractId = ref("");
 const selectedInvoiceId = ref("");
 const selectedRevenueId = ref("");
+const selectedExpenseId = ref("");
 const contractMembers = ref<ContractMemberForm[]>([]);
 const invoiceWorkHours = reactive<Record<string, number | null>>({});
 let revenueFiscalYearInitialized = false;
@@ -266,6 +289,19 @@ const revenueForm = reactive({
   memo: ""
 });
 
+const expenseForm = reactive({
+  id: "",
+  period: currentYearMonth(),
+  customerId: "",
+  contractId: "",
+  memberSource: "NONE" as MemberSource | "NONE",
+  employeeId: "",
+  externalMemberId: "",
+  title: "",
+  amount: 0,
+  memo: ""
+});
+
 const contractForm = reactive({
   id: "",
   customerId: "",
@@ -323,6 +359,22 @@ function resetRevenueForm() {
   selectedRevenueId.value = "";
 }
 
+function resetExpenseForm() {
+  Object.assign(expenseForm, {
+    id: "",
+    period: currentYearMonth(),
+    customerId: "",
+    contractId: "",
+    memberSource: "NONE",
+    employeeId: "",
+    externalMemberId: "",
+    title: "",
+    amount: 0,
+    memo: ""
+  });
+  selectedExpenseId.value = "";
+}
+
 function applyRevenue(revenue?: Revenue) {
   if (!revenue) {
     resetRevenueForm();
@@ -343,11 +395,38 @@ function applyRevenue(revenue?: Revenue) {
   selectedRevenueId.value = revenue.id;
 }
 
+function applyExpense(expense?: Expense) {
+  if (!expense) {
+    resetExpenseForm();
+    return;
+  }
+  Object.assign(expenseForm, {
+    id: expense.id,
+    period: expense.period,
+    customerId: expense.customerId || "",
+    contractId: expense.contractId || "",
+    memberSource: expense.externalMemberId ? "EXTERNAL" : expense.employeeId ? "EMPLOYEE" : "NONE",
+    employeeId: expense.employeeId || "",
+    externalMemberId: expense.externalMemberId || "",
+    title: expense.title,
+    amount: Number(expense.amount || 0),
+    memo: expense.memo || ""
+  });
+  selectedExpenseId.value = expense.id;
+}
+
 function onRevenueContractChange() {
   const contract = salesContracts.value.find((item) => item.id === revenueForm.contractId);
   if (!contract) return;
   revenueForm.customerId = contract.customerId;
   if (!revenueForm.title) revenueForm.title = contract.title;
+}
+
+function onExpenseContractChange() {
+  const contract = contracts.value.find((item) => item.id === expenseForm.contractId);
+  if (!contract) return;
+  expenseForm.customerId = contract.customerId;
+  if (!expenseForm.title) expenseForm.title = contract.title;
 }
 
 function revenuePersonName(revenue: Revenue) {
@@ -356,6 +435,10 @@ function revenuePersonName(revenue: Revenue) {
     ? `${revenue.externalMember.customer.name} / ${revenue.externalMember.name}`
     : revenue.externalMember.name;
   return "未選択";
+}
+
+function expensePersonName(expense: Expense) {
+  return revenuePersonName(expense);
 }
 
 function newMemberRow(): ContractMemberForm {
@@ -505,9 +588,12 @@ async function refreshRevenues() {
   companyForm.fiscalClosingMonth = result.closingMonth;
   revenueRange.startPeriod = result.startPeriod;
   revenueRange.endPeriod = result.endPeriod;
-  revenueRange.totalAmount = result.totalAmount;
+  revenueRange.totalAmount = result.totalRevenueAmount ?? result.totalAmount;
+  revenueRange.totalExpenseAmount = result.totalExpenseAmount || 0;
+  revenueRange.totalProfitAmount = result.totalProfitAmount || 0;
   revenueMonthlyTotals.value = result.monthlyTotals;
   revenues.value = result.revenues;
+  expenses.value = result.expenses || [];
 }
 
 async function onInvoiceSearchPeriodChange() {
@@ -685,6 +771,39 @@ async function deleteRevenue() {
     await refreshRevenues();
   } catch (error) {
     showError(error, "売上を非表示にできませんでした");
+  }
+}
+
+async function saveExpense() {
+  if (!props.canEditSes) return;
+  try {
+    const method = expenseForm.id ? "PUT" : "POST";
+    const path = expenseForm.id ? `/ses/expenses/${expenseForm.id}` : "/ses/expenses";
+    const expense = await request<Expense>(path, {
+      method,
+      body: JSON.stringify({
+        ...expenseForm,
+        employeeId: expenseForm.memberSource === "EMPLOYEE" ? expenseForm.employeeId : "",
+        externalMemberId: expenseForm.memberSource === "EXTERNAL" ? expenseForm.externalMemberId : ""
+      })
+    });
+    emit("message", "支出を保存しました");
+    await refreshRevenues();
+    applyExpense(expense);
+  } catch (error) {
+    showError(error, "支出を保存できませんでした");
+  }
+}
+
+async function deleteExpense() {
+  if (!props.canEditSes || !expenseForm.id || !confirm("この支出を非表示にしますか？")) return;
+  try {
+    await request(`/ses/expenses/${expenseForm.id}`, { method: "DELETE" });
+    emit("message", "支出を非表示にしました");
+    resetExpenseForm();
+    await refreshRevenues();
+  } catch (error) {
+    showError(error, "支出を非表示にできませんでした");
   }
 }
 
@@ -1005,14 +1124,34 @@ onMounted(async () => {
         <button class="primary" @click="refreshRevenues"><Search :size="16" />検索</button>
       </div>
       <div class="summary revenue-summary">
-        <div><span>年間売上</span><strong>{{ Number(revenueRange.totalAmount || 0).toLocaleString("ja-JP") }}円</strong></div>
+        <div><span>売上入金額</span><strong>{{ Number(revenueRange.totalAmount || 0).toLocaleString("ja-JP") }}円</strong></div>
+        <div><span>支出額</span><strong>{{ Number(revenueRange.totalExpenseAmount || 0).toLocaleString("ja-JP") }}円</strong></div>
+        <div><span>差額</span><strong>{{ Number(revenueRange.totalProfitAmount || 0).toLocaleString("ja-JP") }}円</strong></div>
         <div><span>対象期間</span><strong>{{ revenueRange.startPeriod }} - {{ revenueRange.endPeriod }}</strong></div>
         <div><span>決算月</span><strong>{{ companyForm.fiscalClosingMonth }}月</strong></div>
       </div>
-      <div class="ses-cards compact-cards">
-        <div v-for="row in revenueMonthlyTotals" :key="row.period">
+      <div class="monthly-ledger">
+        <div class="monthly-ledger-head">
+          <span>月</span>
+          <span>売上入金額</span>
+          <span>支出額</span>
+          <span>差額</span>
+          <span>内訳</span>
+        </div>
+        <div v-for="row in revenueMonthlyTotals" :key="row.period" class="monthly-ledger-row">
           <strong>{{ row.period }}</strong>
-          <span>{{ Number(row.amount || 0).toLocaleString("ja-JP") }}円</span>
+          <span>{{ Number(row.revenueAmount || 0).toLocaleString("ja-JP") }}円</span>
+          <span>{{ Number(row.expenseAmount || 0).toLocaleString("ja-JP") }}円</span>
+          <span :class="{ negative: row.profitAmount < 0 }">{{ Number(row.profitAmount || 0).toLocaleString("ja-JP") }}円</span>
+          <small>
+            請求書 {{ Number(row.invoiceRevenueAmount || 0).toLocaleString("ja-JP") }}円 /
+            個別売上 {{ Number(row.individualRevenueAmount || 0).toLocaleString("ja-JP") }}円 /
+            給料 {{ Number(row.payrollAmount || 0).toLocaleString("ja-JP") }}円 /
+            賞与 {{ Number(row.bonusAmount || 0).toLocaleString("ja-JP") }}円 /
+            年金・社保 {{ Number(row.socialInsuranceAmount || 0).toLocaleString("ja-JP") }}円 /
+            外注費 {{ Number(row.partnerCostAmount || 0).toLocaleString("ja-JP") }}円 /
+            個別支出 {{ Number(row.individualExpenseAmount || 0).toLocaleString("ja-JP") }}円
+          </small>
         </div>
       </div>
       <div class="ses-layout contract-layout">
@@ -1029,6 +1168,19 @@ onMounted(async () => {
             <span>{{ revenue.customer?.name || revenue.contract?.customer?.name || "-" }} / {{ Number(revenue.amount || 0).toLocaleString("ja-JP") }}円</span>
           </button>
           <div v-if="!revenues.length" class="empty">売上が登録されていません。</div>
+          <div class="divider"></div>
+          <button
+            v-for="expense in expenses"
+            :key="expense.id"
+            class="employee-item warning-item"
+            :class="{ active: expense.id === selectedExpenseId }"
+            @click="applyExpense(expense)"
+          >
+            <strong>{{ expense.period }} {{ expense.title }}</strong>
+            <span>{{ expensePersonName(expense) }}</span>
+            <span>{{ expense.customer?.name || expense.contract?.customer?.name || "-" }} / {{ Number(expense.amount || 0).toLocaleString("ja-JP") }}円</span>
+          </button>
+          <div v-if="!expenses.length" class="empty">個別支出が登録されていません。</div>
         </div>
 
         <div class="contract-editor">
@@ -1060,6 +1212,43 @@ onMounted(async () => {
             <div class="form-actions full">
               <button v-if="canEditSes && revenueForm.id" @click="deleteRevenue"><Trash2 :size="16" />非表示</button>
               <button v-if="canEditSes" class="primary" @click="saveRevenue"><Save :size="16" />売上保存</button>
+            </div>
+          </div>
+          <div class="sub-panel">
+            <div class="sub-panel-head">
+              <h3>個別支出入力</h3>
+              <button v-if="canEditSes" @click="resetExpenseForm"><Plus :size="16" />追加</button>
+            </div>
+            <div class="form-grid compact">
+              <label>支出月<input v-model="expenseForm.period" type="month" /></label>
+              <label>支出金額<input v-model.number="expenseForm.amount" type="number" min="0" /></label>
+              <label>取引先<select v-model="expenseForm.customerId">
+                <option value="">未選択</option>
+                <option v-for="customer in customers" :key="customer.id" :value="customer.id">{{ customer.name }}</option>
+              </select></label>
+              <label>契約<select v-model="expenseForm.contractId" @change="onExpenseContractChange">
+                <option value="">未選択</option>
+                <option v-for="contract in contracts" :key="contract.id" :value="contract.id">{{ contract.customer.name }} / {{ contract.title }}</option>
+              </select></label>
+              <label>対象区分<select v-model="expenseForm.memberSource">
+                <option value="NONE">なし</option>
+                <option value="EMPLOYEE">社員</option>
+                <option value="EXTERNAL">外部メンバー</option>
+              </select></label>
+              <label v-if="expenseForm.memberSource === 'EMPLOYEE'">社員<select v-model="expenseForm.employeeId">
+                <option value="">未選択</option>
+                <option v-for="employee in employees" :key="employee.id" :value="employee.id">{{ employee.employeeNo }} / {{ employee.name }}</option>
+              </select></label>
+              <label v-else-if="expenseForm.memberSource === 'EXTERNAL'">外部メンバー<select v-model="expenseForm.externalMemberId">
+                <option value="">未選択</option>
+                <option v-for="member in externalMembers" :key="member.id" :value="member.id">{{ member.customer?.name || "所属未設定" }} / {{ member.name }}</option>
+              </select></label>
+              <label class="wide">支出名<input v-model="expenseForm.title" /></label>
+              <label class="wide">メモ<input v-model="expenseForm.memo" /></label>
+              <div class="form-actions full">
+                <button v-if="canEditSes && expenseForm.id" @click="deleteExpense"><Trash2 :size="16" />非表示</button>
+                <button v-if="canEditSes" class="primary" @click="saveExpense"><Save :size="16" />支出保存</button>
+              </div>
             </div>
           </div>
         </div>

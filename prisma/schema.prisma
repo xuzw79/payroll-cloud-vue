@@ -55,6 +55,7 @@ model Employee {
   users       AppUser[]
   sesContractMembers SesContractMember[]
   sesRevenues SesRevenue[]
+  sesExpenses SesExpense[]
 }
 
 model AppUser {
@@ -223,6 +224,7 @@ model Customer {
   externalMembers SesExternalMember[]
   sesInvoices     SesInvoice[]
   sesRevenues     SesRevenue[]
+  sesExpenses     SesExpense[]
 
   @@index([name])
   @@index([isActive])
@@ -242,6 +244,7 @@ model SesExternalMember {
   customer          Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
   contractMembers   SesContractMember[]
   sesRevenues        SesRevenue[]
+  sesExpenses        SesExpense[]
 
   @@index([customerId])
   @@index([name])
@@ -264,6 +267,7 @@ model SesContract {
   members         SesContractMember[]
   invoices        SesInvoice[]
   revenues        SesRevenue[]
+  expenses        SesExpense[]
 
   @@index([customerId])
   @@index([title])
@@ -343,6 +347,32 @@ model SesInvoiceItem {
 }
 
 model SesRevenue {
+  id                String   @id @default(cuid())
+  period            String
+  customerId        String?
+  contractId        String?
+  employeeId        String?
+  externalMemberId  String?
+  title             String
+  amount            Int      @default(0)
+  memo              String?
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  customer          Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  contract          SesContract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  employee          Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  externalMember    SesExternalMember? @relation(fields: [externalMemberId], references: [id], onDelete: SetNull)
+
+  @@index([period])
+  @@index([customerId])
+  @@index([contractId])
+  @@index([employeeId])
+  @@index([externalMemberId])
+  @@index([isActive])
+}
+
+model SesExpense {
   id                String   @id @default(cuid())
   period            String
   customerId        String?

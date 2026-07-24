@@ -626,6 +626,51 @@ p {
   font-size: 12px;
 }
 
+.monthly-ledger {
+  display: grid;
+  gap: 0;
+  padding: 10px;
+}
+
+.monthly-ledger-head,
+.monthly-ledger-row {
+  display: grid;
+  grid-template-columns: 110px 150px 150px 150px minmax(260px, 1fr);
+  align-items: stretch;
+  min-width: 0;
+  border-left: 1px solid #c9d0da;
+}
+
+.monthly-ledger-head span,
+.monthly-ledger-row > * {
+  min-width: 0;
+  padding: 7px 8px;
+  border-right: 1px solid #c9d0da;
+  border-bottom: 1px solid #c9d0da;
+  background: #fff;
+  overflow-wrap: anywhere;
+}
+
+.monthly-ledger-head span {
+  border-top: 1px solid #c9d0da;
+  background: #d9d9d9;
+  font-weight: 700;
+}
+
+.monthly-ledger-row span {
+  text-align: right;
+}
+
+.monthly-ledger-row small {
+  color: #555;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.negative {
+  color: #d92333;
+}
+
 .note {
   color: #555;
   font-size: 12px;
@@ -788,6 +833,8 @@ dd {
 
   .workspace,
   .summary,
+  .monthly-ledger-head,
+  .monthly-ledger-row,
   .filter-row,
   .ses-layout,
   .ses-cards,
