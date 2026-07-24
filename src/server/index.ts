@@ -228,6 +228,7 @@ function toPayslipPdfInput(payroll: Payroll & { employee: Employee }) {
     period: payroll.period,
     employeeNo: payroll.employee.employeeNo,
     employeeName: payroll.employee.name,
+    position: payroll.employee.position,
     payType: payroll.employee.payType,
     regularPay: payroll.regularPay,
     overtimePay: payroll.overtimePay,
@@ -1105,6 +1106,7 @@ api.post("/employees", async (c) => {
     data: {
       employeeNo: String(body.employeeNo),
       name: String(body.name),
+      position: nullableText(body.position),
       email: body.email || null,
       defaultDependentCount: Number(body.defaultDependentCount || 0),
       employmentInsuranceEnrolled: body.employmentInsuranceEnrolled !== false,
@@ -1127,6 +1129,7 @@ api.put("/employees/:id", async (c) => {
     data: {
       employeeNo: String(body.employeeNo),
       name: String(body.name),
+      position: nullableText(body.position),
       email: body.email || null,
       defaultDependentCount: Number(body.defaultDependentCount || 0),
       employmentInsuranceEnrolled: body.employmentInsuranceEnrolled !== false,

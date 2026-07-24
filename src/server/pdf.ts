@@ -9,6 +9,7 @@ type PayslipPdfInput = {
   period: string;
   employeeNo: string;
   employeeName: string;
+  position?: string | null;
   payType: string;
   regularPay: number;
   overtimePay: number;
@@ -141,12 +142,12 @@ function drawEmployeeBox(doc: PDFKit.PDFDocument, input: PayslipPdfInput) {
   doc.text("職位", x, y + 2, { width: half, align: "center" });
   doc.text("氏名", x + half, y + 2, { width: half, align: "center" });
   doc.font("NotoSansJP").fontSize(8.4);
-  doc.text(input.payType === "MONTHLY" ? "月給" : "時給", x, y + 24, { width: half, align: "center" });
+  doc.text(input.position || (input.payType === "MONTHLY" ? "月給" : "時給"), x, y + 24, { width: half, align: "center" });
   doc.text(input.employeeName, x + half, y + 24, { width: half, align: "center" });
 
   doc.font("NotoSansJPBold").fontSize(8.8);
-  doc.text("支給日", x + 58, y + 44, { width: 45, align: "right" });
-  doc.text(payDate(input.period), x + 108, y + 44, { width: 70, align: "right" });
+  doc.text("支給日", x + 35, y + 44, { width: 45, align: "right" });
+  doc.text(payDate(input.period), x + 84, y + 44, { width: 86, align: "right" });
 }
 
 export async function createPayslipPdf(input: PayslipPdfInput) {

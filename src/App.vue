@@ -10,6 +10,7 @@ type Employee = {
   id: string;
   employeeNo: string;
   name: string;
+  position?: string | null;
   email?: string | null;
   defaultDependentCount: number;
   employmentInsuranceEnrolled: boolean;
@@ -190,6 +191,7 @@ const employeeForm = reactive({
   id: "",
   employeeNo: "",
   name: "",
+  position: "",
   email: "",
   defaultDependentCount: 0,
   employmentInsuranceEnrolled: true,
@@ -335,6 +337,7 @@ function applyEmployee(employee?: Employee) {
     id: "",
     employeeNo: nextEmployeeNo(),
     name: "",
+    position: "",
     email: "",
     defaultDependentCount: 0,
     employmentInsuranceEnrolled: true,
@@ -346,6 +349,7 @@ function applyEmployee(employee?: Employee) {
   employeeForm.id = target.id;
   employeeForm.employeeNo = target.employeeNo;
   employeeForm.name = target.name;
+  employeeForm.position = target.position || "";
   employeeForm.email = target.email || "";
   employeeForm.defaultDependentCount = target.defaultDependentCount || 0;
   employeeForm.employmentInsuranceEnrolled = target.employmentInsuranceEnrolled ?? true;
@@ -893,6 +897,7 @@ onMounted(async () => {
         <div v-if="canEditPayroll" v-show="!collapsedSections.employeePayroll" class="form-grid">
           <label>社員番号<input v-model="employeeForm.employeeNo" /></label>
           <label>氏名<input v-model="employeeForm.name" /></label>
+          <label>職位<input v-model="employeeForm.position" /></label>
           <label>メール<input v-model="employeeForm.email" type="email" /></label>
           <label>既定の扶養人数<input v-model.number="employeeForm.defaultDependentCount" type="number" min="0" /></label>
           <label>雇用保険適用<select v-model="employeeForm.employmentInsuranceEnrolled"><option :value="true">適用</option><option :value="false">対象外</option></select></label>

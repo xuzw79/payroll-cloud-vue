@@ -39,6 +39,7 @@ model Employee {
   id          String    @id @default(cuid())
   employeeNo  String    @unique
   name        String
+  position    String?
   email       String?
   defaultDependentCount Int @default(0)
   employmentInsuranceEnrolled Boolean @default(true)
