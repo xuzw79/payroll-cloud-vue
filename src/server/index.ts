@@ -1,7 +1,7 @@
 import { pbkdf2Sync, randomBytes, timingSafeEqual } from "node:crypto";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
-import type { AppUser, Bonus, Employee, Payroll, SesBillingType, SesMemberSource, UserRole } from "@prisma/client";
+import type { AppUser, Bonus, Employee, Payroll, Prisma, SesBillingType, SesMemberSource, UserRole } from "@prisma/client";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
@@ -207,6 +207,10 @@ function nullableDecimal(value: unknown) {
   if (value === undefined || value === null || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function booleanOrFalse(value: unknown) {
+  return value === true || value === "true";
 }
 
 function safeFilePart(value: string) {
@@ -751,14 +755,22 @@ api.get("/ses/contracts", async (c) => {
   if (denied) return denied;
 
   const q = c.req.query("q") || "";
-  const contracts = await prisma.sesContract.findMany({
-    where: {
-      isActive: true,
-      OR: q ? [
+  const includeEnded = c.req.query("includeEnded") === "true";
+  const andWhere: Prisma.SesContractWhereInput[] = [];
+  if (!includeEnded) andWhere.push({ OR: [{ endDate: null }, { endDate: { gte: todayIso() } }] });
+  if (q) {
+    andWhere.push({
+      OR: [
         { title: { contains: q, mode: "insensitive" } },
         { contractNo: { contains: q, mode: "insensitive" } },
         { customer: { name: { contains: q, mode: "insensitive" } } }
-      ] : undefined
+      ]
+    });
+  }
+  const contracts = await prisma.sesContract.findMany({
+    where: {
+      isActive: true,
+      AND: andWhere.length ? andWhere : undefined
     },
     include: {
       customer: true,
@@ -836,6 +848,7 @@ api.post("/ses/contracts", async (c) => {
         contractType,
         contractNo: nullableText(body.contractNo),
         title,
+        taxIncluded: booleanOrFalse(body.taxIncluded),
         startDate: nullableText(body.startDate),
         endDate: nullableText(body.endDate),
         memo: nullableText(body.memo),
@@ -874,6 +887,7 @@ api.put("/ses/contracts/:id", async (c) => {
           contractType,
           contractNo: nullableText(body.contractNo),
           title,
+          taxIncluded: booleanOrFalse(body.taxIncluded),
           startDate: nullableText(body.startDate),
           endDate: nullableText(body.endDate),
           memo: nullableText(body.memo),
@@ -1406,6 +1420,24 @@ function invoiceItemFromContractMember(member: {
   return items;
 }
 
+type SesInvoiceItemData = ReturnType<typeof invoiceItemFromContractMember>[number];
+
+function taxExcludedAmount(amount: number, taxRate: number) {
+  return Math.round(amount / (1 + taxRate));
+}
+
+function taxExcludedInvoiceItems(items: SesInvoiceItemData[], taxRate: number) {
+  return items.map((item) => {
+    const amount = taxExcludedAmount(item.amount, taxRate);
+    const quantity = Number(item.quantity || 1);
+    return {
+      ...item,
+      amount,
+      unitPrice: quantity ? Math.round(amount / quantity) : amount
+    };
+  });
+}
+
 async function nextSesInvoiceNo(period: string) {
   const prefix = `${periodForFile(period)}-`;
   const invoices = await prisma.sesInvoice.findMany({
@@ -1454,16 +1486,18 @@ api.post("/ses/invoices/generate", async (c) => {
   const issueDate = nullableText(body.issueDate) || todayIso();
   const dueDate = nullableText(body.dueDate) || addDaysIso(endOfMonthIso(period), contract.customer.paymentSiteDays || 30);
   const workHoursByMember = (body.workHoursByMember || {}) as Record<string, unknown>;
-  let items: ReturnType<typeof invoiceItemFromContractMember>[number][];
+  let items: SesInvoiceItemData[];
   try {
     items = contract.members.flatMap((member) => invoiceItemFromContractMember(member, workHoursByMember));
   } catch (error) {
     return c.json({ message: error instanceof Error ? error.message : "請求明細を作成できませんでした" }, 400);
   }
-  const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
   const taxRate = numberOrDefault(body.taxRate, 0.1);
-  const taxAmount = Math.round(subtotal * taxRate);
-  const totalAmount = subtotal + taxAmount;
+  const grossAmount = items.reduce((sum, item) => sum + item.amount, 0);
+  if (contract.taxIncluded) items = taxExcludedInvoiceItems(items, taxRate);
+  const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
+  const taxAmount = contract.taxIncluded ? grossAmount - subtotal : Math.round(subtotal * taxRate);
+  const totalAmount = contract.taxIncluded ? grossAmount : subtotal + taxAmount;
   const invoiceNo = nullableText(body.invoiceNo) || await nextSesInvoiceNo(period);
   const title = nullableText(body.title) || `${period} ${contract.title}`;
 

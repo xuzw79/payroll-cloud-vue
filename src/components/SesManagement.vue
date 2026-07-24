@@ -65,6 +65,7 @@ type Contract = {
   contractType: ContractType;
   contractNo?: string | null;
   title: string;
+  taxIncluded?: boolean | null;
   startDate?: string | null;
   endDate?: string | null;
   memo?: string | null;
@@ -213,6 +214,7 @@ const activeSubMenu = ref<SesSubMenu>("customers");
 const loading = ref(false);
 const customerQuery = ref("");
 const contractQuery = ref("");
+const includeEndedContracts = ref(false);
 const invoiceQuery = ref("");
 const revenueQuery = ref("");
 const defaultInvoicePeriod = previousYearMonth();
@@ -240,6 +242,7 @@ const selectedRevenueId = ref("");
 const selectedExpenseId = ref("");
 const contractMembers = ref<ContractMemberForm[]>([]);
 const invoiceWorkHours = reactive<Record<string, number | null>>({});
+const collapsedSesSections = reactive<Record<string, boolean>>({});
 let revenueFiscalYearInitialized = false;
 
 const activeMenuInfo = computed(() => subMenus.find((menu) => menu.key === activeSubMenu.value) || subMenus[0]);
@@ -331,6 +334,7 @@ const contractForm = reactive({
   contractType: "SALES" as ContractType,
   contractNo: "",
   title: "",
+  taxIncluded: false,
   startDate: "",
   endDate: "",
   memo: ""
@@ -469,6 +473,18 @@ function expensePersonName(expense: Expense) {
   return revenuePersonName(expense);
 }
 
+function toggleSesSection(id: string) {
+  collapsedSesSections[id] = !collapsedSesSections[id];
+}
+
+function sesSectionHeadClass(id: string) {
+  return { collapsed: collapsedSesSections[id] };
+}
+
+function isContractEnded(contract: Contract) {
+  return !!contract.endDate && contract.endDate < new Date().toISOString().slice(0, 10);
+}
+
 function newMemberRow(): ContractMemberForm {
   return {
     key: crypto.randomUUID(),
@@ -539,6 +555,7 @@ function resetContractForm() {
     contractType: "SALES",
     contractNo: "",
     title: "",
+    taxIncluded: false,
     startDate: "",
     endDate: "",
     memo: ""
@@ -558,6 +575,7 @@ function applyContract(contract?: Contract) {
     contractType: contract.contractType,
     contractNo: contract.contractNo || "",
     title: contract.title,
+    taxIncluded: contract.taxIncluded ?? false,
     startDate: contract.startDate || "",
     endDate: contract.endDate || "",
     memo: contract.memo || ""
@@ -591,7 +609,9 @@ async function refreshCustomers() {
 }
 
 async function refreshContracts() {
-  contracts.value = await request<Contract[]>(`/ses/contracts?q=${encodeURIComponent(contractQuery.value)}`);
+  const params = new URLSearchParams({ q: contractQuery.value });
+  if (includeEndedContracts.value) params.set("includeEnded", "true");
+  contracts.value = await request<Contract[]>(`/ses/contracts?${params.toString()}`);
 }
 
 async function refreshInvoices() {
@@ -1031,26 +1051,28 @@ onMounted(async () => {
     </section>
 
     <section v-else-if="activeSubMenu === 'projects'" class="panel">
-      <div class="panel-head">
+      <div class="panel-head" :class="sesSectionHeadClass('projects')" @click="toggleSesSection('projects')">
         <h2>案件・契約管理</h2>
-        <button v-if="canEditSes" @click="applyContract()"><Plus :size="16" />契約追加</button>
+        <button v-if="canEditSes" @click.stop="applyContract()"><Plus :size="16" />契約追加</button>
       </div>
-      <div class="ses-layout contract-layout">
+      <div v-show="!collapsedSesSections.projects" class="ses-layout contract-layout">
         <div class="ses-list">
           <div class="filter-row ses-search">
             <label>契約検索<input v-model="contractQuery" placeholder="契約名・契約番号・契約先" @keyup.enter="refreshContracts" /></label>
+            <label class="inline-check"><input v-model="includeEndedContracts" type="checkbox" @change="refreshContracts" />終了契約含む</label>
             <button class="primary" @click="refreshContracts"><Search :size="16" />検索</button>
           </div>
           <button
             v-for="contract in contracts"
             :key="contract.id"
             class="employee-item"
-            :class="{ active: contract.id === selectedContractId }"
+            :class="{ active: contract.id === selectedContractId, 'purchase-contract-item': contract.contractType === 'PURCHASE', 'ended-contract-item': isContractEnded(contract) }"
             @click="applyContract(contract)"
           >
             <strong>{{ contract.title }}</strong>
             <span>{{ contract.contractType === "SALES" ? "請求契約" : "仕入契約" }} / {{ contract.customer.name }}</span>
             <span>{{ contract.startDate || "-" }} - {{ contract.endDate || "-" }}</span>
+            <span>{{ contract.taxIncluded ? "税込み入力" : "税抜き入力" }}</span>
             <span>メンバー {{ contract.members.length }}名</span>
           </button>
           <div v-if="!contracts.length" class="empty">契約が登録されていません。</div>
@@ -1062,6 +1084,7 @@ onMounted(async () => {
           </div>
           <div class="form-grid">
             <label>契約区分<select v-model="contractForm.contractType"><option value="SALES">請求契約（弊社から契約先へ請求）</option><option value="PURCHASE">仕入契約（契約先から弊社へ請求）</option></select></label>
+            <label>金額入力<select v-model="contractForm.taxIncluded"><option :value="false">税抜き</option><option :value="true">税込み</option></select></label>
             <label>契約先<select v-model="contractForm.customerId"><option value="">選択</option><option v-for="customer in customers" :key="customer.id" :value="customer.id">{{ customer.name }}</option></select></label>
             <label>契約番号<input v-model="contractForm.contractNo" /></label>
             <label class="wide">契約名<input v-model="contractForm.title" /></label>

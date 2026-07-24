@@ -590,6 +590,20 @@ p {
   background: #fff8dc;
 }
 
+.purchase-contract-item {
+  border-color: #d0a24b;
+  background: #fff8dc;
+}
+
+.purchase-contract-item.active {
+  border-color: #b16b00;
+  background: #ffe9ac;
+}
+
+.ended-contract-item {
+  opacity: 0.72;
+}
+
 .unbilled-list {
   display: grid;
   gap: 0;

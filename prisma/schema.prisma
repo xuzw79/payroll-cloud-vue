@@ -261,6 +261,7 @@ model SesContract {
   contractType    SesContractType @default(SALES)
   contractNo      String?
   title           String
+  taxIncluded     Boolean  @default(false)
   startDate       String?
   endDate         String?
   memo            String?

@@ -1,0 +1,1 @@
+ALTER TABLE "SesContract" ADD COLUMN "taxIncluded" BOOLEAN NOT NULL DEFAULT false;
