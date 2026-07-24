@@ -142,7 +142,7 @@ function drawEmployeeBox(doc: PDFKit.PDFDocument, input: PayslipPdfInput) {
   doc.text("職位", x, y + 2, { width: half, align: "center" });
   doc.text("氏名", x + half, y + 2, { width: half, align: "center" });
   doc.font("NotoSansJP").fontSize(8.4);
-  doc.text(input.position || (input.payType === "MONTHLY" ? "月給" : "時給"), x, y + 24, { width: half, align: "center" });
+  doc.text(input.position || "SE", x, y + 24, { width: half, align: "center" });
   doc.text(input.employeeName, x + half, y + 24, { width: half, align: "center" });
 
   doc.font("NotoSansJPBold").fontSize(8.8);
