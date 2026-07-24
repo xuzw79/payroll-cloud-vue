@@ -1,7 +1,7 @@
 import { pbkdf2Sync, randomBytes, timingSafeEqual } from "node:crypto";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
-import type { AppUser, Bonus, Employee, Payroll, UserRole } from "@prisma/client";
+import type { AppUser, Bonus, Employee, Payroll, SesBillingType, SesMemberSource, UserRole } from "@prisma/client";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
@@ -773,17 +773,18 @@ api.get("/ses/contracts", async (c) => {
 });
 
 function contractMemberData(member: Record<string, unknown>) {
-  const source = member.source === "EXTERNAL" ? "EXTERNAL" : "EMPLOYEE";
+  const source: SesMemberSource = member.source === "EXTERNAL" ? "EXTERNAL" : "EMPLOYEE";
   const employeeId = source === "EMPLOYEE" ? nullableText(member.employeeId) : null;
   const externalMemberId = source === "EXTERNAL" ? nullableText(member.externalMemberId) : null;
   if (source === "EMPLOYEE" && !employeeId) throw new Error("社員メンバーを選択してください");
   if (source === "EXTERNAL" && !externalMemberId) throw new Error("別会社の従業員を選択してください");
+  const billingType: SesBillingType = member.billingType === "HOURLY" ? "HOURLY" : member.billingType === "TIME_RANGE" ? "TIME_RANGE" : "FIXED";
 
   return {
     source,
     employeeId,
     externalMemberId,
-    billingType: member.billingType === "HOURLY" ? "HOURLY" : member.billingType === "TIME_RANGE" ? "TIME_RANGE" : "FIXED",
+    billingType,
     itemDescription: nullableText(member.itemDescription),
     unitPrice: numberOrDefault(member.unitPrice, 0),
     lowerLimitHours: nullableDecimal(member.lowerLimitHours),
@@ -794,6 +795,26 @@ function contractMemberData(member: Record<string, unknown>) {
     endDate: nullableText(member.endDate),
     memo: nullableText(member.memo)
   };
+}
+
+function isBlankContractMember(member: Record<string, unknown>) {
+  return !nullableText(member.employeeId)
+    && !nullableText(member.externalMemberId)
+    && !nullableText(member.itemDescription)
+    && !nullableText(member.startDate)
+    && !nullableText(member.endDate)
+    && !nullableText(member.memo)
+    && numberOrDefault(member.unitPrice, 0) === 0
+    && nullableDecimal(member.lowerLimitHours) === null
+    && nullableDecimal(member.upperLimitHours) === null
+    && numberOrDefault(member.deductionHourlyRate, 0) === 0
+    && numberOrDefault(member.excessHourlyRate, 0) === 0;
+}
+
+function contractMembersData(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((member): member is Record<string, unknown> => typeof member === "object" && member !== null && !isBlankContractMember(member as Record<string, unknown>)).map(contractMemberData)
+    : [];
 }
 
 api.post("/ses/contracts", async (c) => {
@@ -808,7 +829,7 @@ api.post("/ses/contracts", async (c) => {
   const contractType = body.contractType === "PURCHASE" ? "PURCHASE" : "SALES";
 
   try {
-    const members = Array.isArray(body.members) ? body.members.map(contractMemberData) : [];
+    const members = contractMembersData(body.members);
     const contract = await prisma.sesContract.create({
       data: {
         customerId,
@@ -843,7 +864,7 @@ api.put("/ses/contracts/:id", async (c) => {
   const contractType = body.contractType === "PURCHASE" ? "PURCHASE" : "SALES";
 
   try {
-    const members = Array.isArray(body.members) ? body.members.map(contractMemberData) : [];
+    const members = contractMembersData(body.members);
     const contract = await prisma.$transaction(async (tx) => {
       await tx.sesContractMember.deleteMany({ where: { contractId: c.req.param("id") } });
       return tx.sesContract.update({

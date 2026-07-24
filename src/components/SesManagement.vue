@@ -741,12 +741,28 @@ function onMemberSourceChange(member: ContractMemberForm) {
   member.externalMemberId = "";
 }
 
+function isBlankContractMemberForm(member: ContractMemberForm) {
+  return !member.employeeId
+    && !member.externalMemberId
+    && !member.itemDescription
+    && !member.startDate
+    && !member.endDate
+    && !member.memo
+    && Number(member.unitPrice || 0) === 0
+    && member.lowerLimitHours == null
+    && member.upperLimitHours == null
+    && Number(member.deductionHourlyRate || 0) === 0
+    && Number(member.excessHourlyRate || 0) === 0;
+}
+
 async function saveContract() {
   if (!props.canEditSes) return;
   try {
     const payload = {
       ...contractForm,
-      members: contractMembers.value.map(({ key, ...member }) => member)
+      members: contractMembers.value
+        .filter((member) => !isBlankContractMemberForm(member))
+        .map(({ key, ...member }) => member)
     };
     const method = contractForm.id ? "PUT" : "POST";
     const path = contractForm.id ? `/ses/contracts/${contractForm.id}` : "/ses/contracts";
