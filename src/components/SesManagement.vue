@@ -258,6 +258,8 @@ const partnerCostMembers = computed(() => partnerCostContracts.value.flatMap((co
     .filter((member): member is ContractMember & { id: string } => !!member.id)
     .map((member) => ({ contract, member }))
 ));
+const registeredPartnerCostMemberIds = computed(() => new Set(partnerCosts.value.map((cost) => cost.contractMemberId).filter(Boolean)));
+const partnerCostRegisteredCount = computed(() => partnerCostMembers.value.filter((row) => registeredPartnerCostMemberIds.value.has(row.member.id)).length);
 
 const customerForm = reactive({
   id: "",
@@ -632,7 +634,6 @@ async function refreshRevenues() {
   revenueMonthlyTotals.value = result.monthlyTotals;
   revenues.value = result.revenues;
   expenses.value = result.expenses || [];
-  partnerCosts.value = result.partnerCosts || partnerCosts.value;
 }
 
 async function onInvoiceSearchPeriodChange() {
@@ -1195,17 +1196,24 @@ onMounted(async () => {
         </div>
         <div class="sub-panel">
           <div class="sub-panel-head">
-            <h3>{{ partnerCostPeriod }} 外注費</h3>
+            <h3>{{ partnerCostPeriod }} 外注費 登録済み {{ partnerCostRegisteredCount }} / {{ partnerCostMembers.length }} 件</h3>
             <button v-if="canEditSes" class="primary" @click="savePartnerCosts"><Save :size="16" />外注費保存</button>
           </div>
-          <div class="form-grid compact">
-            <template v-for="row in partnerCostMembers" :key="row.member.id">
-              <label>
-                {{ row.contract.customer.name }} / {{ row.contract.title }} / {{ partnerCostMemberLabel(row.member) }}
+          <div class="partner-cost-list">
+            <div v-for="row in partnerCostMembers" :key="row.member.id" class="partner-cost-row">
+              <div class="partner-cost-row-head">
+                <strong>{{ row.contract.customer.name }} / {{ row.contract.title }} / {{ partnerCostMemberLabel(row.member) }}</strong>
+                <span class="status-chip" :class="{ registered: registeredPartnerCostMemberIds.has(row.member.id) }">
+                  {{ registeredPartnerCostMemberIds.has(row.member.id) ? "登録済み" : "未登録" }}
+                </span>
+              </div>
+              <div class="form-grid compact">
+                <label>外注費
                 <input v-model.number="partnerCostInputs[row.member.id]" type="number" min="0" />
-              </label>
-              <label>メモ<input v-model="partnerCostMemos[row.member.id]" /></label>
-            </template>
+                </label>
+                <label>メモ<input v-model="partnerCostMemos[row.member.id]" /></label>
+              </div>
+            </div>
           </div>
           <div v-if="!partnerCostMembers.length" class="empty">対象月の仕入契約メンバーがありません。</div>
         </div>

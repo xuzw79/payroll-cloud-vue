@@ -448,6 +448,54 @@ p {
   background: #fff;
 }
 
+.partner-cost-list {
+  display: grid;
+  gap: 8px;
+}
+
+.partner-cost-row {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #c9d0da;
+  background: #fff;
+}
+
+.partner-cost-row .form-grid {
+  padding: 0;
+}
+
+.partner-cost-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.partner-cost-row-head strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.status-chip {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border: 1px solid #d0a24b;
+  background: #fff8dc;
+  color: #7b4a00;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.status-chip.registered {
+  border-color: #4f8b5c;
+  background: #eaf7ee;
+  color: #236b34;
+}
+
 .compact-cards {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
