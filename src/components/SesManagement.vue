@@ -854,6 +854,11 @@ function memberName(member: ContractMember) {
     : member.externalMember?.name || "外部メンバー未設定";
 }
 
+function invoiceWorkHourLabel(member: ContractMember) {
+  const name = memberName(member);
+  return member.itemDescription ? `${name} / ${member.itemDescription}` : name;
+}
+
 onMounted(async () => {
   resetContractForm();
   await refreshAll();
@@ -1090,7 +1095,7 @@ onMounted(async () => {
             <h3>作業時間入力</h3>
             <div class="form-grid compact">
               <label v-for="member in selectedInvoiceWorkHourMembers" :key="member.id">
-                {{ member.itemDescription || memberName(member) }}
+                {{ invoiceWorkHourLabel(member) }}
                 <input v-model.number="invoiceWorkHours[member.id]" type="number" min="0" step="0.01" />
               </label>
             </div>
