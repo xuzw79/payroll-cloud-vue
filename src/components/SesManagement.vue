@@ -116,6 +116,16 @@ type Revenue = {
 
 type Expense = Revenue;
 
+type PartnerCost = Revenue & {
+  contractMemberId?: string | null;
+};
+
+type PartnerCostResponse = {
+  period: string;
+  contracts: Contract[];
+  costs: PartnerCost[];
+};
+
 type MonthlyTotal = {
   period: string;
   amount: number;
@@ -143,6 +153,7 @@ type RevenueResponse = {
   monthlyTotals: MonthlyTotal[];
   revenues: Revenue[];
   expenses: Expense[];
+  partnerCosts: PartnerCost[];
 };
 
 type CompanySetting = {
@@ -206,6 +217,7 @@ const invoiceQuery = ref("");
 const revenueQuery = ref("");
 const defaultInvoicePeriod = previousYearMonth();
 const invoiceSearchPeriod = ref(defaultInvoicePeriod);
+const partnerCostPeriod = ref(defaultInvoicePeriod);
 const revenueFiscalYear = ref(new Date().getFullYear());
 const customers = ref<Customer[]>([]);
 const employees = ref<Employee[]>([]);
@@ -215,6 +227,10 @@ const invoices = ref<Invoice[]>([]);
 const periodInvoices = ref<Invoice[]>([]);
 const revenues = ref<Revenue[]>([]);
 const expenses = ref<Expense[]>([]);
+const partnerCostContracts = ref<Contract[]>([]);
+const partnerCosts = ref<PartnerCost[]>([]);
+const partnerCostInputs = reactive<Record<string, number | null>>({});
+const partnerCostMemos = reactive<Record<string, string>>({});
 const revenueMonthlyTotals = ref<MonthlyTotal[]>([]);
 const revenueRange = reactive({ startPeriod: "", endPeriod: "", totalAmount: 0, totalExpenseAmount: 0, totalProfitAmount: 0 });
 const selectedCustomerId = ref("");
@@ -237,6 +253,11 @@ const selectedInvoiceContract = computed(() => salesContracts.value.find((contra
 const selectedInvoiceWorkHourMembers = computed(() => selectedInvoiceContract.value?.members.filter(
   (member): member is ContractMember & { id: string } => member.billingType !== "FIXED" && !!member.id
 ) || []);
+const partnerCostMembers = computed(() => partnerCostContracts.value.flatMap((contract) =>
+  contract.members
+    .filter((member): member is ContractMember & { id: string } => !!member.id)
+    .map((member) => ({ contract, member }))
+));
 
 const customerForm = reactive({
   id: "",
@@ -429,6 +450,11 @@ function onExpenseContractChange() {
   if (!expenseForm.title) expenseForm.title = contract.title;
 }
 
+function partnerCostMemberLabel(member: ContractMember) {
+  const name = memberName(member);
+  return member.itemDescription ? `${name} / ${member.itemDescription}` : name;
+}
+
 function revenuePersonName(revenue: Revenue) {
   if (revenue.employee) return revenue.employee.name;
   if (revenue.externalMember) return revenue.externalMember.customer?.name
@@ -577,6 +603,18 @@ async function refreshInvoices() {
   periodInvoices.value = allPeriodInvoices;
 }
 
+async function refreshPartnerCosts() {
+  const result = await request<PartnerCostResponse>(`/ses/partner-costs?period=${encodeURIComponent(partnerCostPeriod.value)}`);
+  partnerCostPeriod.value = result.period;
+  partnerCostContracts.value = result.contracts;
+  partnerCosts.value = result.costs;
+  for (const row of partnerCostMembers.value) {
+    const cost = result.costs.find((item) => item.contractMemberId === row.member.id);
+    partnerCostInputs[row.member.id] = cost ? Number(cost.amount || 0) : Number(row.member.unitPrice || 0);
+    partnerCostMemos[row.member.id] = cost?.memo || "";
+  }
+}
+
 async function refreshRevenues() {
   const params = new URLSearchParams({
     fiscalYear: String(revenueFiscalYear.value),
@@ -594,6 +632,7 @@ async function refreshRevenues() {
   revenueMonthlyTotals.value = result.monthlyTotals;
   revenues.value = result.revenues;
   expenses.value = result.expenses || [];
+  partnerCosts.value = result.partnerCosts || partnerCosts.value;
 }
 
 async function onInvoiceSearchPeriodChange() {
@@ -645,6 +684,7 @@ async function refreshSesMasterData() {
 async function refreshAll() {
   await refreshCompanySetting();
   await Promise.all([refreshCustomers(), refreshContracts(), refreshSesMasterData(), refreshInvoices(), refreshRevenues()]);
+  await refreshPartnerCosts();
 }
 
 async function saveCustomer() {
@@ -804,6 +844,29 @@ async function deleteExpense() {
     await refreshRevenues();
   } catch (error) {
     showError(error, "支出を非表示にできませんでした");
+  }
+}
+
+async function savePartnerCosts() {
+  if (!props.canEditSes) return;
+  try {
+    await request("/ses/partner-costs", {
+      method: "POST",
+      body: JSON.stringify({
+        period: partnerCostPeriod.value,
+        items: partnerCostMembers.value.map(({ contract, member }) => ({
+          contractId: contract.id,
+          contractMemberId: member.id,
+          title: member.itemDescription || partnerCostMemberLabel(member),
+          amount: partnerCostInputs[member.id] ?? 0,
+          memo: partnerCostMemos[member.id] || ""
+        }))
+      })
+    });
+    emit("message", "外注費を保存しました");
+    await Promise.all([refreshPartnerCosts(), refreshRevenues()]);
+  } catch (error) {
+    showError(error, "外注費を保存できませんでした");
   }
 }
 
@@ -1114,6 +1177,37 @@ onMounted(async () => {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <section v-else-if="activeSubMenu === 'partnerCosts'" class="panel">
+      <div class="panel-head">
+        <h2>外注費入力</h2>
+      </div>
+      <div class="filter-row ses-search invoice-search">
+        <label>対象月<input v-model="partnerCostPeriod" type="month" @change="refreshPartnerCosts" /></label>
+        <button class="primary" @click="refreshPartnerCosts"><Search :size="16" />検索</button>
+      </div>
+      <div class="contract-editor">
+        <div class="ses-flow-note">
+          仕入契約の月末外注費を登録します。保存した金額は年間売上の支出額「外注費」に反映されます。
+        </div>
+        <div class="sub-panel">
+          <div class="sub-panel-head">
+            <h3>{{ partnerCostPeriod }} 外注費</h3>
+            <button v-if="canEditSes" class="primary" @click="savePartnerCosts"><Save :size="16" />外注費保存</button>
+          </div>
+          <div class="form-grid compact">
+            <template v-for="row in partnerCostMembers" :key="row.member.id">
+              <label>
+                {{ row.contract.customer.name }} / {{ row.contract.title }} / {{ partnerCostMemberLabel(row.member) }}
+                <input v-model.number="partnerCostInputs[row.member.id]" type="number" min="0" />
+              </label>
+              <label>メモ<input v-model="partnerCostMemos[row.member.id]" /></label>
+            </template>
+          </div>
+          <div v-if="!partnerCostMembers.length" class="empty">対象月の仕入契約メンバーがありません。</div>
         </div>
       </div>
     </section>

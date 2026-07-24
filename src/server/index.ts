@@ -892,7 +892,7 @@ api.get("/ses/revenues", async (c) => {
   const q = c.req.query("q") || "";
   const { startPeriod, endPeriod } = fiscalPeriodRange(fiscalYear, closingMonth);
   const periods = monthPeriods(startPeriod, endPeriod);
-  const [revenues, expenses, invoices, payrolls, bonuses, purchaseContracts] = await Promise.all([
+  const [revenues, expenses, partnerCosts, invoices, payrolls, bonuses] = await Promise.all([
     prisma.sesRevenue.findMany({
       where: {
         isActive: true,
@@ -935,6 +935,17 @@ api.get("/ses/revenues", async (c) => {
       },
       orderBy: [{ period: "asc" }, { updatedAt: "desc" }]
     }),
+    prisma.sesPartnerCost.findMany({
+      where: { isActive: true, period: { gte: startPeriod, lte: endPeriod } },
+      include: {
+        customer: true,
+        contract: true,
+        contractMember: true,
+        employee: true,
+        externalMember: { include: { customer: true } }
+      },
+      orderBy: [{ period: "asc" }, { updatedAt: "desc" }]
+    }),
     prisma.sesInvoice.findMany({
       where: { isActive: true, period: { gte: startPeriod, lte: endPeriod } },
       select: { period: true, totalAmount: true }
@@ -946,20 +957,6 @@ api.get("/ses/revenues", async (c) => {
     prisma.bonus.findMany({
       where: { period: { gte: startPeriod, lte: endPeriod } },
       select: { period: true, bonusAmount: true, socialInsurance: true }
-    }),
-    prisma.sesContract.findMany({
-      where: {
-        isActive: true,
-        contractType: "PURCHASE",
-        OR: [
-          { startDate: null },
-          { startDate: { lte: `${endPeriod}-31` } }
-        ],
-        AND: [
-          { OR: [{ endDate: null }, { endDate: { gte: `${startPeriod}-01` } }] }
-        ]
-      },
-      include: { members: true }
     })
   ]);
   const monthlyTotals = periods.map((period) => {
@@ -970,11 +967,7 @@ api.get("/ses/revenues", async (c) => {
     const payrollSocialAmount = payrolls.filter((payroll) => payroll.period === period).reduce((sum, payroll) => sum + payroll.socialInsurance, 0);
     const bonusSocialAmount = bonuses.filter((bonus) => bonus.period === period).reduce((sum, bonus) => sum + bonus.socialInsurance, 0);
     const socialInsuranceAmount = payrollSocialAmount + bonusSocialAmount;
-    const partnerCostAmount = purchaseContracts
-      .filter((contract) => contractActiveInPeriod(contract, period))
-      .flatMap((contract) => contract.members)
-      .filter((member) => memberActiveInPeriod(member, period))
-      .reduce((sum, member) => sum + member.unitPrice, 0);
+    const partnerCostAmount = partnerCosts.filter((cost) => cost.period === period).reduce((sum, cost) => sum + cost.amount, 0);
     const individualExpenseAmount = expenses.filter((expense) => expense.period === period).reduce((sum, expense) => sum + expense.amount, 0);
     const revenueAmount = invoiceRevenueAmount + individualRevenueAmount;
     const expenseAmount = payrollAmount + bonusAmount + socialInsuranceAmount + partnerCostAmount + individualExpenseAmount;
@@ -1004,7 +997,8 @@ api.get("/ses/revenues", async (c) => {
     totalProfitAmount: monthlyTotals.reduce((sum, row) => sum + row.profitAmount, 0),
     monthlyTotals,
     revenues,
-    expenses
+    expenses,
+    partnerCosts
   });
 });
 
@@ -1163,6 +1157,106 @@ api.delete("/ses/expenses/:id", async (c) => {
 
   await prisma.sesExpense.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
   return c.json({ ok: true });
+});
+
+api.get("/ses/partner-costs", async (c) => {
+  const denied = requireRole(c, "VIEWER");
+  if (denied) return denied;
+
+  const period = c.req.query("period") || previousYearMonthServer();
+  if (!isPeriod(period)) return c.json({ message: "外注費対象月を指定してください" }, 400);
+  const contracts = await prisma.sesContract.findMany({
+    where: {
+      isActive: true,
+      contractType: "PURCHASE",
+      OR: [{ startDate: null }, { startDate: { lte: `${period}-31` } }],
+      AND: [{ OR: [{ endDate: null }, { endDate: { gte: `${period}-01` } }] }]
+    },
+    include: {
+      customer: true,
+      members: {
+        include: { employee: true, externalMember: { include: { customer: true } } },
+        orderBy: { createdAt: "asc" }
+      }
+    },
+    orderBy: [{ updatedAt: "desc" }]
+  });
+  const costs = await prisma.sesPartnerCost.findMany({
+    where: { isActive: true, period },
+    include: {
+      customer: true,
+      contract: true,
+      contractMember: true,
+      employee: true,
+      externalMember: { include: { customer: true } }
+    },
+    orderBy: [{ updatedAt: "desc" }]
+  });
+  return c.json({ period, contracts, costs });
+});
+
+function previousYearMonthServer() {
+  const { year, month } = tokyoDateParts();
+  return month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, "0")}`;
+}
+
+function partnerCostTitle(member: {
+  itemDescription?: string | null;
+  employee?: { name: string } | null;
+  externalMember?: { name: string; customer?: { name: string } | null } | null;
+  source: string;
+}) {
+  if (member.itemDescription) return member.itemDescription;
+  if (member.source === "EMPLOYEE") return member.employee?.name || "社員作業費";
+  const company = member.externalMember?.customer?.name;
+  const name = member.externalMember?.name || "外部メンバー作業費";
+  return company ? `${company} ${name}` : name;
+}
+
+api.post("/ses/partner-costs", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
+  const body = await c.req.json();
+  const period = String(body.period || "");
+  if (!isPeriod(period)) return c.json({ message: "外注費対象月を指定してください" }, 400);
+  const items = Array.isArray(body.items) ? body.items : [];
+  if (!items.length) return c.json({ message: "外注費明細がありません" }, 400);
+
+  const saved = [];
+  for (const item of items) {
+    const contractMemberId = nullableText(item.contractMemberId);
+    const amount = numberOrDefault(item.amount, 0);
+    if (!contractMemberId) continue;
+    const member = await prisma.sesContractMember.findUnique({
+      where: { id: contractMemberId },
+      include: {
+        contract: true,
+        employee: true,
+        externalMember: { include: { customer: true } }
+      }
+    });
+    if (!member || !member.contract.isActive || member.contract.contractType !== "PURCHASE") continue;
+    const data = {
+      period,
+      customerId: member.contract.customerId,
+      contractId: member.contractId,
+      contractMemberId: member.id,
+      employeeId: member.employeeId,
+      externalMemberId: member.externalMemberId,
+      title: nullableText(item.title) || partnerCostTitle(member),
+      amount,
+      memo: nullableText(item.memo)
+    };
+    const existing = await prisma.sesPartnerCost.findFirst({
+      where: { isActive: true, period, contractMemberId: member.id }
+    });
+    saved.push(existing
+      ? await prisma.sesPartnerCost.update({ where: { id: existing.id }, data })
+      : await prisma.sesPartnerCost.create({ data })
+    );
+  }
+  return c.json({ saved: saved.length });
 });
 
 api.get("/ses/invoices", async (c) => {
