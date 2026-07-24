@@ -512,6 +512,26 @@ p {
   background: #eef4ff;
 }
 
+.warning-item {
+  border-color: #d0a24b;
+  background: #fff8dc;
+}
+
+.unbilled-list {
+  display: grid;
+  gap: 0;
+  margin-bottom: 8px;
+}
+
+.unbilled-list h3 {
+  margin: 0 8px 6px;
+  padding: 6px 8px;
+  border: 1px solid #d0a24b;
+  background: #fff8dc;
+  color: #7b4a00;
+  font-size: 13px;
+}
+
 .employee-item span,
 .user-item span {
   color: #555;

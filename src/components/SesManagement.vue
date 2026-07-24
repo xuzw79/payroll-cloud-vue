@@ -130,6 +130,16 @@ type ContractMemberForm = {
 const props = defineProps<{ canEditSes: boolean }>();
 const emit = defineEmits<{ message: [value: string] }>();
 
+function currentYearMonth() {
+  return new Date().toISOString().slice(0, 7);
+}
+
+function previousYearMonth(value = currentYearMonth()) {
+  const [year, month] = value.split("-").map(Number);
+  if (!year || !month) return currentYearMonth();
+  return month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, "0")}`;
+}
+
 const subMenus: { key: SesSubMenu; label: string; description: string }[] = [
   { key: "customers", label: "取引先管理", description: "顧客・協力会社の基本情報を管理します。" },
   { key: "projects", label: "案件・契約管理", description: "請求契約と仕入契約、契約期間、作業者、契約先を管理します。" },
@@ -145,12 +155,14 @@ const loading = ref(false);
 const customerQuery = ref("");
 const contractQuery = ref("");
 const invoiceQuery = ref("");
-const invoiceSearchPeriod = ref(new Date().toISOString().slice(0, 7));
+const defaultInvoicePeriod = previousYearMonth();
+const invoiceSearchPeriod = ref(defaultInvoicePeriod);
 const customers = ref<Customer[]>([]);
 const employees = ref<Employee[]>([]);
 const externalMembers = ref<ExternalMember[]>([]);
 const contracts = ref<Contract[]>([]);
 const invoices = ref<Invoice[]>([]);
+const periodInvoices = ref<Invoice[]>([]);
 const selectedCustomerId = ref("");
 const selectedContractId = ref("");
 const selectedInvoiceId = ref("");
@@ -160,6 +172,10 @@ const invoiceWorkHours = reactive<Record<string, number | null>>({});
 const activeMenuInfo = computed(() => subMenus.find((menu) => menu.key === activeSubMenu.value) || subMenus[0]);
 const selectedCustomerExternalMembers = computed(() => externalMembers.value.filter((member) => member.customerId === customerForm.id));
 const salesContracts = computed(() => contracts.value.filter((contract) => contract.contractType === "SALES"));
+const unbilledSalesContracts = computed(() => {
+  const billedContractIds = new Set(periodInvoices.value.map((invoice) => invoice.contractId).filter(Boolean));
+  return salesContracts.value.filter((contract) => !billedContractIds.has(contract.id));
+});
 const selectedInvoiceContract = computed(() => salesContracts.value.find((contract) => contract.id === invoiceForm.contractId));
 const selectedInvoiceWorkHourMembers = computed(() => selectedInvoiceContract.value?.members.filter(
   (member): member is ContractMember & { id: string } => member.billingType !== "FIXED" && !!member.id
@@ -215,7 +231,7 @@ const contractForm = reactive({
 
 const invoiceForm = reactive({
   contractId: "",
-  period: new Date().toISOString().slice(0, 7),
+  period: defaultInvoicePeriod,
   issueDate: new Date().toISOString().slice(0, 10),
   dueDate: "",
   invoiceNo: "",
@@ -363,7 +379,26 @@ async function refreshContracts() {
 
 async function refreshInvoices() {
   const params = new URLSearchParams({ q: invoiceQuery.value, period: invoiceSearchPeriod.value });
-  invoices.value = await request<Invoice[]>(`/ses/invoices?${params.toString()}`);
+  const periodParams = new URLSearchParams({ period: invoiceSearchPeriod.value });
+  const [filteredInvoices, allPeriodInvoices] = await Promise.all([
+    request<Invoice[]>(`/ses/invoices?${params.toString()}`),
+    request<Invoice[]>(`/ses/invoices?${periodParams.toString()}`)
+  ]);
+  invoices.value = filteredInvoices;
+  periodInvoices.value = allPeriodInvoices;
+}
+
+async function onInvoiceSearchPeriodChange() {
+  invoiceForm.period = invoiceSearchPeriod.value;
+  await refreshInvoices();
+}
+
+function applyInvoiceContract(contract: Contract) {
+  invoiceForm.contractId = contract.id;
+  invoiceForm.period = invoiceSearchPeriod.value;
+  invoiceForm.invoiceNo = "";
+  invoiceForm.title = "";
+  invoiceForm.note = "";
 }
 
 async function refreshCompanySetting() {
@@ -690,12 +725,24 @@ onMounted(async () => {
         <h2>請求管理</h2>
       </div>
       <div class="filter-row ses-search invoice-search">
-        <label>請求対象月<input v-model="invoiceSearchPeriod" type="month" @change="refreshInvoices" /></label>
+        <label>請求対象月<input v-model="invoiceSearchPeriod" type="month" @change="onInvoiceSearchPeriodChange" /></label>
         <label>請求検索<input v-model="invoiceQuery" placeholder="請求書番号・契約名・取引先" @keyup.enter="refreshInvoices" /></label>
         <button class="primary" @click="refreshInvoices"><Search :size="16" />検索</button>
       </div>
       <div class="ses-layout contract-layout">
         <div class="ses-list">
+          <div v-if="unbilledSalesContracts.length" class="unbilled-list">
+            <h3>未請求契約</h3>
+            <button
+              v-for="contract in unbilledSalesContracts"
+              :key="contract.id"
+              class="employee-item warning-item"
+              @click="applyInvoiceContract(contract)"
+            >
+              <strong>{{ contract.title }}</strong>
+              <span>{{ contract.customer.name }} / {{ invoiceSearchPeriod }} 未請求</span>
+            </button>
+          </div>
           <button
             v-for="invoice in invoices"
             :key="invoice.id"
