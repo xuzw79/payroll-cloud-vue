@@ -315,6 +315,7 @@ model SesInvoice {
   @@index([customerId])
   @@index([contractId])
   @@index([period])
+  @@index([contractId, period])
   @@index([isActive])
 }
 

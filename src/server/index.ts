@@ -980,6 +980,14 @@ api.post("/ses/invoices/generate", async (c) => {
   if (!contract || !contract.isActive) return c.json({ message: "契約が見つかりません" }, 404);
   if (contract.contractType !== "SALES") return c.json({ message: "請求書は請求契約から作成してください" }, 400);
 
+  const existingInvoice = await prisma.sesInvoice.findFirst({
+    where: { contractId, period, isActive: true },
+    select: { invoiceNo: true }
+  });
+  if (existingInvoice) {
+    return c.json({ message: `同じ契約・同じ月の請求書は作成済みです（${existingInvoice.invoiceNo || "番号なし"}）` }, 409);
+  }
+
   const issueDate = nullableText(body.issueDate) || todayIso();
   const dueDate = nullableText(body.dueDate) || addDaysIso(endOfMonthIso(period), contract.customer.paymentSiteDays || 30);
   const workHoursByMember = (body.workHoursByMember || {}) as Record<string, unknown>;
@@ -996,25 +1004,32 @@ api.post("/ses/invoices/generate", async (c) => {
   const invoiceNo = nullableText(body.invoiceNo) || await nextSesInvoiceNo(period);
   const title = nullableText(body.title) || `${period} ${contract.title}`;
 
-  const invoice = await prisma.sesInvoice.create({
-    data: {
-      customerId: contract.customerId,
-      contractId: contract.id,
-      period,
-      invoiceNo,
-      issueDate,
-      dueDate,
-      title,
-      subtotal,
-      taxRate,
-      taxAmount,
-      totalAmount,
-      note: nullableText(body.note),
-      items: { create: items }
-    },
-    include: { customer: true, contract: true, items: { orderBy: { createdAt: "asc" } } }
-  });
-  return c.json(invoice, 201);
+  try {
+    const invoice = await prisma.sesInvoice.create({
+      data: {
+        customerId: contract.customerId,
+        contractId: contract.id,
+        period,
+        invoiceNo,
+        issueDate,
+        dueDate,
+        title,
+        subtotal,
+        taxRate,
+        taxAmount,
+        totalAmount,
+        note: nullableText(body.note),
+        items: { create: items }
+      },
+      include: { customer: true, contract: true, items: { orderBy: { createdAt: "asc" } } }
+    });
+    return c.json(invoice, 201);
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "P2002") {
+      return c.json({ message: "同じ契約・同じ月の請求書は作成済みです" }, 409);
+    }
+    throw error;
+  }
 });
 
 api.delete("/ses/invoices/:id", async (c) => {

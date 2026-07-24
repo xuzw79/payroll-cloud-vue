@@ -401,6 +401,10 @@ function applyInvoiceContract(contract: Contract) {
   invoiceForm.note = "";
 }
 
+function showError(error: unknown, fallback: string) {
+  emit("message", error instanceof Error ? error.message : fallback);
+}
+
 async function refreshCompanySetting() {
   const setting = await request<CompanySetting>("/ses/company-setting");
   Object.assign(companyForm, {
@@ -431,12 +435,16 @@ async function refreshAll() {
 
 async function saveCustomer() {
   if (!props.canEditSes) return;
-  const method = customerForm.id ? "PUT" : "POST";
-  const path = customerForm.id ? `/customers/${customerForm.id}` : "/customers";
-  const customer = await request<Customer>(path, { method, body: JSON.stringify(customerForm) });
-  emit("message", "取引先を保存しました");
-  await refreshCustomers();
-  applyCustomer(customer);
+  try {
+    const method = customerForm.id ? "PUT" : "POST";
+    const path = customerForm.id ? `/customers/${customerForm.id}` : "/customers";
+    const customer = await request<Customer>(path, { method, body: JSON.stringify(customerForm) });
+    emit("message", "取引先を保存しました");
+    await refreshCustomers();
+    applyCustomer(customer);
+  } catch (error) {
+    showError(error, "取引先を保存できませんでした");
+  }
 }
 
 async function deleteCustomer() {
@@ -449,15 +457,19 @@ async function deleteCustomer() {
 
 async function saveExternalMember() {
   if (!props.canEditSes) return;
-  const member = await request<ExternalMember>("/ses/external-members", {
-    method: "POST",
-    body: JSON.stringify({ ...externalMemberForm, customerId: externalMemberForm.customerId || customerForm.id })
-  });
-  emit("message", "別会社の従業員を登録しました");
-  Object.assign(externalMemberForm, { customerId: customerForm.id || "", name: "", code: "", email: "", phone: "", memo: "" });
-  await refreshSesMasterData();
-  const lastBlank = contractMembers.value.find((row) => row.source === "EXTERNAL" && !row.externalMemberId);
-  if (lastBlank) lastBlank.externalMemberId = member.id;
+  try {
+    const member = await request<ExternalMember>("/ses/external-members", {
+      method: "POST",
+      body: JSON.stringify({ ...externalMemberForm, customerId: externalMemberForm.customerId || customerForm.id })
+    });
+    emit("message", "別会社の従業員を登録しました");
+    Object.assign(externalMemberForm, { customerId: customerForm.id || "", name: "", code: "", email: "", phone: "", memo: "" });
+    await refreshSesMasterData();
+    const lastBlank = contractMembers.value.find((row) => row.source === "EXTERNAL" && !row.externalMemberId);
+    if (lastBlank) lastBlank.externalMemberId = member.id;
+  } catch (error) {
+    showError(error, "別会社の従業員を登録できませんでした");
+  }
 }
 
 function addContractMember() {
@@ -476,41 +488,57 @@ function onMemberSourceChange(member: ContractMemberForm) {
 
 async function saveContract() {
   if (!props.canEditSes) return;
-  const payload = {
-    ...contractForm,
-    members: contractMembers.value.map(({ key, ...member }) => member)
-  };
-  const method = contractForm.id ? "PUT" : "POST";
-  const path = contractForm.id ? `/ses/contracts/${contractForm.id}` : "/ses/contracts";
-  const contract = await request<Contract>(path, { method, body: JSON.stringify(payload) });
-  emit("message", "契約を保存しました");
-  await refreshContracts();
-  applyContract(contract);
+  try {
+    const payload = {
+      ...contractForm,
+      members: contractMembers.value.map(({ key, ...member }) => member)
+    };
+    const method = contractForm.id ? "PUT" : "POST";
+    const path = contractForm.id ? `/ses/contracts/${contractForm.id}` : "/ses/contracts";
+    const contract = await request<Contract>(path, { method, body: JSON.stringify(payload) });
+    emit("message", "契約を保存しました");
+    await refreshContracts();
+    applyContract(contract);
+  } catch (error) {
+    showError(error, "契約を保存できませんでした");
+  }
 }
 
 async function deleteContract() {
   if (!props.canEditSes || !contractForm.id || !confirm("この契約を非表示にしますか？")) return;
-  await request(`/ses/contracts/${contractForm.id}`, { method: "DELETE" });
-  emit("message", "契約を非表示にしました");
-  resetContractForm();
-  await refreshContracts();
+  try {
+    await request(`/ses/contracts/${contractForm.id}`, { method: "DELETE" });
+    emit("message", "契約を非表示にしました");
+    resetContractForm();
+    await refreshContracts();
+  } catch (error) {
+    showError(error, "契約を非表示にできませんでした");
+  }
 }
 
 async function saveCompanySetting() {
   if (!props.canEditSes) return;
-  await request<CompanySetting>("/ses/company-setting", { method: "PUT", body: JSON.stringify(companyForm) });
-  emit("message", "請求書用の自社情報を保存しました");
+  try {
+    await request<CompanySetting>("/ses/company-setting", { method: "PUT", body: JSON.stringify(companyForm) });
+    emit("message", "請求書用の自社情報を保存しました");
+  } catch (error) {
+    showError(error, "請求書用の自社情報を保存できませんでした");
+  }
 }
 
 async function generateInvoice() {
   if (!props.canEditSes) return;
-  const invoice = await request<Invoice>("/ses/invoices/generate", {
-    method: "POST",
-    body: JSON.stringify({ ...invoiceForm, workHoursByMember: invoiceWorkHours })
-  });
-  emit("message", "請求書を作成しました");
-  selectedInvoiceId.value = invoice.id;
-  await refreshInvoices();
+  try {
+    const invoice = await request<Invoice>("/ses/invoices/generate", {
+      method: "POST",
+      body: JSON.stringify({ ...invoiceForm, workHoursByMember: invoiceWorkHours })
+    });
+    emit("message", "請求書を作成しました");
+    selectedInvoiceId.value = invoice.id;
+    await refreshInvoices();
+  } catch (error) {
+    showError(error, "請求書を作成できませんでした");
+  }
 }
 
 async function deleteInvoice(invoice: Invoice) {
