@@ -287,16 +287,22 @@ p {
 }
 
 .ses-search {
-  grid-template-columns: minmax(240px, 1fr) auto;
+  grid-template-columns: 1fr;
   padding: 0 8px 8px;
 }
 
 .ses-search button {
-  min-width: 86px;
+  width: 100%;
+  min-width: 0;
 }
 
 .invoice-search {
   grid-template-columns: minmax(330px, 360px) minmax(220px, 1fr) auto;
+}
+
+.invoice-search button {
+  width: auto;
+  min-width: 86px;
 }
 
 .invoice-search input[type="month"] {

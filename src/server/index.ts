@@ -105,6 +105,48 @@ function periodToFiscalYear(period: string) {
   return month >= 4 ? year : year - 1;
 }
 
+function fiscalYearFromDateByClosingMonth(date: Date, closingMonth: number) {
+  const parts = new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit"
+  }).formatToParts(date);
+  const year = Number(parts.find((part) => part.type === "year")?.value || date.getFullYear());
+  const month = Number(parts.find((part) => part.type === "month")?.value || date.getMonth() + 1);
+  return month > closingMonth ? year : year - 1;
+}
+
+function fiscalPeriodRange(fiscalYear: number, closingMonth: number) {
+  const startMonth = closingMonth === 12 ? 1 : closingMonth + 1;
+  const startYear = closingMonth === 12 ? fiscalYear : fiscalYear;
+  const endYear = closingMonth === 12 ? fiscalYear : fiscalYear + 1;
+  const startPeriod = `${startYear}-${String(startMonth).padStart(2, "0")}`;
+  const endPeriod = `${endYear}-${String(closingMonth).padStart(2, "0")}`;
+  return { startPeriod, endPeriod };
+}
+
+function monthPeriods(startPeriod: string, endPeriod: string) {
+  const [startYear, startMonth] = startPeriod.split("-").map(Number);
+  const [endYear, endMonth] = endPeriod.split("-").map(Number);
+  const periods: string[] = [];
+  let year = startYear;
+  let month = startMonth;
+  while (year < endYear || (year === endYear && month <= endMonth)) {
+    periods.push(`${year}-${String(month).padStart(2, "0")}`);
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+  }
+  return periods;
+}
+
+function normalizeClosingMonth(value: unknown) {
+  const month = numberOrDefault(value, 3);
+  return month >= 1 && month <= 12 ? Math.trunc(month) : 3;
+}
+
 function isPeriod(value: string) {
   return /^\d{4}-\d{2}$/.test(value);
 }
@@ -404,6 +446,7 @@ api.put("/settings", async (c) => {
     where: { id: "default" },
     update: {
       currentFiscalYear: Number(body.currentFiscalYear || new Date().getFullYear()),
+      fiscalClosingMonth: normalizeClosingMonth(body.fiscalClosingMonth),
       overtimeRate: Number(body.overtimeRate),
       incomeTaxRate: Number(body.incomeTaxRate),
       socialInsuranceRate,
@@ -415,6 +458,7 @@ api.put("/settings", async (c) => {
     create: {
       id: "default",
       currentFiscalYear: Number(body.currentFiscalYear || new Date().getFullYear()),
+      fiscalClosingMonth: normalizeClosingMonth(body.fiscalClosingMonth),
       overtimeRate: Number(body.overtimeRate),
       incomeTaxRate: Number(body.incomeTaxRate),
       socialInsuranceRate,
@@ -455,7 +499,8 @@ api.put("/ses/company-setting", async (c) => {
       invoiceBankName: nullableText(body.invoiceBankName),
       invoiceBankBranch: nullableText(body.invoiceBankBranch),
       invoiceBankAccount: nullableText(body.invoiceBankAccount),
-      invoiceBankHolder: nullableText(body.invoiceBankHolder)
+      invoiceBankHolder: nullableText(body.invoiceBankHolder),
+      fiscalClosingMonth: normalizeClosingMonth(body.fiscalClosingMonth)
     },
     create: {
       id: "default",
@@ -468,7 +513,8 @@ api.put("/ses/company-setting", async (c) => {
       invoiceBankName: nullableText(body.invoiceBankName),
       invoiceBankBranch: nullableText(body.invoiceBankBranch),
       invoiceBankAccount: nullableText(body.invoiceBankAccount),
-      invoiceBankHolder: nullableText(body.invoiceBankHolder)
+      invoiceBankHolder: nullableText(body.invoiceBankHolder),
+      fiscalClosingMonth: normalizeClosingMonth(body.fiscalClosingMonth)
     }
   });
   return c.json(settings);
@@ -817,6 +863,135 @@ api.delete("/ses/contracts/:id", async (c) => {
   if (denied) return denied;
 
   await prisma.sesContract.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
+  return c.json({ ok: true });
+});
+
+api.get("/ses/revenues", async (c) => {
+  const denied = requireRole(c, "VIEWER");
+  if (denied) return denied;
+
+  const settings = await prisma.companySetting.upsert({
+    where: { id: "default" },
+    update: {},
+    create: { id: "default", currentFiscalYear: new Date().getFullYear() }
+  });
+  const closingMonth = normalizeClosingMonth(c.req.query("closingMonth") || settings.fiscalClosingMonth);
+  const fiscalYear = Number(c.req.query("fiscalYear") || settings.currentFiscalYear || fiscalYearFromDateByClosingMonth(new Date(), closingMonth));
+  const q = c.req.query("q") || "";
+  const { startPeriod, endPeriod } = fiscalPeriodRange(fiscalYear, closingMonth);
+  const revenues = await prisma.sesRevenue.findMany({
+    where: {
+      isActive: true,
+      period: { gte: startPeriod, lte: endPeriod },
+      OR: q ? [
+        { title: { contains: q, mode: "insensitive" } },
+        { memo: { contains: q, mode: "insensitive" } },
+        { customer: { name: { contains: q, mode: "insensitive" } } },
+        { contract: { title: { contains: q, mode: "insensitive" } } },
+        { employee: { name: { contains: q, mode: "insensitive" } } },
+        { externalMember: { name: { contains: q, mode: "insensitive" } } }
+      ] : undefined
+    },
+    include: {
+      customer: true,
+      contract: true,
+      employee: true,
+      externalMember: { include: { customer: true } }
+    },
+    orderBy: [{ period: "asc" }, { updatedAt: "desc" }]
+  });
+  const monthlyTotals = monthPeriods(startPeriod, endPeriod).map((period) => ({
+    period,
+    amount: revenues.filter((revenue) => revenue.period === period).reduce((sum, revenue) => sum + revenue.amount, 0)
+  }));
+  return c.json({
+    fiscalYear,
+    closingMonth,
+    startPeriod,
+    endPeriod,
+    totalAmount: monthlyTotals.reduce((sum, row) => sum + row.amount, 0),
+    monthlyTotals,
+    revenues
+  });
+});
+
+async function revenueData(body: Record<string, unknown>) {
+  const period = String(body.period || "");
+  const title = String(body.title || "").trim();
+  const amount = numberOrDefault(body.amount, 0);
+  const contractId = nullableText(body.contractId);
+  const employeeId = nullableText(body.employeeId);
+  const externalMemberId = nullableText(body.externalMemberId);
+  if (!isPeriod(period)) throw new Error("売上月を指定してください");
+  if (!title) throw new Error("売上名を入力してください");
+  if (!employeeId && !externalMemberId) throw new Error("社員または外部メンバーを選択してください");
+
+  let customerId = nullableText(body.customerId);
+  if (contractId) {
+    const contract = await prisma.sesContract.findUnique({ where: { id: contractId }, select: { customerId: true } });
+    customerId = contract?.customerId || customerId;
+  }
+
+  return {
+    period,
+    customerId,
+    contractId,
+    employeeId,
+    externalMemberId,
+    title,
+    amount,
+    memo: nullableText(body.memo)
+  };
+}
+
+api.post("/ses/revenues", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
+  try {
+    const body = await c.req.json();
+    const revenue = await prisma.sesRevenue.create({
+      data: await revenueData(body),
+      include: {
+        customer: true,
+        contract: true,
+        employee: true,
+        externalMember: { include: { customer: true } }
+      }
+    });
+    return c.json(revenue, 201);
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : "売上を保存できませんでした" }, 400);
+  }
+});
+
+api.put("/ses/revenues/:id", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
+  try {
+    const body = await c.req.json();
+    const revenue = await prisma.sesRevenue.update({
+      where: { id: c.req.param("id") },
+      data: await revenueData(body),
+      include: {
+        customer: true,
+        contract: true,
+        employee: true,
+        externalMember: { include: { customer: true } }
+      }
+    });
+    return c.json(revenue);
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : "売上を保存できませんでした" }, 400);
+  }
+});
+
+api.delete("/ses/revenues/:id", async (c) => {
+  const denied = requireRole(c, "ACCOUNTING");
+  if (denied) return denied;
+
+  await prisma.sesRevenue.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
   return c.json({ ok: true });
 });
 

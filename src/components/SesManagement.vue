@@ -98,7 +98,34 @@ type Invoice = {
   items: InvoiceItem[];
 };
 
+type Revenue = {
+  id: string;
+  period: string;
+  customerId?: string | null;
+  contractId?: string | null;
+  employeeId?: string | null;
+  externalMemberId?: string | null;
+  title: string;
+  amount: number;
+  memo?: string | null;
+  customer?: Customer | null;
+  contract?: Contract | null;
+  employee?: Employee | null;
+  externalMember?: ExternalMember | null;
+};
+
+type RevenueResponse = {
+  fiscalYear: number;
+  closingMonth: number;
+  startPeriod: string;
+  endPeriod: string;
+  totalAmount: number;
+  monthlyTotals: { period: string; amount: number }[];
+  revenues: Revenue[];
+};
+
 type CompanySetting = {
+  fiscalClosingMonth?: number | null;
   invoiceCompanyName?: string | null;
   invoicePostalCode?: string | null;
   invoiceAddress?: string | null;
@@ -145,7 +172,7 @@ const subMenus: { key: SesSubMenu; label: string; description: string }[] = [
   { key: "projects", label: "案件・契約管理", description: "請求契約と仕入契約、契約期間、作業者、契約先を管理します。" },
   { key: "invoices", label: "請求管理", description: "請求契約から請求書を作成し、PDFを出力します。" },
   { key: "masters", label: "マスタ管理", description: "自社情報、振込先など共通マスタを管理します。" },
-  { key: "revenue", label: "月次売上入力", description: "社員別・案件別の毎月売上を登録します。" },
+  { key: "revenue", label: "年間売上", description: "決算年度ごとの売上合計を表示し、個別売上を登録します。" },
   { key: "partnerCosts", label: "外注費入力", description: "協力会社への月額支払を登録します。" },
   { key: "profit", label: "個人別利益", description: "売上、給与、外注費から利益を確認します。" }
 ];
@@ -155,19 +182,26 @@ const loading = ref(false);
 const customerQuery = ref("");
 const contractQuery = ref("");
 const invoiceQuery = ref("");
+const revenueQuery = ref("");
 const defaultInvoicePeriod = previousYearMonth();
 const invoiceSearchPeriod = ref(defaultInvoicePeriod);
+const revenueFiscalYear = ref(new Date().getFullYear());
 const customers = ref<Customer[]>([]);
 const employees = ref<Employee[]>([]);
 const externalMembers = ref<ExternalMember[]>([]);
 const contracts = ref<Contract[]>([]);
 const invoices = ref<Invoice[]>([]);
 const periodInvoices = ref<Invoice[]>([]);
+const revenues = ref<Revenue[]>([]);
+const revenueMonthlyTotals = ref<{ period: string; amount: number }[]>([]);
+const revenueRange = reactive({ startPeriod: "", endPeriod: "", totalAmount: 0 });
 const selectedCustomerId = ref("");
 const selectedContractId = ref("");
 const selectedInvoiceId = ref("");
+const selectedRevenueId = ref("");
 const contractMembers = ref<ContractMemberForm[]>([]);
 const invoiceWorkHours = reactive<Record<string, number | null>>({});
+let revenueFiscalYearInitialized = false;
 
 const activeMenuInfo = computed(() => subMenus.find((menu) => menu.key === activeSubMenu.value) || subMenus[0]);
 const selectedCustomerExternalMembers = computed(() => externalMembers.value.filter((member) => member.customerId === customerForm.id));
@@ -207,6 +241,7 @@ const externalMemberForm = reactive({
 });
 
 const companyForm = reactive({
+  fiscalClosingMonth: 3,
   invoiceCompanyName: "",
   invoicePostalCode: "",
   invoiceAddress: "",
@@ -216,6 +251,19 @@ const companyForm = reactive({
   invoiceBankBranch: "",
   invoiceBankAccount: "",
   invoiceBankHolder: ""
+});
+
+const revenueForm = reactive({
+  id: "",
+  period: currentYearMonth(),
+  customerId: "",
+  contractId: "",
+  memberSource: "EMPLOYEE" as MemberSource,
+  employeeId: "",
+  externalMemberId: "",
+  title: "",
+  amount: 0,
+  memo: ""
 });
 
 const contractForm = reactive({
@@ -250,6 +298,64 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new Error(error.message || "通信に失敗しました");
   }
   return response.json();
+}
+
+function currentFiscalYearByClosingMonth(closingMonth: number) {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  return month > closingMonth ? year : year - 1;
+}
+
+function resetRevenueForm() {
+  Object.assign(revenueForm, {
+    id: "",
+    period: currentYearMonth(),
+    customerId: "",
+    contractId: "",
+    memberSource: "EMPLOYEE",
+    employeeId: "",
+    externalMemberId: "",
+    title: "",
+    amount: 0,
+    memo: ""
+  });
+  selectedRevenueId.value = "";
+}
+
+function applyRevenue(revenue?: Revenue) {
+  if (!revenue) {
+    resetRevenueForm();
+    return;
+  }
+  Object.assign(revenueForm, {
+    id: revenue.id,
+    period: revenue.period,
+    customerId: revenue.customerId || "",
+    contractId: revenue.contractId || "",
+    memberSource: revenue.externalMemberId ? "EXTERNAL" : "EMPLOYEE",
+    employeeId: revenue.employeeId || "",
+    externalMemberId: revenue.externalMemberId || "",
+    title: revenue.title,
+    amount: Number(revenue.amount || 0),
+    memo: revenue.memo || ""
+  });
+  selectedRevenueId.value = revenue.id;
+}
+
+function onRevenueContractChange() {
+  const contract = salesContracts.value.find((item) => item.id === revenueForm.contractId);
+  if (!contract) return;
+  revenueForm.customerId = contract.customerId;
+  if (!revenueForm.title) revenueForm.title = contract.title;
+}
+
+function revenuePersonName(revenue: Revenue) {
+  if (revenue.employee) return revenue.employee.name;
+  if (revenue.externalMember) return revenue.externalMember.customer?.name
+    ? `${revenue.externalMember.customer.name} / ${revenue.externalMember.name}`
+    : revenue.externalMember.name;
+  return "未選択";
 }
 
 function newMemberRow(): ContractMemberForm {
@@ -388,6 +494,22 @@ async function refreshInvoices() {
   periodInvoices.value = allPeriodInvoices;
 }
 
+async function refreshRevenues() {
+  const params = new URLSearchParams({
+    fiscalYear: String(revenueFiscalYear.value),
+    closingMonth: String(companyForm.fiscalClosingMonth || 3),
+    q: revenueQuery.value
+  });
+  const result = await request<RevenueResponse>(`/ses/revenues?${params.toString()}`);
+  revenueFiscalYear.value = result.fiscalYear;
+  companyForm.fiscalClosingMonth = result.closingMonth;
+  revenueRange.startPeriod = result.startPeriod;
+  revenueRange.endPeriod = result.endPeriod;
+  revenueRange.totalAmount = result.totalAmount;
+  revenueMonthlyTotals.value = result.monthlyTotals;
+  revenues.value = result.revenues;
+}
+
 async function onInvoiceSearchPeriodChange() {
   invoiceForm.period = invoiceSearchPeriod.value;
   await refreshInvoices();
@@ -408,6 +530,7 @@ function showError(error: unknown, fallback: string) {
 async function refreshCompanySetting() {
   const setting = await request<CompanySetting>("/ses/company-setting");
   Object.assign(companyForm, {
+    fiscalClosingMonth: setting.fiscalClosingMonth || 3,
     invoiceCompanyName: setting.invoiceCompanyName || "",
     invoicePostalCode: setting.invoicePostalCode || "",
     invoiceAddress: setting.invoiceAddress || "",
@@ -418,6 +541,10 @@ async function refreshCompanySetting() {
     invoiceBankAccount: setting.invoiceBankAccount || "",
     invoiceBankHolder: setting.invoiceBankHolder || ""
   });
+  if (!revenueFiscalYearInitialized) {
+    revenueFiscalYear.value = currentFiscalYearByClosingMonth(companyForm.fiscalClosingMonth || 3);
+    revenueFiscalYearInitialized = true;
+  }
 }
 
 async function refreshSesMasterData() {
@@ -430,7 +557,8 @@ async function refreshSesMasterData() {
 }
 
 async function refreshAll() {
-  await Promise.all([refreshCustomers(), refreshContracts(), refreshSesMasterData(), refreshInvoices(), refreshCompanySetting()]);
+  await refreshCompanySetting();
+  await Promise.all([refreshCustomers(), refreshContracts(), refreshSesMasterData(), refreshInvoices(), refreshRevenues()]);
 }
 
 async function saveCustomer() {
@@ -521,8 +649,42 @@ async function saveCompanySetting() {
   try {
     await request<CompanySetting>("/ses/company-setting", { method: "PUT", body: JSON.stringify(companyForm) });
     emit("message", "請求書用の自社情報を保存しました");
+    await refreshRevenues();
   } catch (error) {
     showError(error, "請求書用の自社情報を保存できませんでした");
+  }
+}
+
+async function saveRevenue() {
+  if (!props.canEditSes) return;
+  try {
+    const method = revenueForm.id ? "PUT" : "POST";
+    const path = revenueForm.id ? `/ses/revenues/${revenueForm.id}` : "/ses/revenues";
+    const revenue = await request<Revenue>(path, {
+      method,
+      body: JSON.stringify({
+        ...revenueForm,
+        employeeId: revenueForm.memberSource === "EMPLOYEE" ? revenueForm.employeeId : "",
+        externalMemberId: revenueForm.memberSource === "EXTERNAL" ? revenueForm.externalMemberId : ""
+      })
+    });
+    emit("message", "売上を保存しました");
+    await refreshRevenues();
+    applyRevenue(revenue);
+  } catch (error) {
+    showError(error, "売上を保存できませんでした");
+  }
+}
+
+async function deleteRevenue() {
+  if (!props.canEditSes || !revenueForm.id || !confirm("この売上を非表示にしますか？")) return;
+  try {
+    await request(`/ses/revenues/${revenueForm.id}`, { method: "DELETE" });
+    emit("message", "売上を非表示にしました");
+    resetRevenueForm();
+    await refreshRevenues();
+  } catch (error) {
+    showError(error, "売上を非表示にできませんでした");
   }
 }
 
@@ -829,6 +991,78 @@ onMounted(async () => {
       </div>
     </section>
 
+    <section v-else-if="activeSubMenu === 'revenue'" class="panel">
+      <div class="panel-head">
+        <h2>年間売上</h2>
+        <button v-if="canEditSes" @click="resetRevenueForm"><Plus :size="16" />追加</button>
+      </div>
+      <div class="filter-row ses-search invoice-search">
+        <label>決算年度<input v-model.number="revenueFiscalYear" type="number" min="2000" @keyup.enter="refreshRevenues" /></label>
+        <label>売上検索<input v-model="revenueQuery" placeholder="売上名・社員・取引先" @keyup.enter="refreshRevenues" /></label>
+        <button class="primary" @click="refreshRevenues"><Search :size="16" />検索</button>
+      </div>
+      <div class="summary revenue-summary">
+        <div><span>年間売上</span><strong>{{ Number(revenueRange.totalAmount || 0).toLocaleString("ja-JP") }}円</strong></div>
+        <div><span>対象期間</span><strong>{{ revenueRange.startPeriod }} - {{ revenueRange.endPeriod }}</strong></div>
+        <div><span>決算月</span><strong>{{ companyForm.fiscalClosingMonth }}月</strong></div>
+      </div>
+      <div class="ses-cards compact-cards">
+        <div v-for="row in revenueMonthlyTotals" :key="row.period">
+          <strong>{{ row.period }}</strong>
+          <span>{{ Number(row.amount || 0).toLocaleString("ja-JP") }}円</span>
+        </div>
+      </div>
+      <div class="ses-layout contract-layout">
+        <div class="ses-list">
+          <button
+            v-for="revenue in revenues"
+            :key="revenue.id"
+            class="employee-item"
+            :class="{ active: revenue.id === selectedRevenueId }"
+            @click="applyRevenue(revenue)"
+          >
+            <strong>{{ revenue.period }} {{ revenue.title }}</strong>
+            <span>{{ revenuePersonName(revenue) }}</span>
+            <span>{{ revenue.customer?.name || revenue.contract?.customer?.name || "-" }} / {{ Number(revenue.amount || 0).toLocaleString("ja-JP") }}円</span>
+          </button>
+          <div v-if="!revenues.length" class="empty">売上が登録されていません。</div>
+        </div>
+
+        <div class="contract-editor">
+          <div class="form-grid">
+            <label>売上月<input v-model="revenueForm.period" type="month" /></label>
+            <label>売上金額<input v-model.number="revenueForm.amount" type="number" min="0" /></label>
+            <label>取引先<select v-model="revenueForm.customerId">
+              <option value="">未選択</option>
+              <option v-for="customer in customers" :key="customer.id" :value="customer.id">{{ customer.name }}</option>
+            </select></label>
+            <label>契約<select v-model="revenueForm.contractId" @change="onRevenueContractChange">
+              <option value="">未選択</option>
+              <option v-for="contract in salesContracts" :key="contract.id" :value="contract.id">{{ contract.customer.name }} / {{ contract.title }}</option>
+            </select></label>
+            <label>対象区分<select v-model="revenueForm.memberSource">
+              <option value="EMPLOYEE">社員</option>
+              <option value="EXTERNAL">外部メンバー</option>
+            </select></label>
+            <label v-if="revenueForm.memberSource === 'EMPLOYEE'">社員<select v-model="revenueForm.employeeId">
+              <option value="">未選択</option>
+              <option v-for="employee in employees" :key="employee.id" :value="employee.id">{{ employee.employeeNo }} / {{ employee.name }}</option>
+            </select></label>
+            <label v-else>外部メンバー<select v-model="revenueForm.externalMemberId">
+              <option value="">未選択</option>
+              <option v-for="member in externalMembers" :key="member.id" :value="member.id">{{ member.customer?.name || "所属未設定" }} / {{ member.name }}</option>
+            </select></label>
+            <label class="wide">売上名<input v-model="revenueForm.title" /></label>
+            <label class="wide">メモ<input v-model="revenueForm.memo" /></label>
+            <div class="form-actions full">
+              <button v-if="canEditSes && revenueForm.id" @click="deleteRevenue"><Trash2 :size="16" />非表示</button>
+              <button v-if="canEditSes" class="primary" @click="saveRevenue"><Save :size="16" />売上保存</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section v-else-if="activeSubMenu === 'masters'" class="panel">
       <div class="panel-head">
         <h2>マスタ管理</h2>
@@ -840,6 +1074,7 @@ onMounted(async () => {
         <div class="sub-panel">
           <h3>自社情報</h3>
           <div class="form-grid compact">
+            <label>決算月<input v-model.number="companyForm.fiscalClosingMonth" type="number" min="1" max="12" /></label>
             <label>会社名<input v-model="companyForm.invoiceCompanyName" /></label>
             <label>郵便番号<input v-model="companyForm.invoicePostalCode" /></label>
             <label class="wide">住所<input v-model="companyForm.invoiceAddress" /></label>

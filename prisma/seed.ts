@@ -7,10 +7,11 @@ async function main() {
 
   await prisma.companySetting.upsert({
     where: { id: "default" },
-    update: { currentFiscalYear: fiscalYear },
+    update: { currentFiscalYear: fiscalYear, fiscalClosingMonth: 3 },
     create: {
       id: "default",
       currentFiscalYear: fiscalYear,
+      fiscalClosingMonth: 3,
       overtimeRate: 1.25,
       incomeTaxRate: 0.03,
       socialInsuranceRate: 0.15,
