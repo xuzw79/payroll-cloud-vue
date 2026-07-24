@@ -154,7 +154,7 @@ type ContractMemberForm = {
   memo: string;
 };
 
-const props = defineProps<{ canEditSes: boolean }>();
+const props = defineProps<{ canEditSes: boolean; message?: string }>();
 const emit = defineEmits<{ message: [value: string] }>();
 
 function currentYearMonth() {
@@ -753,6 +753,9 @@ onMounted(async () => {
         {{ menu.label }}
       </button>
     </nav>
+    <div v-if="message" class="operation-message">
+      <span class="message">{{ message }}</span>
+    </div>
 
     <section v-if="activeSubMenu === 'customers'" class="panel">
       <div class="panel-head">

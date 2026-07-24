@@ -160,6 +160,7 @@ const roleLabels: Record<UserRole, string> = {
 const loggedIn = ref(false);
 const loading = ref(false);
 const message = ref("");
+const sesMessage = ref("");
 const me = ref<AppUser | null>(null);
 const activeMenu = ref<"payroll" | "ses">("payroll");
 const query = ref("");
@@ -1081,7 +1082,8 @@ onMounted(async () => {
     <SesManagement
       v-if="activeMenu === 'ses' && canViewAll"
       :can-edit-ses="canEditSes"
-      @message="message = $event"
+      :message="sesMessage"
+      @message="sesMessage = $event"
     />
   </main>
 </template>
