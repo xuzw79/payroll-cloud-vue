@@ -26,6 +26,7 @@ enum SesBillingType {
 }
 
 enum SesMemberSource {
+  NONE
   EMPLOYEE
   EXTERNAL
 }

@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { Download, Plus, Save, Search, Trash2 } from "lucide-vue-next";
 
 type SesSubMenu = "customers" | "projects" | "invoices" | "masters" | "revenue" | "partnerCosts" | "profit";
-type MemberSource = "EMPLOYEE" | "EXTERNAL";
+type MemberSource = "NONE" | "EMPLOYEE" | "EXTERNAL";
 type BillingType = "FIXED" | "TIME_RANGE" | "HOURLY";
 type ContractType = "SALES" | "PURCHASE";
 
@@ -304,7 +304,7 @@ const revenueForm = reactive({
   period: currentYearMonth(),
   customerId: "",
   contractId: "",
-  memberSource: "EMPLOYEE" as MemberSource,
+  memberSource: "EMPLOYEE" as Exclude<MemberSource, "NONE">,
   employeeId: "",
   externalMemberId: "",
   title: "",
@@ -317,7 +317,7 @@ const expenseForm = reactive({
   period: currentYearMonth(),
   customerId: "",
   contractId: "",
-  memberSource: "NONE" as MemberSource | "NONE",
+  memberSource: "NONE" as MemberSource,
   employeeId: "",
   externalMemberId: "",
   title: "",
@@ -472,7 +472,7 @@ function expensePersonName(expense: Expense) {
 function newMemberRow(): ContractMemberForm {
   return {
     key: crypto.randomUUID(),
-    source: "EMPLOYEE",
+    source: "NONE",
     employeeId: "",
     externalMemberId: "",
     billingType: "FIXED",
@@ -929,6 +929,7 @@ async function downloadInvoicePdf(invoice: Invoice) {
 }
 
 function memberName(member: ContractMember) {
+  if (member.source === "NONE") return "指定なし";
   return member.source === "EMPLOYEE"
     ? member.employee?.name || "社員未設定"
     : member.externalMember?.name || "外部メンバー未設定";
@@ -1077,9 +1078,9 @@ onMounted(async () => {
             <div class="contract-member-list">
               <div v-for="(member, index) in contractMembers" :key="member.key" class="contract-member-row">
                 <div class="form-grid compact">
-                  <label>区分<select v-model="member.source" @change="onMemberSourceChange(member)"><option value="EMPLOYEE">社員</option><option value="EXTERNAL">別会社従業員</option></select></label>
+                  <label>区分<select v-model="member.source" @change="onMemberSourceChange(member)"><option value="NONE">指定しない</option><option value="EMPLOYEE">社員</option><option value="EXTERNAL">別会社従業員</option></select></label>
                   <label v-if="member.source === 'EMPLOYEE'">社員<select v-model="member.employeeId"><option value="">選択</option><option v-for="employee in employees" :key="employee.id" :value="employee.id">{{ employee.employeeNo }} / {{ employee.name }}</option></select></label>
-                  <label v-else>別会社従業員<select v-model="member.externalMemberId"><option value="">選択</option><option v-for="externalMember in externalMembers" :key="externalMember.id" :value="externalMember.id">{{ externalMember.customer?.name || "所属未設定" }} / {{ externalMember.name }}</option></select></label>
+                  <label v-else-if="member.source === 'EXTERNAL'">別会社従業員<select v-model="member.externalMemberId"><option value="">選択</option><option v-for="externalMember in externalMembers" :key="externalMember.id" :value="externalMember.id">{{ externalMember.customer?.name || "所属未設定" }} / {{ externalMember.name }}</option></select></label>
                   <label>単価区分<select v-model="member.billingType"><option value="FIXED">定額</option><option value="TIME_RANGE">精算時間範囲</option><option value="HOURLY">時給</option></select></label>
                   <label class="wide">品名・摘要<input v-model="member.itemDescription" placeholder="請求書明細に印字" /></label>
                   <label>{{ member.billingType === "HOURLY" ? "通常時給" : "単価" }}<input v-model.number="member.unitPrice" type="number" min="0" /></label>

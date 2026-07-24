@@ -773,7 +773,7 @@ api.get("/ses/contracts", async (c) => {
 });
 
 function contractMemberData(member: Record<string, unknown>) {
-  const source: SesMemberSource = member.source === "EXTERNAL" ? "EXTERNAL" : "EMPLOYEE";
+  const source: SesMemberSource = member.source === "NONE" ? "NONE" : member.source === "EXTERNAL" ? "EXTERNAL" : "EMPLOYEE";
   const employeeId = source === "EMPLOYEE" ? nullableText(member.employeeId) : null;
   const externalMemberId = source === "EXTERNAL" ? nullableText(member.externalMemberId) : null;
   if (source === "EMPLOYEE" && !employeeId) throw new Error("社員メンバーを選択してください");
@@ -1228,6 +1228,7 @@ function partnerCostTitle(member: {
   source: string;
 }) {
   if (member.itemDescription) return member.itemDescription;
+  if (member.source === "NONE") return "外注費";
   if (member.source === "EMPLOYEE") return member.employee?.name || "社員作業費";
   const company = member.externalMember?.customer?.name;
   const name = member.externalMember?.name || "外部メンバー作業費";
@@ -1304,6 +1305,7 @@ api.get("/ses/invoices", async (c) => {
 });
 
 function memberDisplayName(member: { source: string; employee?: { name: string } | null; externalMember?: { name: string; customer?: { name: string } | null } | null }) {
+  if (member.source === "NONE") return "指定なし";
   if (member.source === "EMPLOYEE") return member.employee?.name || "社員未設定";
   const company = member.externalMember?.customer?.name;
   const name = member.externalMember?.name || "外部メンバー未設定";

@@ -1,0 +1,1 @@
+ALTER TYPE "SesMemberSource" ADD VALUE IF NOT EXISTS 'NONE';
