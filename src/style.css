@@ -473,10 +473,9 @@ p {
 }
 
 .partner-cost-row-head {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   min-width: 0;
 }
@@ -486,14 +485,28 @@ p {
   overflow-wrap: anywhere;
 }
 
+.partner-cost-row-chips {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: max-content;
+}
+
 .status-chip {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
   padding: 2px 8px;
   border: 1px solid #d0a24b;
   background: #fff8dc;
   color: #7b4a00;
   font-size: 12px;
   font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .status-chip.registered {
@@ -512,6 +525,17 @@ p {
   border-color: #b16b00;
   background: #fff4d6;
   color: #7b4a00;
+}
+
+@media (max-width: 640px) {
+  .partner-cost-row-head {
+    grid-template-columns: 1fr;
+  }
+
+  .partner-cost-row-chips {
+    justify-content: flex-start;
+    min-width: 0;
+  }
 }
 
 .compact-cards {
