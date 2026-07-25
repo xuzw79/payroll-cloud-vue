@@ -461,6 +461,11 @@ function partnerCostMemberLabel(member: ContractMember) {
   return member.itemDescription ? `${name} / ${member.itemDescription}` : name;
 }
 
+function partnerCostDefaultAmount(contract: Contract, member: ContractMember) {
+  const amount = Number(member.unitPrice || 0);
+  return contract.taxIncluded ? amount : Math.round(amount * 1.1);
+}
+
 function revenuePersonName(revenue: Revenue) {
   if (revenue.employee) return revenue.employee.name;
   if (revenue.externalMember) return revenue.externalMember.customer?.name
@@ -632,7 +637,7 @@ async function refreshPartnerCosts() {
   partnerCosts.value = result.costs;
   for (const row of partnerCostMembers.value) {
     const cost = result.costs.find((item) => item.contractMemberId === row.member.id);
-    partnerCostInputs[row.member.id] = cost ? Number(cost.amount || 0) : Number(row.member.unitPrice || 0);
+    partnerCostInputs[row.member.id] = cost ? Number(cost.amount || 0) : partnerCostDefaultAmount(row.contract, row.member);
     partnerCostMemos[row.member.id] = cost?.memo || "";
   }
 }
