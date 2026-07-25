@@ -224,9 +224,15 @@ p {
 .form-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-start;
   gap: 6px;
   min-width: 0;
+}
+
+.form-actions button {
+  flex: 0 0 auto;
+  align-self: center;
 }
 
 .actions {
