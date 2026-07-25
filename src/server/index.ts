@@ -829,22 +829,30 @@ function contractMembersData(value: unknown) {
     : [];
 }
 
+function contractCustomerData(body: Record<string, unknown>) {
+  const customerId = nullableText(body.customerId);
+  if (customerId) return { customerId, manualCustomerName: null };
+
+  const customerName = nullableText(body.customerName ?? body.manualCustomerName);
+  if (!customerName) throw new Error("\u53d6\u5f15\u5148\u3092\u9078\u629e\u3001\u307e\u305f\u306f\u53d6\u5f15\u5148\u540d\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044");
+  return { customerId: null, manualCustomerName: customerName };
+}
+
 api.post("/ses/contracts", async (c) => {
   const denied = requireRole(c, "ACCOUNTING");
   if (denied) return denied;
 
   const body = await c.req.json();
-  const customerId = nullableText(body.customerId);
   const title = String(body.title || "").trim();
-  if (!customerId) return c.json({ message: "取引先を選択してください" }, 400);
   if (!title) return c.json({ message: "契約名を入力してください" }, 400);
   const contractType = body.contractType === "PURCHASE" ? "PURCHASE" : "SALES";
 
   try {
+    const customerData = contractCustomerData(body);
     const members = contractMembersData(body.members);
     const contract = await prisma.sesContract.create({
       data: {
-        customerId,
+        ...customerData,
         contractType,
         contractNo: nullableText(body.contractNo),
         title,
@@ -870,20 +878,19 @@ api.put("/ses/contracts/:id", async (c) => {
   if (denied) return denied;
 
   const body = await c.req.json();
-  const customerId = nullableText(body.customerId);
   const title = String(body.title || "").trim();
-  if (!customerId) return c.json({ message: "取引先を選択してください" }, 400);
   if (!title) return c.json({ message: "契約名を入力してください" }, 400);
   const contractType = body.contractType === "PURCHASE" ? "PURCHASE" : "SALES";
 
   try {
+    const customerData = contractCustomerData(body);
     const members = contractMembersData(body.members);
     const contract = await prisma.$transaction(async (tx) => {
       await tx.sesContractMember.deleteMany({ where: { contractId: c.req.param("id") } });
       return tx.sesContract.update({
         where: { id: c.req.param("id") },
         data: {
-          customerId,
+          ...customerData,
           contractType,
           contractNo: nullableText(body.contractNo),
           title,
@@ -1474,6 +1481,10 @@ api.post("/ses/invoices/generate", async (c) => {
   });
   if (!contract || !contract.isActive) return c.json({ message: "契約が見つかりません" }, 404);
   if (contract.contractType !== "SALES") return c.json({ message: "請求書は請求契約から作成してください" }, 400);
+
+  if (!contract.customerId || !contract.customer) {
+    return c.json({ message: "\u8acb\u6c42\u66f8\u4f5c\u6210\u306b\u306f\u53d6\u5f15\u5148\u767b\u9332\u304c\u5fc5\u8981\u3067\u3059" }, 400);
+  }
 
   const existingInvoice = await prisma.sesInvoice.findFirst({
     where: { contractId, period, isActive: true },

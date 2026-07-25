@@ -257,7 +257,8 @@ model SesExternalMember {
 
 model SesContract {
   id              String   @id @default(cuid())
-  customerId      String
+  customerId      String?
+  manualCustomerName String?
   contractType    SesContractType @default(SALES)
   contractNo      String?
   title           String
@@ -268,7 +269,7 @@ model SesContract {
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
-  customer        Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  customer        Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
   members         SesContractMember[]
   invoices        SesInvoice[]
   revenues        SesRevenue[]

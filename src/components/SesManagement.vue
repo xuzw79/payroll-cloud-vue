@@ -61,7 +61,8 @@ type ContractMember = {
 
 type Contract = {
   id: string;
-  customerId: string;
+  customerId?: string | null;
+  manualCustomerName?: string | null;
   contractType: ContractType;
   contractNo?: string | null;
   title: string;
@@ -69,7 +70,7 @@ type Contract = {
   startDate?: string | null;
   endDate?: string | null;
   memo?: string | null;
-  customer: Customer;
+  customer?: Customer | null;
   members: ContractMember[];
 };
 
@@ -248,11 +249,12 @@ let revenueFiscalYearInitialized = false;
 const activeMenuInfo = computed(() => subMenus.find((menu) => menu.key === activeSubMenu.value) || subMenus[0]);
 const selectedCustomerExternalMembers = computed(() => externalMembers.value.filter((member) => member.customerId === customerForm.id));
 const salesContracts = computed(() => contracts.value.filter((contract) => contract.contractType === "SALES"));
+const invoiceableSalesContracts = computed(() => salesContracts.value.filter((contract) => !!contract.customerId && !!contract.customer));
 const unbilledSalesContracts = computed(() => {
   const billedContractIds = new Set(periodInvoices.value.map((invoice) => invoice.contractId).filter(Boolean));
-  return salesContracts.value.filter((contract) => !billedContractIds.has(contract.id));
+  return invoiceableSalesContracts.value.filter((contract) => !billedContractIds.has(contract.id));
 });
-const selectedInvoiceContract = computed(() => salesContracts.value.find((contract) => contract.id === invoiceForm.contractId));
+const selectedInvoiceContract = computed(() => invoiceableSalesContracts.value.find((contract) => contract.id === invoiceForm.contractId));
 const selectedInvoiceWorkHourMembers = computed(() => selectedInvoiceContract.value?.members.filter(
   (member): member is ContractMember & { id: string } => member.billingType !== "FIXED" && !!member.id
 ) || []);
@@ -331,6 +333,7 @@ const expenseForm = reactive({
 const contractForm = reactive({
   id: "",
   customerId: "",
+  customerName: "",
   contractType: "SALES" as ContractType,
   contractNo: "",
   title: "",
@@ -445,15 +448,19 @@ function applyExpense(expense?: Expense) {
 function onRevenueContractChange() {
   const contract = salesContracts.value.find((item) => item.id === revenueForm.contractId);
   if (!contract) return;
-  revenueForm.customerId = contract.customerId;
+  revenueForm.customerId = contract.customerId || "";
   if (!revenueForm.title) revenueForm.title = contract.title;
 }
 
 function onExpenseContractChange() {
   const contract = contracts.value.find((item) => item.id === expenseForm.contractId);
   if (!contract) return;
-  expenseForm.customerId = contract.customerId;
+  expenseForm.customerId = contract.customerId || "";
   if (!expenseForm.title) expenseForm.title = contract.title;
+}
+
+function contractCustomerName(contract: Contract) {
+  return contract.customer?.name || contract.manualCustomerName || "\u53d6\u5f15\u5148\u672a\u8a2d\u5b9a";
 }
 
 function partnerCostMemberLabel(member: ContractMember) {
@@ -557,6 +564,7 @@ function resetContractForm() {
   Object.assign(contractForm, {
     id: "",
     customerId: "",
+    customerName: "",
     contractType: "SALES",
     contractNo: "",
     title: "",
@@ -576,7 +584,8 @@ function applyContract(contract?: Contract) {
   }
   Object.assign(contractForm, {
     id: contract.id,
-    customerId: contract.customerId,
+    customerId: contract.customerId || "",
+    customerName: contract.manualCustomerName || "",
     contractType: contract.contractType,
     contractNo: contract.contractNo || "",
     title: contract.title,
@@ -1075,7 +1084,7 @@ onMounted(async () => {
             @click="applyContract(contract)"
           >
             <strong>{{ contract.title }}</strong>
-            <span>{{ contract.contractType === "SALES" ? "請求契約" : "仕入契約" }} / {{ contract.customer.name }}</span>
+            <span>{{ contract.contractType === "SALES" ? "請求契約" : "仕入契約" }} / {{ contractCustomerName(contract) }}</span>
             <span>{{ contract.startDate || "-" }} - {{ contract.endDate || "-" }}</span>
             <span>{{ contract.taxIncluded ? "税込み入力" : "税抜き入力" }}</span>
             <span>メンバー {{ contract.members.length }}名</span>
@@ -1091,6 +1100,7 @@ onMounted(async () => {
             <label>契約区分<select v-model="contractForm.contractType"><option value="SALES">請求契約（弊社から契約先へ請求）</option><option value="PURCHASE">仕入契約（契約先から弊社へ請求）</option></select></label>
             <label>金額入力<select v-model="contractForm.taxIncluded"><option :value="false">税抜き</option><option :value="true">税込み</option></select></label>
             <label>契約先<select v-model="contractForm.customerId"><option value="">選択</option><option v-for="customer in customers" :key="customer.id" :value="customer.id">{{ customer.name }}</option></select></label>
+            <label>&#x53D6;&#x5F15;&#x5148;&#x540D;&#x624B;&#x5165;&#x529B;<input v-model="contractForm.customerName" placeholder="&#x4E00;&#x6642;&#x5229;&#x7528;&#x306E;&#x53D6;&#x5F15;&#x5148;&#x540D;" /></label>
             <label>契約番号<input v-model="contractForm.contractNo" /></label>
             <label class="wide">契約名<input v-model="contractForm.title" /></label>
             <label>契約開始日<input v-model="contractForm.startDate" type="date" /></label>
@@ -1166,7 +1176,7 @@ onMounted(async () => {
               @click="applyInvoiceContract(contract)"
             >
               <strong>{{ contract.title }}</strong>
-              <span>{{ contract.customer.name }} / {{ invoiceSearchPeriod }} 未請求</span>
+              <span>{{ contractCustomerName(contract) }} / {{ invoiceSearchPeriod }} 未請求</span>
             </button>
           </div>
           <button
@@ -1188,7 +1198,7 @@ onMounted(async () => {
             請求契約から対象月の請求書を作成します。定額は作業時間入力不要、精算時間範囲は作業時間から控除・超過を自動反映します。
           </div>
           <div class="form-grid">
-            <label class="wide">請求元契約<select v-model="invoiceForm.contractId"><option value="">選択</option><option v-for="contract in salesContracts" :key="contract.id" :value="contract.id">{{ contract.customer.name }} / {{ contract.title }}</option></select></label>
+            <label class="wide">請求元契約<select v-model="invoiceForm.contractId"><option value="">選択</option><option v-for="contract in invoiceableSalesContracts" :key="contract.id" :value="contract.id">{{ contractCustomerName(contract) }} / {{ contract.title }}</option></select></label>
             <label>対象月<input v-model="invoiceForm.period" type="month" /></label>
             <label>発行日<input v-model="invoiceForm.issueDate" type="date" /></label>
             <label>支払期限<input v-model="invoiceForm.dueDate" type="date" /></label>
@@ -1247,7 +1257,7 @@ onMounted(async () => {
           <div class="partner-cost-list">
             <div v-for="row in partnerCostMembers" :key="row.member.id" class="partner-cost-row">
               <div class="partner-cost-row-head">
-                <strong>{{ row.contract.customer.name }} / {{ row.contract.title }} / {{ partnerCostMemberLabel(row.member) }}</strong>
+                <strong>{{ contractCustomerName(row.contract) }} / {{ row.contract.title }} / {{ partnerCostMemberLabel(row.member) }}</strong>
                 <span class="status-chip tax-chip" :class="{ included: row.contract.taxIncluded }">
                   {{ row.contract.taxIncluded ? "税込み" : "税抜き" }}
                 </span>
@@ -1320,7 +1330,7 @@ onMounted(async () => {
           >
             <strong>{{ revenue.period }} {{ revenue.title }}</strong>
             <span>{{ revenuePersonName(revenue) }}</span>
-            <span>{{ revenue.customer?.name || revenue.contract?.customer?.name || "-" }} / {{ Number(revenue.amount || 0).toLocaleString("ja-JP") }}円</span>
+            <span>{{ revenue.customer?.name || (revenue.contract ? contractCustomerName(revenue.contract) : "-") }} / {{ Number(revenue.amount || 0).toLocaleString("ja-JP") }}円</span>
           </button>
           <div v-if="!revenues.length" class="empty">売上が登録されていません。</div>
           <div class="divider"></div>
@@ -1333,7 +1343,7 @@ onMounted(async () => {
           >
             <strong>{{ expense.period }} {{ expense.title }}</strong>
             <span>{{ expensePersonName(expense) }}</span>
-            <span>{{ expense.customer?.name || expense.contract?.customer?.name || "-" }} / {{ Number(expense.amount || 0).toLocaleString("ja-JP") }}円</span>
+            <span>{{ expense.customer?.name || (expense.contract ? contractCustomerName(expense.contract) : "-") }} / {{ Number(expense.amount || 0).toLocaleString("ja-JP") }}円</span>
           </button>
           <div v-if="!expenses.length" class="empty">個別支出が登録されていません。</div>
         </div>
@@ -1348,7 +1358,7 @@ onMounted(async () => {
             </select></label>
             <label>契約<select v-model="revenueForm.contractId" @change="onRevenueContractChange">
               <option value="">未選択</option>
-              <option v-for="contract in salesContracts" :key="contract.id" :value="contract.id">{{ contract.customer.name }} / {{ contract.title }}</option>
+              <option v-for="contract in salesContracts" :key="contract.id" :value="contract.id">{{ contractCustomerName(contract) }} / {{ contract.title }}</option>
             </select></label>
             <label>対象区分<select v-model="revenueForm.memberSource">
               <option value="EMPLOYEE">社員</option>
@@ -1383,7 +1393,7 @@ onMounted(async () => {
               </select></label>
               <label>契約<select v-model="expenseForm.contractId" @change="onExpenseContractChange">
                 <option value="">未選択</option>
-                <option v-for="contract in contracts" :key="contract.id" :value="contract.id">{{ contract.customer.name }} / {{ contract.title }}</option>
+                <option v-for="contract in contracts" :key="contract.id" :value="contract.id">{{ contractCustomerName(contract) }} / {{ contract.title }}</option>
               </select></label>
               <label>対象区分<select v-model="expenseForm.memberSource">
                 <option value="NONE">なし</option>
