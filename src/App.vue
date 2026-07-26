@@ -1453,8 +1453,8 @@ onMounted(async () => {
         </div>
         <p v-if="!userForm.id" class="note">ユーザー保存後に個別権限を設定できます。現在は選択ロールの初期権限を表示しています。</p>
         <div class="permission-row header">
-          <span>メニュー</span>
-          <span>区分</span>
+          <span></span>
+          <span></span>
           <span>表示</span>
           <span>閲覧</span>
           <span>更新</span>
@@ -1524,7 +1524,7 @@ onMounted(async () => {
                 <label><input :checked="isPermissionGroupChecked(payrollPermissionMenus, 'canViewAll')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(payrollPermissionMenus, 'canViewAll', ($event.target as HTMLInputElement).checked)" />全件</label>
               </div>
               <div class="permission-row header">
-                <span>メニュー</span><span>区分</span><span>表示</span><span>閲覧</span><span>更新</span><span>全件</span>
+                <span></span><span></span><span>表示</span><span>閲覧</span><span>更新</span><span>全件</span>
               </div>
               <div v-for="menu in permissionMenus.filter((item) => item === 'PAYROLL' || item.startsWith('PAYROLL_') || ['BONUS_INPUT','RATES','TAX_IMPORT','PAYSLIP','BONUS_SLIP'].includes(item))" :key="`payroll-${menu}`" class="permission-row" :class="{ child: menu !== 'PAYROLL' }">
                 <span>{{ menuLabels[menu] }}</span>
@@ -1545,7 +1545,7 @@ onMounted(async () => {
                 <label><input :checked="isPermissionGroupChecked(sesPermissionMenus, 'canViewAll')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(sesPermissionMenus, 'canViewAll', ($event.target as HTMLInputElement).checked)" />全件</label>
               </div>
               <div class="permission-row header">
-                <span>メニュー</span><span>区分</span><span>表示</span><span>閲覧</span><span>更新</span><span>全件</span>
+                <span></span><span></span><span>表示</span><span>閲覧</span><span>更新</span><span>全件</span>
               </div>
               <div v-for="menu in permissionMenus.filter((item) => item === 'SES' || item.startsWith('SES_'))" :key="`ses-${menu}`" class="permission-row" :class="{ child: menu !== 'SES' }">
                 <span>{{ menuLabels[menu] }}</span>
@@ -1559,7 +1559,7 @@ onMounted(async () => {
             <div class="permission-parent">
               <strong>管理メニュー</strong>
               <div class="permission-row header">
-                <span>メニュー</span><span>区分</span><span>表示</span><span>閲覧</span><span>更新</span><span>全件</span>
+                <span></span><span></span><span>表示</span><span>閲覧</span><span>更新</span><span>全件</span>
               </div>
               <div class="permission-bulk-row">
                 <span>管理メニュー 一括</span>

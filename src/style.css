@@ -722,7 +722,16 @@ p {
 }
 
 .permission-row.header {
-  display: none;
+  color: #333;
+  font-size: 12px;
+  font-weight: 700;
+  background: #edf3ff;
+  border: 1px solid #cfd8e6;
+  border-bottom: 1px solid #cfd8e6;
+}
+
+.permission-row.header span {
+  text-align: center;
 }
 
 .permission-row span {
