@@ -1528,9 +1528,6 @@ onMounted(async () => {
                 <label><input :checked="isPermissionGroupChecked(payrollPermissionMenus, 'canEdit')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(payrollPermissionMenus, 'canEdit', ($event.target as HTMLInputElement).checked)" />更新</label>
                 <label><input :checked="isPermissionGroupChecked(payrollPermissionMenus, 'canViewAll')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(payrollPermissionMenus, 'canViewAll', ($event.target as HTMLInputElement).checked)" />全件</label>
               </div>
-              <div class="permission-row header">
-                <span></span><span></span><span>表示</span><span>閲覧</span><span>更新</span><span>全件</span>
-              </div>
               <div v-for="menu in permissionMenus.filter((item) => item === 'PAYROLL' || item.startsWith('PAYROLL_') || ['BONUS_INPUT','RATES','TAX_IMPORT','PAYSLIP','BONUS_SLIP'].includes(item))" :key="`payroll-${menu}`" class="permission-row" :class="{ child: menu !== 'PAYROLL' }">
                 <span>{{ menuLabels[menu] }}</span>
                 <span>{{ menu === 'PAYROLL' ? '親メニュー' : '子メニュー' }}</span>
@@ -1549,9 +1546,6 @@ onMounted(async () => {
                 <label><input :checked="isPermissionGroupChecked(sesPermissionMenus, 'canEdit')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(sesPermissionMenus, 'canEdit', ($event.target as HTMLInputElement).checked)" />更新</label>
                 <label><input :checked="isPermissionGroupChecked(sesPermissionMenus, 'canViewAll')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(sesPermissionMenus, 'canViewAll', ($event.target as HTMLInputElement).checked)" />全件</label>
               </div>
-              <div class="permission-row header">
-                <span></span><span></span><span>表示</span><span>閲覧</span><span>更新</span><span>全件</span>
-              </div>
               <div v-for="menu in permissionMenus.filter((item) => item === 'SES' || item.startsWith('SES_'))" :key="`ses-${menu}`" class="permission-row" :class="{ child: menu !== 'SES' }">
                 <span>{{ menuLabels[menu] }}</span>
                 <span>{{ menu === 'SES' ? '親メニュー' : '子メニュー' }}</span>
@@ -1563,9 +1557,6 @@ onMounted(async () => {
             </div>
             <div class="permission-parent">
               <strong>管理メニュー</strong>
-              <div class="permission-row header">
-                <span></span><span></span><span>表示</span><span>閲覧</span><span>更新</span><span>全件</span>
-              </div>
               <div class="permission-bulk-row">
                 <span>管理メニュー 一括</span>
                 <label><input :checked="isPermissionGroupChecked(adminPermissionMenus, 'canShow')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(adminPermissionMenus, 'canShow', ($event.target as HTMLInputElement).checked)" />表示</label>
