@@ -173,6 +173,10 @@ type CompanySetting = {
   invoiceBankAccount?: string | null;
   invoiceBankHolder?: string | null;
 };
+type StatusMessage = {
+  type: "success" | "error";
+  text: string;
+};
 
 type ContractMemberForm = {
   key: string;
@@ -192,7 +196,7 @@ type ContractMemberForm = {
 };
 
 const props = defineProps<{ canEditSes: boolean; permissions?: RolePermission[]; message?: string }>();
-const emit = defineEmits<{ message: [value: string]; settingsUpdated: [] }>();
+const emit = defineEmits<{ message: [value: StatusMessage]; clearMessage: []; settingsUpdated: [] }>();
 
 function currentYearMonth() {
   return new Date().toISOString().slice(0, 7);
@@ -269,6 +273,9 @@ watch(visibleSubMenus, (menus) => {
     activeSubMenu.value = menus[0].key;
   }
 }, { immediate: true });
+watch(activeSubMenu, () => {
+  emit("clearMessage");
+});
 const selectedCustomerExternalMembers = computed(() => externalMembers.value.filter((member) => member.customerId === customerForm.id));
 const salesContracts = computed(() => contracts.value.filter((contract) => contract.contractType === "SALES"));
 const invoiceableSalesContracts = computed(() => salesContracts.value.filter((contract) => !!contract.customerId && !!contract.customer));
@@ -707,7 +714,11 @@ function applyInvoiceContract(contract: Contract) {
 }
 
 function showError(error: unknown, fallback: string) {
-  emit("message", error instanceof Error ? error.message : fallback);
+  emit("message", { type: "error", text: error instanceof Error ? error.message : fallback });
+}
+
+function showSuccess(value: string) {
+  emit("message", { type: "success", text: value });
 }
 
 async function refreshCompanySetting() {
@@ -752,7 +763,7 @@ async function saveCustomer() {
     const method = customerForm.id ? "PUT" : "POST";
     const path = customerForm.id ? `/customers/${customerForm.id}` : "/customers";
     const customer = await request<Customer>(path, { method, body: JSON.stringify(customerForm) });
-    emit("message", "取引先を保存しました");
+    showSuccess("取引先を保存しました");
     await refreshCustomers();
     applyCustomer(customer);
   } catch (error) {
@@ -763,7 +774,7 @@ async function saveCustomer() {
 async function deleteCustomer() {
   if (!props.canEditSes || !customerForm.id || !confirm("この取引先を非表示にしますか？")) return;
   await request(`/customers/${customerForm.id}`, { method: "DELETE" });
-  emit("message", "取引先を非表示にしました");
+  showSuccess("取引先を非表示にしました");
   resetCustomerForm();
   await refreshCustomers();
 }
@@ -775,7 +786,7 @@ async function saveExternalMember() {
       method: "POST",
       body: JSON.stringify({ ...externalMemberForm, customerId: externalMemberForm.customerId || customerForm.id })
     });
-    emit("message", "別会社の従業員を登録しました");
+    showSuccess("別会社の従業員を登録しました");
     Object.assign(externalMemberForm, { customerId: customerForm.id || "", name: "", code: "", email: "", phone: "", memo: "" });
     await refreshSesMasterData();
     const lastBlank = contractMembers.value.find((row) => row.source === "EXTERNAL" && !row.externalMemberId);
@@ -825,7 +836,7 @@ async function saveContract() {
     const method = contractForm.id ? "PUT" : "POST";
     const path = contractForm.id ? `/ses/contracts/${contractForm.id}` : "/ses/contracts";
     const contract = await request<Contract>(path, { method, body: JSON.stringify(payload) });
-    emit("message", "契約を保存しました");
+    showSuccess("契約を保存しました");
     await refreshContracts();
     applyContract(contract);
   } catch (error) {
@@ -837,7 +848,7 @@ async function deleteContract() {
   if (!props.canEditSes || !contractForm.id || !confirm("この契約を非表示にしますか？")) return;
   try {
     await request(`/ses/contracts/${contractForm.id}`, { method: "DELETE" });
-    emit("message", "契約を非表示にしました");
+    showSuccess("契約を非表示にしました");
     resetContractForm();
     await refreshContracts();
   } catch (error) {
@@ -849,7 +860,7 @@ async function saveCompanySetting() {
   if (!props.canEditSes) return;
   try {
     await request<CompanySetting>("/ses/company-setting", { method: "PUT", body: JSON.stringify(companyForm) });
-    emit("message", "請求書用の自社情報を保存しました");
+    showSuccess("請求書用の自社情報を保存しました");
     emit("settingsUpdated");
     await refreshRevenues();
   } catch (error) {
@@ -870,7 +881,7 @@ async function saveRevenue() {
         externalMemberId: revenueForm.memberSource === "EXTERNAL" ? revenueForm.externalMemberId : ""
       })
     });
-    emit("message", "売上を保存しました");
+    showSuccess("売上を保存しました");
     await refreshRevenues();
     applyRevenue(revenue);
   } catch (error) {
@@ -882,7 +893,7 @@ async function deleteRevenue() {
   if (!props.canEditSes || !revenueForm.id || !confirm("この売上を非表示にしますか？")) return;
   try {
     await request(`/ses/revenues/${revenueForm.id}`, { method: "DELETE" });
-    emit("message", "売上を非表示にしました");
+    showSuccess("売上を非表示にしました");
     resetRevenueForm();
     await refreshRevenues();
   } catch (error) {
@@ -903,7 +914,7 @@ async function saveExpense() {
         externalMemberId: expenseForm.memberSource === "EXTERNAL" ? expenseForm.externalMemberId : ""
       })
     });
-    emit("message", "支出を保存しました");
+    showSuccess("支出を保存しました");
     await refreshRevenues();
     applyExpense(expense);
   } catch (error) {
@@ -915,7 +926,7 @@ async function deleteExpense() {
   if (!props.canEditSes || !expenseForm.id || !confirm("この支出を非表示にしますか？")) return;
   try {
     await request(`/ses/expenses/${expenseForm.id}`, { method: "DELETE" });
-    emit("message", "支出を非表示にしました");
+    showSuccess("支出を非表示にしました");
     resetExpenseForm();
     await refreshRevenues();
   } catch (error) {
@@ -939,7 +950,7 @@ async function savePartnerCosts() {
         }))
       })
     });
-    emit("message", "外注費を保存しました");
+    showSuccess("外注費を保存しました");
     await Promise.all([refreshPartnerCosts(), refreshRevenues()]);
   } catch (error) {
     showError(error, "外注費を保存できませんでした");
@@ -953,7 +964,7 @@ async function generateInvoice() {
       method: "POST",
       body: JSON.stringify({ ...invoiceForm, workHoursByMember: invoiceWorkHours })
     });
-    emit("message", "請求書を作成しました");
+    showSuccess("請求書を作成しました");
     selectedInvoiceId.value = invoice.id;
     await refreshInvoices();
   } catch (error) {
@@ -964,7 +975,7 @@ async function generateInvoice() {
 async function deleteInvoice(invoice: Invoice) {
   if (!props.canEditSes || !confirm("この請求書を非表示にしますか？")) return;
   await request(`/ses/invoices/${invoice.id}`, { method: "DELETE" });
-  emit("message", "請求書を非表示にしました");
+  showSuccess("請求書を非表示にしました");
   if (selectedInvoiceId.value === invoice.id) selectedInvoiceId.value = "";
   await refreshInvoices();
 }
@@ -984,7 +995,7 @@ async function downloadInvoicePdf(invoice: Invoice) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-  emit("message", "請求書PDFをダウンロードしました");
+  showSuccess("請求書PDFをダウンロードしました");
 }
 
 function memberName(member: ContractMember) {

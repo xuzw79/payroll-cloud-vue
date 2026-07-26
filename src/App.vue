@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { Download, LogOut, Mail, Plus, RefreshCw, Save, Search, Trash2, Upload } from "lucide-vue-next";
 import SesManagement from "./components/SesManagement.vue";
 
@@ -139,6 +139,10 @@ type PermissionRoleMaster = {
 type PublicSettings = {
   systemName?: string | null;
 };
+type StatusMessage = {
+  type: "success" | "error";
+  text: string;
+};
 
 type RolePermission = {
   id?: string;
@@ -251,6 +255,7 @@ const message = ref("");
 const loginMessage = ref("");
 const sesMessage = ref("");
 const permissionMessage = ref("");
+const toastMessage = ref("");
 const systemName = ref("給与管理クラウド");
 const me = ref<AppUser | null>(null);
 const activeMenu = ref<"payroll" | "ses" | "users" | "permissions">("payroll");
@@ -272,6 +277,7 @@ const fiscalRates = ref<FiscalRate[]>([]);
 const incomeTaxBrackets = ref<IncomeTaxBracket[]>([]);
 const selectedEmployeeId = ref("");
 const collapsedSections = reactive<Record<string, boolean>>({});
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 const loginForm = reactive({ email: "admin@example.com", password: "" });
 const userForm = reactive({
@@ -541,6 +547,43 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return response.json();
 }
 
+function clearMessages() {
+  message.value = "";
+  permissionMessage.value = "";
+  sesMessage.value = "";
+  toastMessage.value = "";
+  if (toastTimer) {
+    clearTimeout(toastTimer);
+    toastTimer = null;
+  }
+}
+
+function showErrorMessage(value: string) {
+  toastMessage.value = "";
+  message.value = value;
+}
+
+function showSuccess(value: string) {
+  message.value = "";
+  permissionMessage.value = "";
+  sesMessage.value = "";
+  toastMessage.value = value;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toastMessage.value = "";
+    toastTimer = null;
+  }, 2800);
+}
+
+function handleSesMessage(payload: StatusMessage) {
+  if (payload.type === "success") {
+    sesMessage.value = "";
+    showSuccess(payload.text);
+  } else {
+    sesMessage.value = payload.text;
+  }
+}
+
 async function refreshPublicSettings() {
   const settings = await request<PublicSettings>("/public-settings");
   systemName.value = settings.systemName || "給与管理クラウド";
@@ -733,7 +776,7 @@ async function saveRate() {
       socialInsuranceRate: healthInsuranceRate + pensionInsuranceRate + childCareSupportRate
     })
   });
-  message.value = "年度料率を保存しました";
+  showSuccess("年度料率を保存しました");
   await refresh();
 }
 
@@ -743,7 +786,7 @@ async function importIncomeTaxTable() {
     method: "POST",
     body: JSON.stringify({ csv: taxImport.csv })
   });
-  message.value = `所得税表を取り込みました: ${result.imported}件`;
+  showSuccess(`所得税表を取り込みました: ${result.imported}件`);
   await refresh();
 }
 
@@ -752,7 +795,7 @@ async function saveEmployee() {
   const method = employeeForm.id ? "PUT" : "POST";
   const path = employeeForm.id ? `/employees/${employeeForm.id}` : "/employees";
   const employee = await request<Employee>(path, { method, body: JSON.stringify(employeeForm) });
-  message.value = "社員情報を保存しました";
+  showSuccess("社員情報を保存しました");
   await refresh();
   applyEmployee(employee);
   payrollForm.dependentCount = employee.defaultDependentCount || 0;
@@ -763,14 +806,14 @@ async function deleteEmployee() {
   if (!employeeForm.id || !confirm("この社員を非表示にしますか？")) return;
   await request(`/employees/${employeeForm.id}`, { method: "DELETE" });
   selectedEmployeeId.value = "";
-  message.value = "社員を非表示にしました";
+  showSuccess("社員を非表示にしました");
   await refresh();
 }
 
 async function saveUser() {
   if (!canManageUsers.value) return;
   if (!userForm.id && !userForm.password) {
-    message.value = "新規ユーザーはパスワードが必要です";
+    showErrorMessage("新規ユーザーはパスワードが必要です");
     return;
   }
   const method = userForm.id ? "PUT" : "POST";
@@ -783,7 +826,7 @@ async function saveUser() {
       password: userForm.password || undefined
     })
   });
-  message.value = "ユーザーを保存しました";
+  showSuccess("ユーザーを保存しました");
   await refresh();
   applyUser(saved);
 }
@@ -805,7 +848,7 @@ async function saveRolePermissions() {
     if (me.value) {
       me.value.permissions = saved.filter((permission) => permission.role === me.value?.role);
     }
-    permissionMessage.value = "\u6a29\u9650\u8a2d\u5b9a\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f";
+    showSuccess("\u6a29\u9650\u8a2d\u5b9a\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f");
   } catch (error) {
     permissionMessage.value = error instanceof Error ? error.message : "\u6a29\u9650\u8a2d\u5b9a\u3092\u4fdd\u5b58\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f";
   }
@@ -820,7 +863,7 @@ async function savePermissionRole() {
     const saved = await request<PermissionRoleMaster>(path, { method, body: JSON.stringify(permissionRoleForm) });
     await refreshRolePermissions();
     await applyPermissionRole(saved);
-    permissionMessage.value = "\u30ed\u30fc\u30eb\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f";
+    showSuccess("\u30ed\u30fc\u30eb\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f");
   } catch (error) {
     permissionMessage.value = error instanceof Error ? error.message : "\u30ed\u30fc\u30eb\u3092\u4fdd\u5b58\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f";
   }
@@ -833,7 +876,7 @@ async function deletePermissionRole() {
     await request(`/permission-roles/${permissionRoleForm.id}`, { method: "DELETE" });
     resetPermissionRoleForm();
     await refreshRolePermissions();
-    permissionMessage.value = "\u30ed\u30fc\u30eb\u3092\u975e\u8868\u793a\u306b\u3057\u307e\u3057\u305f";
+    showSuccess("\u30ed\u30fc\u30eb\u3092\u975e\u8868\u793a\u306b\u3057\u307e\u3057\u305f");
   } catch (error) {
     permissionMessage.value = error instanceof Error ? error.message : "\u30ed\u30fc\u30eb\u3092\u975e\u8868\u793a\u306b\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f";
   }
@@ -849,13 +892,13 @@ async function saveUserPermissions() {
   if (me.value?.id === userForm.id) {
     me.value.permissions = saved;
   }
-  message.value = "\u30e6\u30fc\u30b6\u30fc\u500b\u5225\u6a29\u9650\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f";
+  showSuccess("\u30e6\u30fc\u30b6\u30fc\u500b\u5225\u6a29\u9650\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f");
 }
 
 async function deactivateUser() {
   if (!canManageUsers.value || !userForm.id || !confirm("このユーザーを停止しますか？")) return;
   await request(`/users/${userForm.id}`, { method: "DELETE" });
-  message.value = "ユーザーを停止しました";
+  showSuccess("ユーザーを停止しました");
   resetUserForm();
   await refresh();
 }
@@ -863,11 +906,11 @@ async function deactivateUser() {
 async function savePayroll(forceUpdate = false) {
   if (!canEditPayroll.value) return;
   if (!selectedEmployee.value) {
-    message.value = "社員を選択してください";
+    showErrorMessage("社員を選択してください");
     return;
   }
   if (isPayrollLocked.value && !forceUpdate) {
-    message.value = payrollLockMessage.value;
+    showErrorMessage(payrollLockMessage.value);
     return;
   }
   try {
@@ -875,23 +918,23 @@ async function savePayroll(forceUpdate = false) {
       method: "POST",
       body: JSON.stringify({ employeeId: selectedEmployee.value.id, period: period.value, forceUpdate, ...payrollForm })
     });
-    message.value = forceUpdate
+    showSuccess(forceUpdate
       ? "給与を強制変更して保存しました。"
-      : "給与を保存しました。所得税は年度表から自動で参照されます。";
+      : "給与を保存しました。所得税は年度表から自動で参照されます。");
     await refresh();
   } catch (error) {
-    message.value = error instanceof Error ? error.message : "給与を保存できませんでした";
+    showErrorMessage(error instanceof Error ? error.message : "給与を保存できませんでした");
   }
 }
 
 async function saveBonus(forceUpdate = false) {
   if (!canEditPayroll.value) return;
   if (!selectedEmployee.value) {
-    message.value = "社員を選択してください";
+    showErrorMessage("社員を選択してください");
     return;
   }
   if (isPayrollLocked.value && !forceUpdate) {
-    message.value = bonusLockMessage.value;
+    showErrorMessage(bonusLockMessage.value);
     return;
   }
   try {
@@ -905,10 +948,10 @@ async function saveBonus(forceUpdate = false) {
         ...bonusForm
       })
     });
-    message.value = forceUpdate ? "賞与を強制変更して保存しました。" : "賞与を保存しました。";
+    showSuccess(forceUpdate ? "賞与を強制変更して保存しました。" : "賞与を保存しました。");
     await refresh();
   } catch (error) {
-    message.value = error instanceof Error ? error.message : "賞与を保存できませんでした";
+    showErrorMessage(error instanceof Error ? error.message : "賞与を保存できませんでした");
   }
 }
 
@@ -916,7 +959,7 @@ async function usePreviousPayrollInput() {
   if (!canEditPayroll.value) return;
   const currentEmployeeId = employeeForm.id || selectedEmployeeId.value;
   if (!currentEmployeeId || !selectedEmployee.value) {
-    message.value = "社員を選択してください";
+    showErrorMessage("社員を選択してください");
     return;
   }
 
@@ -927,30 +970,30 @@ async function usePreviousPayrollInput() {
   try {
     const payroll = await request<Payroll>(`/payrolls/latest-template?${params.toString()}`);
     if (payroll.employeeId !== currentEmployeeId) {
-      message.value = "選択中の社員と異なる過去入力のため利用しませんでした";
+      showErrorMessage("選択中の社員と異なる過去入力のため利用しませんでした");
       return;
     }
     applyPayrollInput(payroll);
-    message.value = `${payroll.employee.name}さんの${payroll.period}の給与入力を利用しました`;
+    showSuccess(`${payroll.employee.name}さんの${payroll.period}の給与入力を利用しました`);
   } catch (error) {
-    message.value = error instanceof Error ? error.message : "過去入力を利用できませんでした";
+    showErrorMessage(error instanceof Error ? error.message : "過去入力を利用できませんでした");
   }
 }
 
 async function sendPayslipEmail() {
   if (!canEditPayroll.value) return;
   if (!selectedPayroll.value) {
-    message.value = "先に給与を保存してください";
+    showErrorMessage("先に給与を保存してください");
     return;
   }
   await request<Payroll>(`/payrolls/${selectedPayroll.value.id}/email`, { method: "POST" });
-  message.value = "給与明細PDFをメール送信しました";
+  showSuccess("給与明細PDFをメール送信しました");
   await refresh();
 }
 
 async function downloadPayslipPdf() {
   if (!selectedPayroll.value) {
-    message.value = "先に給与を保存してください";
+    showErrorMessage("先に給与を保存してください");
     return;
   }
 
@@ -970,12 +1013,12 @@ async function downloadPayslipPdf() {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-  message.value = "給与明細PDFをダウンロードしました";
+  showSuccess("給与明細PDFをダウンロードしました");
 }
 
 async function downloadBonusPdf() {
   if (!selectedBonus.value) {
-    message.value = "先に賞与を保存してください";
+    showErrorMessage("先に賞与を保存してください");
     return;
   }
 
@@ -995,12 +1038,12 @@ async function downloadBonusPdf() {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-  message.value = "賞与明細PDFをダウンロードしました";
+  showSuccess("賞与明細PDFをダウンロードしました");
 }
 
 async function downloadPayslipPdfRange() {
   if (pdfRangeStart.value > pdfRangeEnd.value) {
-    message.value = "開始月は終了月以前を指定してください";
+    showErrorMessage("開始月は終了月以前を指定してください");
     return;
   }
 
@@ -1014,7 +1057,7 @@ async function downloadPayslipPdfRange() {
   const response = await fetch(`/api/payrolls/pdf-range?${params.toString()}`, { credentials: "include" });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: "給与明細PDF一括ダウンロードに失敗しました" }));
-    message.value = error.message || "給与明細PDF一括ダウンロードに失敗しました";
+    showErrorMessage(error.message || "給与明細PDF一括ダウンロードに失敗しました");
     return;
   }
 
@@ -1029,9 +1072,9 @@ async function downloadPayslipPdfRange() {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-  message.value = pdfOutputMode.value === "single"
+  showSuccess(pdfOutputMode.value === "single"
     ? `${prefix}PDFを1つのPDFでダウンロードしました`
-    : `${prefix}PDFをZIPで一括ダウンロードしました`;
+    : `${prefix}PDFをZIPで一括ダウンロードしました`);
 }
 
 function exportCsv() {
@@ -1103,6 +1146,10 @@ function sectionHeadClass(id: string) {
   return { collapsed: collapsedSections[id] };
 }
 
+watch(activeMenu, () => {
+  clearMessages();
+});
+
 onMounted(async () => {
   await refreshPublicSettings().catch(() => {
     document.title = systemName.value;
@@ -1133,6 +1180,7 @@ onMounted(async () => {
   </main>
 
   <main v-else class="app-shell">
+    <div v-if="toastMessage" class="toast-message">{{ toastMessage }}</div>
     <header class="topbar">
       <div class="brand">
         <img src="/logo_rcloud.png" alt="R Cloud" />
@@ -1157,6 +1205,7 @@ onMounted(async () => {
     </nav>
 
     <div v-if="message" class="message operation-message">{{ message }}</div>
+    <div v-if="activeMenu === 'permissions' && permissionMessage" class="message operation-message">{{ permissionMessage }}</div>
 
     <section v-if="activeMenu === 'payroll' && canViewPayroll" class="filters">
       <div class="filter-row search-row">
@@ -1512,7 +1561,6 @@ onMounted(async () => {
               <button v-if="canEditPermissions" class="primary" @click="savePermissionRole"><Save :size="16" />ロール保存</button>
               <button v-if="canEditPermissions" class="primary" :disabled="!permissionRoleForm.id" @click="saveRolePermissions"><Save :size="16" />権限保存</button>
             </div>
-            <p v-if="permissionMessage" class="message full">{{ permissionMessage }}</p>
           </div>
 
           <div class="permission-table">
@@ -1583,7 +1631,8 @@ onMounted(async () => {
       :can-edit-ses="canEditSes"
       :permissions="me?.permissions || []"
       :message="sesMessage"
-      @message="sesMessage = $event"
+      @message="handleSesMessage"
+      @clear-message="clearMessages"
       @settings-updated="refreshPublicSettings"
     />
   </main>

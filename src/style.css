@@ -345,6 +345,21 @@ p {
   background: #fff;
 }
 
+.toast-message {
+  position: fixed;
+  top: 12px;
+  right: 16px;
+  z-index: 1000;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 10px 14px;
+  border: 1px solid #83b986;
+  background: #effaf0;
+  color: #1c7c2b;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
+}
+
 .summary {
   display: grid;
   grid-template-columns: repeat(6, minmax(120px, 1fr));
