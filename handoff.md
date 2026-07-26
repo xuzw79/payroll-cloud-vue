@@ -308,3 +308,9 @@ Manual files / マニュアルファイル / 手册文件:
 | --- | --- |
 | ファビコンが直接URLで開けなかった原因は、Honoサーバーが `/favicon.ico` と `/favicon.png` を静的配信していなかったためです。 | favicon 直接 URL 打不开的原因是 Hono 服务端没有静态发布 `/favicon.ico` 和 `/favicon.png`。 |
 | `src/server/index.ts` に `/favicon.ico` と `/favicon.png` の明示的な `serveStatic` 設定を追加しました。 | 已在 `src/server/index.ts` 中追加 `/favicon.ico` 和 `/favicon.png` 的显式 `serveStatic` 设置。 |
+
+## 18. Release Update 2026-07-26-9 / リリース更新 / 发布更新
+
+| 日本語 | 中文 |
+| --- | --- |
+| ユーザー管理の個別権限表に「ユーザー個別権限設定」と「対象ユーザー」のタイトル帯を追加し、表だけ見えても何の権限か分かるようにしました。 | 用户管理的个别权限表追加“用户个别权限设置”和“对象用户”标题区域，避免只看到表格时不清楚内容。 |

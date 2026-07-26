@@ -1444,8 +1444,12 @@ onMounted(async () => {
       </div>
       <div v-show="!collapsedSections.usersMenu" class="permission-table">
         <div class="permission-head">
-          <strong>ユーザー個別権限 {{ userForm.name || userForm.email || "未選択" }}</strong>
+          <strong>ユーザー個別権限設定</strong>
           <button v-if="canEditUsers" class="primary" :disabled="!userForm.id" @click="saveUserPermissions"><Save :size="16" />個別権限保存</button>
+        </div>
+        <div class="permission-context-title">
+          <span>対象ユーザー</span>
+          <strong>{{ userForm.name || userForm.email || "未選択" }}</strong>
         </div>
         <p v-if="!userForm.id" class="note">ユーザー保存後に個別権限を設定できます。現在は選択ロールの初期権限を表示しています。</p>
         <div class="permission-row header">
