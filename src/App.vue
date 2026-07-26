@@ -121,10 +121,19 @@ type AppUser = {
   email: string;
   name: string;
   role: UserRole;
+  permissionRoleId?: string | null;
   employeeId?: string | null;
   isActive: boolean;
   employee?: { id: string; employeeNo: string; name: string } | null;
   permissions?: RolePermission[];
+};
+
+type PermissionRoleMaster = {
+  id: string;
+  code: string;
+  name: string;
+  baseRole: UserRole;
+  isActive: boolean;
 };
 
 type RolePermission = {
@@ -244,8 +253,10 @@ const employees = ref<Employee[]>([]);
 const payrolls = ref<Payroll[]>([]);
 const bonuses = ref<Bonus[]>([]);
 const users = ref<AppUser[]>([]);
+const permissionRoleMasters = ref<PermissionRoleMaster[]>([]);
 const rolePermissions = ref<RolePermission[]>([]);
 const userPermissions = ref<RolePermission[]>([]);
+const selectedPermissionRoleId = ref("");
 const fiscalRates = ref<FiscalRate[]>([]);
 const incomeTaxBrackets = ref<IncomeTaxBracket[]>([]);
 const selectedEmployeeId = ref("");
@@ -257,8 +268,16 @@ const userForm = reactive({
   email: "",
   name: "",
   role: "VIEWER" as UserRole,
+  permissionRoleId: "",
   employeeId: "",
   password: "",
+  isActive: true
+});
+const permissionRoleForm = reactive({
+  id: "",
+  code: "",
+  name: "",
+  baseRole: "VIEWER" as UserRole,
   isActive: true
 });
 const employeeForm = reactive({
@@ -417,6 +436,7 @@ function resetUserForm() {
     email: "",
     name: "",
     role: "VIEWER" as UserRole,
+    permissionRoleId: "",
     employeeId: "",
     password: "",
     isActive: true
@@ -424,8 +444,20 @@ function resetUserForm() {
   userPermissions.value = permissionMenus.map((menu) => ({ ...permissionRow("VIEWER", menu), role: "VIEWER" }));
 }
 
+function resetPermissionRoleForm() {
+  Object.assign(permissionRoleForm, {
+    id: "",
+    code: "",
+    name: "",
+    baseRole: "VIEWER" as UserRole,
+    isActive: true
+  });
+  selectedPermissionRoleId.value = "";
+  rolePermissions.value = permissionMenus.map((menu) => ({ ...permissionRow("VIEWER", menu), role: "VIEWER" }));
+}
+
 function permissionRow(role: UserRole, menu: PermissionMenu) {
-  let permission = rolePermissions.value.find((item) => item.role === role && item.menu === menu);
+  let permission = rolePermissions.value.find((item) => item.menu === menu);
   if (!permission) {
     permission = defaultPermission(role, menu);
     rolePermissions.value.push(permission);
@@ -450,7 +482,17 @@ function normalizeActiveMenu() {
 }
 
 async function refreshRolePermissions() {
-  rolePermissions.value = canManageUsers.value ? await request<RolePermission[]>("/role-permissions") : [];
+  if (!canManageUsers.value) {
+    rolePermissions.value = [];
+    permissionRoleMasters.value = [];
+    return;
+  }
+  permissionRoleMasters.value = await request<PermissionRoleMaster[]>("/permission-roles");
+  if (selectedPermissionRoleId.value) {
+    rolePermissions.value = await request<RolePermission[]>(`/role-permissions?permissionRoleId=${encodeURIComponent(selectedPermissionRoleId.value)}`);
+  } else {
+    rolePermissions.value = permissionMenus.map((menu) => ({ ...permissionRow(permissionRoleForm.baseRole, menu), role: permissionRoleForm.baseRole }));
+  }
 }
 
 async function refreshUserPermissions() {
@@ -530,11 +572,28 @@ function applyUser(user?: AppUser) {
     email: user.email,
     name: user.name,
     role: user.role,
+    permissionRoleId: user.permissionRoleId || "",
     employeeId: user.employeeId || "",
     password: "",
     isActive: user.isActive
   });
   void refreshUserPermissions();
+}
+
+async function applyPermissionRole(role?: PermissionRoleMaster) {
+  if (!role) {
+    resetPermissionRoleForm();
+    return;
+  }
+  Object.assign(permissionRoleForm, {
+    id: role.id,
+    code: role.code,
+    name: role.name,
+    baseRole: role.baseRole,
+    isActive: role.isActive
+  });
+  selectedPermissionRoleId.value = role.id;
+  rolePermissions.value = await request<RolePermission[]>(`/role-permissions?permissionRoleId=${encodeURIComponent(role.id)}`);
 }
 
 function applyRate(rate: FiscalRate) {
@@ -700,16 +759,38 @@ async function saveUser() {
 
 async function saveRolePermissions() {
   if (!canManageUsers.value) return;
-  const permissions = permissionRoles.flatMap((role) => permissionMenus.map((menu) => permissionRow(role, menu)));
+  if (!permissionRoleForm.id) {
+    message.value = "\u5148\u306b\u30ed\u30fc\u30eb\u3092\u4fdd\u5b58\u3057\u3066\u304f\u3060\u3055\u3044";
+    return;
+  }
+  const permissions = permissionMenus.map((menu) => permissionRow(permissionRoleForm.baseRole, menu));
   const saved = await request<RolePermission[]>("/role-permissions", {
     method: "PUT",
-    body: JSON.stringify({ permissions })
+    body: JSON.stringify({ permissionRoleId: permissionRoleForm.id, permissions })
   });
   rolePermissions.value = saved;
   if (me.value) {
     me.value.permissions = saved.filter((permission) => permission.role === me.value?.role);
   }
   message.value = "\u6a29\u9650\u8a2d\u5b9a\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f";
+}
+
+async function savePermissionRole() {
+  if (!canManageUsers.value) return;
+  const method = permissionRoleForm.id ? "PUT" : "POST";
+  const path = permissionRoleForm.id ? `/permission-roles/${permissionRoleForm.id}` : "/permission-roles";
+  const saved = await request<PermissionRoleMaster>(path, { method, body: JSON.stringify(permissionRoleForm) });
+  await refreshRolePermissions();
+  await applyPermissionRole(saved);
+  message.value = "\u30ed\u30fc\u30eb\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f";
+}
+
+async function deletePermissionRole() {
+  if (!canManageUsers.value || !permissionRoleForm.id || !confirm("\u3053\u306e\u30ed\u30fc\u30eb\u3092\u975e\u8868\u793a\u306b\u3057\u307e\u3059\u304b\uff1f")) return;
+  await request(`/permission-roles/${permissionRoleForm.id}`, { method: "DELETE" });
+  resetPermissionRoleForm();
+  await refreshRolePermissions();
+  message.value = "\u30ed\u30fc\u30eb\u3092\u975e\u8868\u793a\u306b\u3057\u307e\u3057\u305f";
 }
 
 async function saveUserPermissions() {
@@ -1295,6 +1376,10 @@ onMounted(async () => {
           <option value="VIEWER">閲覧のみ</option>
           <option value="EMPLOYEE">社員本人</option>
         </select></label>
+        <label>利用権限<select v-model="userForm.permissionRoleId" @change="refreshUserPermissions">
+          <option value="">基本ロールを利用</option>
+          <option v-for="role in permissionRoleMasters" :key="role.id" :value="role.id">{{ role.code }} / {{ role.name }}</option>
+        </select></label>
         <label>紐付け社員<select v-model="userForm.employeeId">
           <option value="">なし</option>
           <option v-for="employee in employees" :key="employee.id" :value="employee.id">{{ employee.employeeNo }} / {{ employee.name }}</option>
@@ -1340,25 +1425,87 @@ onMounted(async () => {
     <section v-if="activeMenu === 'permissions' && canViewPermissions" class="panel">
       <div class="panel-head" :class="sectionHeadClass('permissionsMenu')" @click="toggleSection('permissionsMenu')">
         <h2>権限管理</h2>
-        <button v-if="canEditPermissions" class="primary" @click.stop="saveRolePermissions"><Save :size="16" />権限保存</button>
+        <button v-if="canEditPermissions" @click.stop="applyPermissionRole()"><Plus :size="16" />ロール追加</button>
       </div>
-      <div v-show="!collapsedSections.permissionsMenu" class="permission-table">
-        <div class="permission-row header">
-          <span>権限</span>
-          <span>メニュー</span>
-          <span>表示</span>
-          <span>閲覧</span>
-          <span>更新</span>
-          <span>全件</span>
+      <div v-show="!collapsedSections.permissionsMenu" class="ses-layout contract-layout">
+        <div class="ses-list">
+          <button
+            v-for="role in permissionRoleMasters"
+            :key="role.id"
+            class="employee-item"
+            :class="{ active: role.id === selectedPermissionRoleId }"
+            @click="applyPermissionRole(role)"
+          >
+            <strong>{{ role.name }}</strong>
+            <span>{{ role.code }} / {{ roleLabels[role.baseRole] }}</span>
+          </button>
+          <div v-if="!permissionRoleMasters.length" class="empty">ロールが登録されていません。</div>
         </div>
-        <div v-for="role in permissionRoles" :key="`role-${role}`" class="permission-group">
-          <div v-for="menu in permissionMenus" :key="`${role}-${menu}`" class="permission-row">
-            <span>{{ roleLabels[role] }}</span>
-            <span>{{ menuLabels[menu] }}</span>
-            <label class="check-cell"><input v-model="permissionRow(role, menu).canShow" :disabled="!canEditPermissions" type="checkbox" /></label>
-            <label class="check-cell"><input v-model="permissionRow(role, menu).canView" :disabled="!canEditPermissions" type="checkbox" /></label>
-            <label class="check-cell"><input v-model="permissionRow(role, menu).canEdit" :disabled="!canEditPermissions" type="checkbox" /></label>
-            <label class="check-cell"><input v-model="permissionRow(role, menu).canViewAll" :disabled="!canEditPermissions" type="checkbox" /></label>
+
+        <div class="contract-editor">
+          <div class="form-grid">
+            <label>ロールコード<input v-model="permissionRoleForm.code" /></label>
+            <label>ロール名<input v-model="permissionRoleForm.name" /></label>
+            <label>基本ロール<select v-model="permissionRoleForm.baseRole" @change="rolePermissions = permissionMenus.map((menu) => ({ ...defaultPermission(permissionRoleForm.baseRole, menu), role: permissionRoleForm.baseRole }))">
+              <option value="ADMIN">管理者</option>
+              <option value="ACCOUNTING">経理担当</option>
+              <option value="VIEWER">閲覧のみ</option>
+              <option value="EMPLOYEE">社員本人</option>
+            </select></label>
+            <label>状態<select v-model="permissionRoleForm.isActive"><option :value="true">有効</option><option :value="false">非表示</option></select></label>
+            <div class="form-actions full">
+              <button v-if="canEditPermissions && permissionRoleForm.id" @click="deletePermissionRole"><Trash2 :size="16" />非表示</button>
+              <button v-if="canEditPermissions" class="primary" @click="savePermissionRole"><Save :size="16" />ロール保存</button>
+              <button v-if="canEditPermissions" class="primary" :disabled="!permissionRoleForm.id" @click="saveRolePermissions"><Save :size="16" />権限保存</button>
+            </div>
+          </div>
+
+          <div class="permission-table">
+            <div class="permission-head">
+              <strong>{{ permissionRoleForm.name || "新規ロール" }} の権限</strong>
+            </div>
+            <div class="permission-parent">
+              <strong>{{ menuLabels.PAYROLL }}</strong>
+              <div class="permission-row header">
+                <span>メニュー</span><span>区分</span><span>表示</span><span>閲覧</span><span>更新</span><span>全件</span>
+              </div>
+              <div v-for="menu in permissionMenus.filter((item) => item === 'PAYROLL' || item.startsWith('PAYROLL_') || ['BONUS_INPUT','RATES','TAX_IMPORT','PAYSLIP','BONUS_SLIP'].includes(item))" :key="`payroll-${menu}`" class="permission-row" :class="{ child: menu !== 'PAYROLL' }">
+                <span>{{ menuLabels[menu] }}</span>
+                <span>{{ menu === 'PAYROLL' ? '親メニュー' : '子メニュー' }}</span>
+                <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canShow" :disabled="!canEditPermissions" type="checkbox" /></label>
+                <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canView" :disabled="!canEditPermissions" type="checkbox" /></label>
+                <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canEdit" :disabled="!canEditPermissions" type="checkbox" /></label>
+                <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canViewAll" :disabled="!canEditPermissions" type="checkbox" /></label>
+              </div>
+            </div>
+            <div class="permission-parent">
+              <strong>{{ menuLabels.SES }}</strong>
+              <div class="permission-row header">
+                <span>メニュー</span><span>区分</span><span>表示</span><span>閲覧</span><span>更新</span><span>全件</span>
+              </div>
+              <div v-for="menu in permissionMenus.filter((item) => item === 'SES' || item.startsWith('SES_'))" :key="`ses-${menu}`" class="permission-row" :class="{ child: menu !== 'SES' }">
+                <span>{{ menuLabels[menu] }}</span>
+                <span>{{ menu === 'SES' ? '親メニュー' : '子メニュー' }}</span>
+                <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canShow" :disabled="!canEditPermissions" type="checkbox" /></label>
+                <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canView" :disabled="!canEditPermissions" type="checkbox" /></label>
+                <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canEdit" :disabled="!canEditPermissions" type="checkbox" /></label>
+                <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canViewAll" :disabled="!canEditPermissions" type="checkbox" /></label>
+              </div>
+            </div>
+            <div class="permission-parent">
+              <strong>管理メニュー</strong>
+              <div class="permission-row header">
+                <span>メニュー</span><span>区分</span><span>表示</span><span>閲覧</span><span>更新</span><span>全件</span>
+              </div>
+              <div v-for="menu in ['USERS', 'PERMISSIONS'] as PermissionMenu[]" :key="`admin-${menu}`" class="permission-row">
+                <span>{{ menuLabels[menu] }}</span>
+                <span>親メニュー</span>
+                <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canShow" :disabled="!canEditPermissions" type="checkbox" /></label>
+                <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canView" :disabled="!canEditPermissions" type="checkbox" /></label>
+                <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canEdit" :disabled="!canEditPermissions" type="checkbox" /></label>
+                <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canViewAll" :disabled="!canEditPermissions" type="checkbox" /></label>
+              </div>
+            </div>
           </div>
         </div>
       </div>

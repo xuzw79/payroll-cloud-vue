@@ -70,8 +70,20 @@ async function menuPermission(c: Context, menu: PermissionMenu) {
   return permissions.find((permission) => permission.menu === menu) || defaultRolePermission(user.role, menu);
 }
 
+async function permissionRolePermissions(permissionRoleId: string, baseRole: UserRole) {
+  const saved = await prisma.rolePermission.findMany({ where: { permissionRoleId } });
+  const savedByMenu = new Map(saved.map((permission) => [permission.menu, permission]));
+  return permissionMenus.map((menu) => ({ ...defaultRolePermission(baseRole, menu), ...savedByMenu.get(menu), role: baseRole }));
+}
+
 async function effectiveUserPermissions(userId: string, role: UserRole) {
-  const base = await rolePermissions(role);
+  const appUser = await prisma.appUser.findUnique({
+    where: { id: userId },
+    include: { permissionRole: true }
+  });
+  const base = appUser?.permissionRoleId && appUser.permissionRole
+    ? await permissionRolePermissions(appUser.permissionRoleId, appUser.permissionRole.baseRole)
+    : await rolePermissions(role);
   const overrides = await prisma.userPermission.findMany({ where: { userId } });
   const overrideByMenu = new Map(overrides.map((permission) => [permission.menu, permission]));
   return base.map((permission) => ({ ...permission, ...overrideByMenu.get(permission.menu), role }));
@@ -97,6 +109,7 @@ function publicUser(user: AppUser & { employee?: Employee | null }) {
     email: user.email,
     name: user.name,
     role: user.role,
+    permissionRoleId: user.permissionRoleId,
     employeeId: user.employeeId,
     isActive: user.isActive,
     employee: user.employee ? {
@@ -467,6 +480,7 @@ api.post("/users", async (c) => {
       email: String(body.email),
       name: String(body.name || body.email),
       role,
+      permissionRoleId: nullableText(body.permissionRoleId),
       employeeId: role === "EMPLOYEE" ? body.employeeId || null : body.employeeId || null,
       passwordHash: hashPassword(password),
       isActive: body.isActive !== false
@@ -491,6 +505,7 @@ api.put("/users/:id", async (c) => {
       email: String(body.email),
       name: String(body.name || body.email),
       role,
+      permissionRoleId: nullableText(body.permissionRoleId),
       employeeId: body.employeeId || null,
       isActive: body.isActive !== false,
       ...(password ? { passwordHash: hashPassword(password) } : {})
@@ -515,9 +530,78 @@ api.delete("/users/:id", async (c) => {
   return c.json(publicUser(user));
 });
 
+api.get("/permission-roles", async (c) => {
+  const denied = requireRole(c, "ADMIN");
+  if (denied) return denied;
+
+  const roles = await prisma.permissionRole.findMany({
+    where: { isActive: true },
+    include: { permissions: true },
+    orderBy: [{ code: "asc" }]
+  });
+  return c.json(roles);
+});
+
+api.post("/permission-roles", async (c) => {
+  const denied = requireRole(c, "ADMIN");
+  if (denied) return denied;
+
+  const body = await c.req.json();
+  const code = String(body.code || "").trim();
+  const name = String(body.name || "").trim();
+  if (!code || !name) return c.json({ message: "\u30ed\u30fc\u30eb\u30b3\u30fc\u30c9\u3068\u30ed\u30fc\u30eb\u540d\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044" }, 400);
+  const baseRole = ["ADMIN", "ACCOUNTING", "VIEWER", "EMPLOYEE"].includes(String(body.baseRole))
+    ? String(body.baseRole) as UserRole
+    : "VIEWER";
+
+  const role = await prisma.permissionRole.create({
+    data: { code, name, baseRole, isActive: body.isActive !== false },
+    include: { permissions: true }
+  });
+  return c.json(role, 201);
+});
+
+api.put("/permission-roles/:id", async (c) => {
+  const denied = requireRole(c, "ADMIN");
+  if (denied) return denied;
+
+  const body = await c.req.json();
+  const code = String(body.code || "").trim();
+  const name = String(body.name || "").trim();
+  if (!code || !name) return c.json({ message: "\u30ed\u30fc\u30eb\u30b3\u30fc\u30c9\u3068\u30ed\u30fc\u30eb\u540d\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044" }, 400);
+  const baseRole = ["ADMIN", "ACCOUNTING", "VIEWER", "EMPLOYEE"].includes(String(body.baseRole))
+    ? String(body.baseRole) as UserRole
+    : "VIEWER";
+
+  const role = await prisma.permissionRole.update({
+    where: { id: c.req.param("id") },
+    data: { code, name, baseRole, isActive: body.isActive !== false },
+    include: { permissions: true }
+  });
+  return c.json(role);
+});
+
+api.delete("/permission-roles/:id", async (c) => {
+  const denied = requireRole(c, "ADMIN");
+  if (denied) return denied;
+
+  const role = await prisma.permissionRole.update({
+    where: { id: c.req.param("id") },
+    data: { isActive: false },
+    include: { permissions: true }
+  });
+  return c.json(role);
+});
+
 api.get("/role-permissions", async (c) => {
   const denied = requireRole(c, "ADMIN");
   if (denied) return denied;
+
+  const permissionRoleId = nullableText(c.req.query("permissionRoleId"));
+  if (permissionRoleId) {
+    const role = await prisma.permissionRole.findUniqueOrThrow({ where: { id: permissionRoleId } });
+    return c.json(await permissionRolePermissions(role.id, role.baseRole));
+  }
 
   const roles: UserRole[] = ["ADMIN", "ACCOUNTING", "VIEWER", "EMPLOYEE"];
   const permissions = (await Promise.all(roles.map(rolePermissions))).flat();
@@ -528,16 +612,21 @@ api.put("/role-permissions", async (c) => {
   const denied = requireRole(c, "ADMIN");
   if (denied) return denied;
 
-  const body = await c.req.json<{ permissions?: Array<Record<string, unknown>> }>();
+  const body = await c.req.json<{ permissionRoleId?: string; permissions?: Array<Record<string, unknown>> }>();
+  const permissionRoleId = nullableText(body.permissionRoleId);
+  const selectedRole = permissionRoleId
+    ? await prisma.permissionRole.findUnique({ where: { id: permissionRoleId } })
+    : null;
   const permissions = Array.isArray(body.permissions) ? body.permissions : [];
   const data = permissions
     .map((permission) => {
       const role = String(permission.role) as UserRole;
       const menu = String(permission.menu) as PermissionMenu;
-      if (!["ADMIN", "ACCOUNTING", "VIEWER", "EMPLOYEE"].includes(role)) return null;
+      if (!permissionRoleId && !["ADMIN", "ACCOUNTING", "VIEWER", "EMPLOYEE"].includes(role)) return null;
       if (!permissionMenus.includes(menu)) return null;
       return {
-        role,
+        role: permissionRoleId ? null : role,
+        permissionRoleId,
         menu,
         canShow: permission.canShow === true,
         canView: permission.canView === true,
@@ -545,13 +634,16 @@ api.put("/role-permissions", async (c) => {
         canViewAll: permission.canViewAll === true
       };
     })
-    .filter((permission): permission is ReturnType<typeof defaultRolePermission> => !!permission);
+    .filter((permission): permission is { role: UserRole | null; permissionRoleId: string | null; menu: PermissionMenu; canShow: boolean; canView: boolean; canEdit: boolean; canViewAll: boolean } => !!permission);
 
   await prisma.$transaction(data.map((permission) => prisma.rolePermission.upsert({
-    where: { role_menu: { role: permission.role, menu: permission.menu } },
+    where: permission.permissionRoleId
+      ? { permissionRoleId_menu: { permissionRoleId: permission.permissionRoleId, menu: permission.menu } }
+      : { role_menu: { role: permission.role as UserRole, menu: permission.menu } },
     update: permission,
     create: permission
   })));
+  if (selectedRole) return c.json(await permissionRolePermissions(selectedRole.id, selectedRole.baseRole));
   return c.json((await Promise.all((["ADMIN", "ACCOUNTING", "VIEWER", "EMPLOYEE"] as UserRole[]).map(rolePermissions))).flat());
 });
 
