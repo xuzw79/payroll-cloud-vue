@@ -683,6 +683,36 @@ p {
   overflow-wrap: anywhere;
 }
 
+.employee-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 6px;
+  border: 1px solid #b8c2d2;
+  background: #f5f7fb;
+  color: #25304a;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.status-pill.registered {
+  border-color: #83b986;
+  background: #effaf0;
+  color: #1c7c2b;
+}
+
+.status-pill.missing {
+  border-color: #d0a24b;
+  background: #fff8dc;
+  color: #7b4a00;
+}
+
 .user-list {
   display: grid;
   gap: 0;
@@ -845,6 +875,20 @@ p {
   flex-wrap: wrap;
   gap: 6px;
   padding: 0 9px 9px;
+}
+
+.bonus-schedule {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid #c9d0da;
+  background: #f8fafc;
+}
+
+.bonus-schedule-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 8px;
 }
 
 .tax-import {

@@ -296,6 +296,14 @@ function booleanOrFalse(value: unknown) {
   return value === true || value === "true";
 }
 
+function normalizeBonusSchedules(value: unknown) {
+  const source = Array.isArray(value) ? value : [];
+  return source.slice(0, 3).map((item) => ({
+    month: nullableInt((item as { month?: unknown }).month),
+    amount: Math.max(0, Math.round(numberOrDefault((item as { amount?: unknown }).amount, 0)))
+  }));
+}
+
 function safeFilePart(value: string) {
   return value.replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, "_");
 }
@@ -1842,6 +1850,8 @@ api.post("/employees", async (c) => {
       payType: body.payType === "HOURLY" ? "HOURLY" : "MONTHLY",
       basePay: Number(body.basePay || 0),
       fixedOvertimeAllowance: Number(body.fixedOvertimeAllowance || 0),
+      bonusEnabled: body.bonusEnabled !== false,
+      bonusSchedules: normalizeBonusSchedules(body.bonusSchedules),
       memo: body.memo || null
     }
   });
@@ -1865,6 +1875,8 @@ api.put("/employees/:id", async (c) => {
       payType: body.payType === "HOURLY" ? "HOURLY" : "MONTHLY",
       basePay: Number(body.basePay || 0),
       fixedOvertimeAllowance: Number(body.fixedOvertimeAllowance || 0),
+      bonusEnabled: body.bonusEnabled !== false,
+      bonusSchedules: normalizeBonusSchedules(body.bonusSchedules),
       memo: body.memo || null
     }
   });

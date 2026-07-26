@@ -36,7 +36,14 @@ type Employee = {
   payType: PayType;
   basePay: number;
   fixedOvertimeAllowance: number;
+  bonusEnabled: boolean;
+  bonusSchedules?: BonusSchedule[] | null;
   memo?: string | null;
+};
+
+type BonusSchedule = {
+  month: number | null;
+  amount: number | null;
 };
 
 type Payroll = {
@@ -154,7 +161,7 @@ type RolePermission = {
   canViewAll: boolean;
 };
 type PermissionFlag = "canShow" | "canView" | "canEdit" | "canViewAll";
-type PayrollSubMenu = "employees" | "payrollInput" | "bonusInput" | "slips" | "rates" | "taxImport";
+type PayrollSubMenu = "payrollBonusInput" | "slipOutput" | "employees" | "yearSettings";
 
 const yen = new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", maximumFractionDigits: 0 });
 function formatYearMonth(year: number, month: number) {
@@ -251,20 +258,16 @@ const payrollPermissionMenus = permissionMenus.filter((item) => item === "PAYROL
 const sesPermissionMenus = permissionMenus.filter((item) => item === "SES" || item.startsWith("SES_"));
 const adminPermissionMenus: PermissionMenu[] = ["USERS", "PERMISSIONS"];
 const payrollSubMenus: { key: PayrollSubMenu; label: string; description: string }[] = [
+  { key: "payrollBonusInput", label: "給与・賞与入力", description: "月次給与、賞与、個別明細をまとめて入力・確認します。" },
+  { key: "slipOutput", label: "明細出力", description: "期間指定PDF、給与CSV、賞与CSVを出力します。" },
   { key: "employees", label: "社員管理", description: "社員基本情報、職位、保険設定を管理します。" },
-  { key: "payrollInput", label: "給与入力", description: "月次給与、控除、備考を入力します。" },
-  { key: "bonusInput", label: "賞与入力", description: "月給とは別に賞与を入力します。" },
-  { key: "slips", label: "明細出力", description: "給与・賞与明細、CSV、期間PDFを出力します。" },
-  { key: "rates", label: "年度料率", description: "税金、社会保険、雇用保険の年度料率を管理します。" },
-  { key: "taxImport", label: "所得税表", description: "扶養人数別の所得税表CSVを取り込みます。" }
+  { key: "yearSettings", label: "年度設定", description: "年度料率と所得税表CSVを管理します。" }
 ];
 const payrollSubMenuPermissions: Record<PayrollSubMenu, PermissionMenu[]> = {
+  payrollBonusInput: ["PAYROLL_INPUT", "BONUS_INPUT", "PAYSLIP", "BONUS_SLIP"],
+  slipOutput: ["PAYSLIP", "BONUS_SLIP"],
   employees: ["PAYROLL_EMPLOYEES"],
-  payrollInput: ["PAYROLL_INPUT"],
-  bonusInput: ["BONUS_INPUT"],
-  slips: ["PAYSLIP", "BONUS_SLIP"],
-  rates: ["RATES"],
-  taxImport: ["TAX_IMPORT"]
+  yearSettings: ["RATES", "TAX_IMPORT"]
 };
 const loggedIn = ref(false);
 const loading = ref(false);
@@ -276,7 +279,7 @@ const toastMessage = ref("");
 const systemName = ref("給与管理クラウド");
 const me = ref<AppUser | null>(null);
 const activeMenu = ref<"payroll" | "ses" | "users" | "permissions">("payroll");
-const activePayrollSubMenu = ref<PayrollSubMenu>("employees");
+const activePayrollSubMenu = ref<PayrollSubMenu>("payrollBonusInput");
 const query = ref("");
 const period = ref(today);
 const pdfRangeStart = ref(today);
@@ -326,6 +329,12 @@ const employeeForm = reactive({
   payType: "MONTHLY" as PayType,
   basePay: 0,
   fixedOvertimeAllowance: 0,
+  bonusEnabled: true,
+  bonusSchedules: [
+    { month: 4, amount: 0 },
+    { month: 10, amount: 0 },
+    { month: null, amount: 0 }
+  ] as BonusSchedule[],
   memo: ""
 });
 const payrollForm = reactive({
@@ -406,13 +415,19 @@ const activePayrollMenuInfo = computed(() =>
   || visiblePayrollSubMenus.value[0]
   || payrollSubMenus[0]
 );
-const payrollEmployeeSubMenus: PayrollSubMenu[] = ["employees", "payrollInput", "bonusInput", "slips"];
+const payrollEmployeeSubMenus: PayrollSubMenu[] = ["payrollBonusInput", "slipOutput", "employees"];
 const showPayrollPeriodFilters = computed(() => payrollEmployeeSubMenus.includes(activePayrollSubMenu.value));
-const showPayrollEmployeeList = computed(() => payrollEmployeeSubMenus.includes(activePayrollSubMenu.value));
+const showPayrollEmployeeList = computed(() => activePayrollSubMenu.value === "payrollBonusInput" || activePayrollSubMenu.value === "employees");
 const showPayrollSummary = computed(() => payrollEmployeeSubMenus.includes(activePayrollSubMenu.value));
 const selectedEmployee = computed(() => employees.value.find((employee) => employee.id === selectedEmployeeId.value));
 const selectedPayroll = computed(() => payrolls.value.find((payroll) => payroll.employeeId === selectedEmployeeId.value));
 const selectedBonus = computed(() => bonuses.value.find((bonus) => bonus.employeeId === selectedEmployeeId.value));
+function payrollForEmployee(employeeId: string) {
+  return payrolls.value.find((payroll) => payroll.employeeId === employeeId);
+}
+function bonusForEmployee(employeeId: string) {
+  return bonuses.value.find((bonus) => bonus.employeeId === employeeId);
+}
 const activeRate = computed(() => fiscalRates.value.find((rate) => rate.fiscalYear === fiscalYearFromPeriod(period.value)));
 const isPayrollLocked = computed(() => isPayrollLockedPeriod(period.value));
 const payrollLockMessage = computed(() => `${period.value}の給与データは28日以降ロックされています。変更する場合は「強制変更して保存」を押してください。`);
@@ -470,11 +485,27 @@ function resetPayrollForm(employee: Employee) {
   });
 }
 
+function normalizedBonusSchedules(employee?: Employee | null) {
+  const schedules = Array.isArray(employee?.bonusSchedules) ? employee.bonusSchedules : [];
+  return [0, 1, 2].map((index) => ({
+    month: schedules[index]?.month ?? (index === 0 ? 4 : index === 1 ? 10 : null),
+    amount: schedules[index]?.amount ?? 0
+  }));
+}
+
+function scheduledBonusAmount(employee: Employee | undefined, targetPeriod: string) {
+  if (!employee || employee.bonusEnabled === false) return 0;
+  const month = monthFromPeriod(targetPeriod);
+  const schedule = normalizedBonusSchedules(employee).find((item) => Number(item.month || 0) === month);
+  return Math.max(0, Math.round(Number(schedule?.amount || 0)));
+}
+
 function resetBonusForm() {
+  const scheduledAmount = scheduledBonusAmount(selectedEmployee.value, period.value);
   Object.assign(bonusForm, {
-    bonusAmount: 0,
+    bonusAmount: scheduledAmount,
     socialInsuranceEnrolled: true,
-    socialInsuranceBaseAmount: 0,
+    socialInsuranceBaseAmount: scheduledAmount,
     note: ""
   });
 }
@@ -634,6 +665,12 @@ function applyEmployee(employee?: Employee) {
     payType: "MONTHLY" as PayType,
     basePay: 0,
     fixedOvertimeAllowance: 0,
+    bonusEnabled: true,
+    bonusSchedules: [
+      { month: 4, amount: 0 },
+      { month: 10, amount: 0 },
+      { month: null, amount: 0 }
+    ],
     memo: ""
   };
   employeeForm.id = target.id;
@@ -646,6 +683,8 @@ function applyEmployee(employee?: Employee) {
   employeeForm.payType = target.payType;
   employeeForm.basePay = target.basePay;
   employeeForm.fixedOvertimeAllowance = target.fixedOvertimeAllowance || 0;
+  employeeForm.bonusEnabled = target.bonusEnabled ?? true;
+  employeeForm.bonusSchedules = normalizedBonusSchedules(target);
   employeeForm.memo = target.memo || "";
   selectedEmployeeId.value = target.id;
 
@@ -826,7 +865,16 @@ async function saveEmployee() {
   if (!canEditPayroll.value) return;
   const method = employeeForm.id ? "PUT" : "POST";
   const path = employeeForm.id ? `/employees/${employeeForm.id}` : "/employees";
-  const employee = await request<Employee>(path, { method, body: JSON.stringify(employeeForm) });
+  const employee = await request<Employee>(path, {
+    method,
+    body: JSON.stringify({
+      ...employeeForm,
+      bonusSchedules: employeeForm.bonusSchedules.map((schedule) => ({
+        month: schedule.month || null,
+        amount: Math.max(0, Math.round(Number(schedule.amount || 0)))
+      }))
+    })
+  });
   showSuccess("社員情報を保存しました");
   await refresh();
   applyEmployee(employee);
@@ -1270,7 +1318,7 @@ onMounted(async () => {
         <label v-if="canViewAll">社員検索<input v-model="query" placeholder="氏名・社員番号" @keyup.enter="refresh" /></label>
         <button v-if="canViewAll" class="primary" @click="refresh"><Search :size="16" />検索</button>
       </div>
-      <div v-if="canViewAll && activePayrollSubMenu === 'slips'" class="filter-row download-row">
+      <div v-if="canViewAll && activePayrollSubMenu === 'slipOutput'" class="filter-row download-row">
         <label>PDF開始月<input v-model="pdfRangeStart" type="month" /></label>
         <label>PDF終了月<input v-model="pdfRangeEnd" type="month" /></label>
         <label>PDF出力形式<select v-model="pdfOutputMode"><option value="zip">個別PDFをZIP</option><option value="single">1つのPDF</option></select></label>
@@ -1304,10 +1352,18 @@ onMounted(async () => {
         >
           <strong>{{ employee.name }}</strong>
           <span>{{ employee.employeeNo }} / 扶養人数: {{ employee.defaultDependentCount }}</span>
+          <span v-if="activePayrollSubMenu === 'payrollBonusInput'" class="employee-status">
+            <small :class="['status-pill', payrollForEmployee(employee.id) ? 'registered' : 'missing']">
+              給与 {{ payrollForEmployee(employee.id) ? "登録済" : "未登録" }}
+            </small>
+            <small :class="['status-pill', bonusForEmployee(employee.id) ? 'registered' : 'missing']">
+              賞与 {{ bonusForEmployee(employee.id) ? "登録済" : "未登録" }}
+            </small>
+          </span>
         </button>
       </section>
 
-      <section v-if="activePayrollSubMenu === 'employees' || activePayrollSubMenu === 'payrollInput' || activePayrollSubMenu === 'bonusInput'" class="panel">
+      <section v-if="activePayrollSubMenu === 'employees' || activePayrollSubMenu === 'payrollBonusInput'" class="panel">
         <div v-if="activePayrollSubMenu === 'employees' && canShowMenu('PAYROLL_EMPLOYEES')" class="panel-head" :class="sectionHeadClass('employeePayroll')" @click="toggleSection('employeePayroll')"><h2>社員管理</h2></div>
         <div v-if="activePayrollSubMenu === 'employees' && canEditPayroll && canShowMenu('PAYROLL_EMPLOYEES')" v-show="!collapsedSections.employeePayroll" class="form-grid">
           <label>社員番号<input v-model="employeeForm.employeeNo" /></label>
@@ -1319,6 +1375,14 @@ onMounted(async () => {
           <label>給与区分<select v-model="employeeForm.payType"><option value="MONTHLY">月給</option><option value="HOURLY">時給</option></select></label>
           <label>基本給・時給<input v-model.number="employeeForm.basePay" type="number" min="0" /></label>
           <label>固定残業手当<input v-model.number="employeeForm.fixedOvertimeAllowance" type="number" min="0" /></label>
+          <label>賞与設定<select v-model="employeeForm.bonusEnabled"><option :value="true">賞与あり</option><option :value="false">賞与なし</option></select></label>
+          <div v-if="employeeForm.bonusEnabled" class="bonus-schedule full">
+            <strong>賞与予定（最大3回）</strong>
+            <div v-for="(schedule, index) in employeeForm.bonusSchedules" :key="index" class="bonus-schedule-row">
+              <label>支給月<input v-model.number="schedule.month" type="number" min="1" max="12" placeholder="月" /></label>
+              <label>金額<input v-model.number="schedule.amount" type="number" min="0" /></label>
+            </div>
+          </div>
           <label class="wide">メモ<input v-model="employeeForm.memo" /></label>
           <div class="form-actions full">
             <button @click="deleteEmployee"><Trash2 :size="16" />非表示</button>
@@ -1383,10 +1447,10 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div v-if="activePayrollSubMenu === 'payrollInput' && !canEditPayroll && canShowMenu('PAYROLL_INPUT')" v-show="!collapsedSections.employeePayroll" class="empty">閲覧権限です。給与・賞与の保存操作はできません。</div>
+        <div v-if="activePayrollSubMenu === 'payrollBonusInput' && !canEditPayroll && canShowMenu('PAYROLL_INPUT')" v-show="!collapsedSections.employeePayroll" class="empty">閲覧権限です。給与・賞与の保存操作はできません。</div>
 
-        <div v-if="activePayrollSubMenu === 'payrollInput' && canShowMenu('PAYROLL_INPUT')" class="panel-head" :class="sectionHeadClass('employeePayroll')" @click="toggleSection('employeePayroll')"><h2>給与入力</h2></div>
-        <div v-if="activePayrollSubMenu === 'payrollInput' && canEditPayroll && canShowMenu('PAYROLL_INPUT')" v-show="!collapsedSections.employeePayroll" class="form-grid">
+        <div v-if="activePayrollSubMenu === 'payrollBonusInput' && canShowMenu('PAYROLL_INPUT')" class="panel-head" :class="sectionHeadClass('employeePayroll')" @click="toggleSection('employeePayroll')"><h2>給与入力</h2></div>
+        <div v-if="activePayrollSubMenu === 'payrollBonusInput' && canEditPayroll && canShowMenu('PAYROLL_INPUT')" v-show="!collapsedSections.employeePayroll" class="form-grid">
           <label>所定労働日数<input v-model.number="payrollForm.workDays" type="number" min="0" step="0.5" /></label>
           <label>実働時間<input v-model.number="payrollForm.workHours" type="number" min="0" step="0.25" /></label>
           <label>残業時間<input v-model.number="payrollForm.overtimeHours" type="number" min="0" step="0.25" /></label>
@@ -1408,8 +1472,8 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div v-if="activePayrollSubMenu === 'bonusInput' && canShowMenu('BONUS_INPUT')" class="panel-head" :class="sectionHeadClass('bonusInput')" @click="toggleSection('bonusInput')"><h2>賞与入力</h2></div>
-        <div v-if="activePayrollSubMenu === 'bonusInput' && canEditPayroll && canShowMenu('BONUS_INPUT')" v-show="!collapsedSections.bonusInput" class="form-grid">
+        <div v-if="activePayrollSubMenu === 'payrollBonusInput' && canShowMenu('BONUS_INPUT')" class="panel-head" :class="sectionHeadClass('bonusInput')" @click="toggleSection('bonusInput')"><h2>賞与入力</h2></div>
+        <div v-if="activePayrollSubMenu === 'payrollBonusInput' && canEditPayroll && canShowMenu('BONUS_INPUT')" v-show="!collapsedSections.bonusInput" class="form-grid">
           <div class="bonus-guidance full" :class="{ active: isBonusPaymentMonth }">{{ bonusPaymentMessage }}</div>
           <label>賞与額<input v-model.number="bonusForm.bonusAmount" type="number" min="0" /></label>
           <label>社会保険加入<select v-model="bonusForm.socialInsuranceEnrolled"><option :value="true">加入</option><option :value="false">未加入</option></select></label>
@@ -1425,12 +1489,24 @@ onMounted(async () => {
       </section>
 
       <section
-        v-if="activePayrollSubMenu === 'rates' || activePayrollSubMenu === 'taxImport' || activePayrollSubMenu === 'slips'"
+        v-if="activePayrollSubMenu === 'yearSettings' || activePayrollSubMenu === 'slipOutput' || activePayrollSubMenu === 'payrollBonusInput'"
         class="panel"
-        :class="{ payslip: activePayrollSubMenu === 'slips' }"
+        :class="{ payslip: activePayrollSubMenu === 'payrollBonusInput' }"
       >
-        <div v-if="activePayrollSubMenu === 'rates' && canEditPayroll && canShowMenu('RATES')" class="panel-head" :class="sectionHeadClass('rates')" @click="toggleSection('rates')"><h2>年度料率</h2></div>
-        <div v-if="activePayrollSubMenu === 'rates' && canEditPayroll && canShowMenu('RATES')" v-show="!collapsedSections.rates" class="form-grid compact">
+        <div v-if="activePayrollSubMenu === 'slipOutput'" class="panel-head" :class="sectionHeadClass('slipOutput')" @click="toggleSection('slipOutput')"><h2>明細一括出力</h2></div>
+        <div v-if="activePayrollSubMenu === 'slipOutput'" v-show="!collapsedSections.slipOutput" class="form-grid compact">
+          <div class="note full">
+            指定した期間の給与明細を一括出力します。「賞与含み」をチェックすると賞与明細も含めます。
+          </div>
+          <div class="form-actions full">
+            <button @click="downloadPayslipPdfRange"><Download :size="16" />PDF一括DL</button>
+            <button v-if="canViewAll" @click="exportCsv"><Download :size="16" />給与CSV出力</button>
+            <button v-if="canViewAll" @click="exportBonusCsv"><Download :size="16" />賞与CSV出力</button>
+          </div>
+        </div>
+
+        <div v-if="activePayrollSubMenu === 'yearSettings' && canEditPayroll && canShowMenu('RATES')" class="panel-head" :class="sectionHeadClass('rates')" @click="toggleSection('rates')"><h2>年度料率</h2></div>
+        <div v-if="activePayrollSubMenu === 'yearSettings' && canEditPayroll && canShowMenu('RATES')" v-show="!collapsedSections.rates" class="form-grid compact">
           <label>年度<input v-model.number="rateForm.fiscalYear" type="number" /></label>
           <label>残業割増率<input v-model.number="rateForm.overtimeRate" type="number" step="0.000001" /></label>
           <label>所得税率（表なし時）<input v-model.number="rateForm.incomeTaxRate" type="number" step="0.000001" /></label>
@@ -1443,14 +1519,14 @@ onMounted(async () => {
             <button class="primary" @click="saveRate"><Save :size="16" />年度料率保存</button>
           </div>
         </div>
-        <div v-if="activePayrollSubMenu === 'rates' && canEditPayroll && canShowMenu('RATES')" v-show="!collapsedSections.rates" class="rate-list">
+        <div v-if="activePayrollSubMenu === 'yearSettings' && canEditPayroll && canShowMenu('RATES')" v-show="!collapsedSections.rates" class="rate-list">
           <button v-for="rate in fiscalRates" :key="rate.fiscalYear" @click="applyRate(rate)">
             {{ rate.fiscalYear }}年度
           </button>
         </div>
 
-        <div v-if="activePayrollSubMenu === 'taxImport' && canEditPayroll && canShowMenu('TAX_IMPORT')" class="panel-head" :class="sectionHeadClass('taxImport')" @click="toggleSection('taxImport')"><h2>所得税表インポート</h2></div>
-        <div v-if="activePayrollSubMenu === 'taxImport' && canEditPayroll && canShowMenu('TAX_IMPORT')" v-show="!collapsedSections.taxImport" class="tax-import">
+        <div v-if="activePayrollSubMenu === 'yearSettings' && canEditPayroll && canShowMenu('TAX_IMPORT')" class="panel-head" :class="sectionHeadClass('taxImport')" @click="toggleSection('taxImport')"><h2>所得税表インポート</h2></div>
+        <div v-if="activePayrollSubMenu === 'yearSettings' && canEditPayroll && canShowMenu('TAX_IMPORT')" v-show="!collapsedSections.taxImport" class="tax-import">
           <p class="note">CSV列: fiscalYear, dependentCount, minTaxable, maxTaxable, taxAmount</p>
           <textarea v-model="taxImport.csv" rows="6"></textarea>
           <div class="form-actions">
@@ -1459,8 +1535,8 @@ onMounted(async () => {
           <p class="note">{{ fiscalYearFromPeriod(period) }}年度の読込行数: {{ incomeTaxBrackets.length }}件</p>
         </div>
 
-        <div v-if="activePayrollSubMenu === 'slips' && canShowMenu('PAYSLIP')" class="panel-head" :class="sectionHeadClass('payrollSlip')" @click="toggleSection('payrollSlip')"><h2>給与明細</h2></div>
-        <div v-if="activePayrollSubMenu === 'slips' && selectedPayroll && canShowMenu('PAYSLIP')" v-show="!collapsedSections.payrollSlip" class="slip">
+        <div v-if="activePayrollSubMenu === 'payrollBonusInput' && canShowMenu('PAYSLIP')" class="panel-head" :class="sectionHeadClass('payrollSlip')" @click="toggleSection('payrollSlip')"><h2>給与明細</h2></div>
+        <div v-if="activePayrollSubMenu === 'payrollBonusInput' && selectedPayroll && canShowMenu('PAYSLIP')" v-show="!collapsedSections.payrollSlip" class="slip">
           <h3>{{ selectedPayroll.employee.name }}</h3>
           <p class="message">適用年度: {{ activeRate?.fiscalYear || fiscalYearFromPeriod(period) }}年度</p>
           <dl>
@@ -1489,11 +1565,11 @@ onMounted(async () => {
             <button @click="downloadPayslipPdf"><Download :size="16" />給与PDFダウンロード</button>
           </div>
         </div>
-        <div v-else-if="activePayrollSubMenu === 'slips' && canShowMenu('PAYSLIP')" v-show="!collapsedSections.payrollSlip" class="empty">この社員の給与はまだ保存されていません。</div>
+        <div v-else-if="activePayrollSubMenu === 'payrollBonusInput' && canShowMenu('PAYSLIP')" v-show="!collapsedSections.payrollSlip" class="empty">この社員の給与はまだ保存されていません。</div>
 
-        <div v-if="activePayrollSubMenu === 'slips' && canShowMenu('BONUS_SLIP')" class="divider"></div>
-        <div v-if="activePayrollSubMenu === 'slips' && canShowMenu('BONUS_SLIP')" class="panel-head" :class="sectionHeadClass('bonusSlip')" @click="toggleSection('bonusSlip')"><h2>賞与明細</h2></div>
-        <div v-if="activePayrollSubMenu === 'slips' && selectedBonus && canShowMenu('BONUS_SLIP')" v-show="!collapsedSections.bonusSlip" class="slip">
+        <div v-if="activePayrollSubMenu === 'payrollBonusInput' && canShowMenu('BONUS_SLIP')" class="divider"></div>
+        <div v-if="activePayrollSubMenu === 'payrollBonusInput' && canShowMenu('BONUS_SLIP')" class="panel-head" :class="sectionHeadClass('bonusSlip')" @click="toggleSection('bonusSlip')"><h2>賞与明細</h2></div>
+        <div v-if="activePayrollSubMenu === 'payrollBonusInput' && selectedBonus && canShowMenu('BONUS_SLIP')" v-show="!collapsedSections.bonusSlip" class="slip">
           <h3>{{ selectedBonus.employee.name }}</h3>
           <p class="message">所得税率: {{ Number(selectedBonus.incomeTaxRate).toFixed(6) }}</p>
           <dl>
@@ -1515,7 +1591,7 @@ onMounted(async () => {
             <button @click="downloadBonusPdf"><Download :size="16" />賞与PDFダウンロード</button>
           </div>
         </div>
-        <div v-else-if="activePayrollSubMenu === 'slips' && canShowMenu('BONUS_SLIP')" v-show="!collapsedSections.bonusSlip" class="empty">この社員の賞与はまだ保存されていません。</div>
+        <div v-else-if="activePayrollSubMenu === 'payrollBonusInput' && canShowMenu('BONUS_SLIP')" v-show="!collapsedSections.bonusSlip" class="empty">この社員の賞与はまだ保存されていません。</div>
       </section>
     </div>
 

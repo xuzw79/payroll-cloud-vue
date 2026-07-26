@@ -68,6 +68,8 @@ model Employee {
   payType     PayType   @default(MONTHLY)
   basePay     Int
   fixedOvertimeAllowance Int @default(0)
+  bonusEnabled Boolean @default(true)
+  bonusSchedules Json?
   memo        String?
   isActive    Boolean   @default(true)
   createdAt   DateTime  @default(now())
