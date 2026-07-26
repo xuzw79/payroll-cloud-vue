@@ -724,6 +724,37 @@ p {
   padding: 4px 0;
 }
 
+.permission-bulk-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 2.2fr) repeat(4, minmax(64px, 0.6fr));
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid #cfd8e6;
+  background: #eef4ff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.permission-bulk-row span,
+.permission-bulk-row label {
+  min-width: 0;
+}
+
+.permission-bulk-row label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0;
+  background: transparent;
+}
+
+.permission-bulk-row input {
+  width: 16px;
+  height: 16px;
+}
+
 .permission-row.child span:first-child {
   padding-left: 14px;
   border-left: 3px solid #5481cf;

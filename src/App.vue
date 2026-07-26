@@ -145,6 +145,7 @@ type RolePermission = {
   canEdit: boolean;
   canViewAll: boolean;
 };
+type PermissionFlag = "canShow" | "canView" | "canEdit" | "canViewAll";
 
 const yen = new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", maximumFractionDigits: 0 });
 function formatYearMonth(year: number, month: number) {
@@ -237,6 +238,9 @@ const menuLabels: Record<PermissionMenu, string> = {
   USERS: "\u30e6\u30fc\u30b6\u30fc\u7ba1\u7406",
   PERMISSIONS: "\u6a29\u9650\u7ba1\u7406"
 };
+const payrollPermissionMenus = permissionMenus.filter((item) => item === "PAYROLL" || item.startsWith("PAYROLL_") || ["BONUS_INPUT", "RATES", "TAX_IMPORT", "PAYSLIP", "BONUS_SLIP"].includes(item));
+const sesPermissionMenus = permissionMenus.filter((item) => item === "SES" || item.startsWith("SES_"));
+const adminPermissionMenus: PermissionMenu[] = ["USERS", "PERMISSIONS"];
 const loggedIn = ref(false);
 const loading = ref(false);
 const message = ref("");
@@ -472,6 +476,16 @@ function userPermissionRow(menu: PermissionMenu) {
     userPermissions.value.push(permission);
   }
   return permission;
+}
+
+function isPermissionGroupChecked(menus: PermissionMenu[], flag: PermissionFlag) {
+  return menus.every((menu) => !!permissionRow(permissionRoleForm.baseRole, menu)[flag]);
+}
+
+function setPermissionGroup(menus: PermissionMenu[], flag: PermissionFlag, checked: boolean) {
+  menus.forEach((menu) => {
+    permissionRow(permissionRoleForm.baseRole, menu)[flag] = checked;
+  });
 }
 
 function normalizeActiveMenu() {
@@ -777,12 +791,17 @@ async function saveRolePermissions() {
 
 async function savePermissionRole() {
   if (!canManageUsers.value) return;
-  const method = permissionRoleForm.id ? "PUT" : "POST";
-  const path = permissionRoleForm.id ? `/permission-roles/${permissionRoleForm.id}` : "/permission-roles";
-  const saved = await request<PermissionRoleMaster>(path, { method, body: JSON.stringify(permissionRoleForm) });
-  await refreshRolePermissions();
-  await applyPermissionRole(saved);
-  message.value = "\u30ed\u30fc\u30eb\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f";
+  message.value = "";
+  try {
+    const method = permissionRoleForm.id ? "PUT" : "POST";
+    const path = permissionRoleForm.id ? `/permission-roles/${permissionRoleForm.id}` : "/permission-roles";
+    const saved = await request<PermissionRoleMaster>(path, { method, body: JSON.stringify(permissionRoleForm) });
+    await refreshRolePermissions();
+    await applyPermissionRole(saved);
+    message.value = "\u30ed\u30fc\u30eb\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f";
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : "\u30ed\u30fc\u30eb\u3092\u4fdd\u5b58\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f";
+  }
 }
 
 async function deletePermissionRole() {
@@ -1466,6 +1485,13 @@ onMounted(async () => {
             </div>
             <div class="permission-parent">
               <strong>{{ menuLabels.PAYROLL }}</strong>
+              <div class="permission-bulk-row">
+                <span>給与管理 一括</span>
+                <label><input :checked="isPermissionGroupChecked(payrollPermissionMenus, 'canShow')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(payrollPermissionMenus, 'canShow', ($event.target as HTMLInputElement).checked)" />表示</label>
+                <label><input :checked="isPermissionGroupChecked(payrollPermissionMenus, 'canView')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(payrollPermissionMenus, 'canView', ($event.target as HTMLInputElement).checked)" />閲覧</label>
+                <label><input :checked="isPermissionGroupChecked(payrollPermissionMenus, 'canEdit')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(payrollPermissionMenus, 'canEdit', ($event.target as HTMLInputElement).checked)" />更新</label>
+                <label><input :checked="isPermissionGroupChecked(payrollPermissionMenus, 'canViewAll')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(payrollPermissionMenus, 'canViewAll', ($event.target as HTMLInputElement).checked)" />全件</label>
+              </div>
               <div class="permission-row header">
                 <span>メニュー</span><span>区分</span><span>表示</span><span>閲覧</span><span>更新</span><span>全件</span>
               </div>
@@ -1480,6 +1506,13 @@ onMounted(async () => {
             </div>
             <div class="permission-parent">
               <strong>{{ menuLabels.SES }}</strong>
+              <div class="permission-bulk-row">
+                <span>SES管理 一括</span>
+                <label><input :checked="isPermissionGroupChecked(sesPermissionMenus, 'canShow')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(sesPermissionMenus, 'canShow', ($event.target as HTMLInputElement).checked)" />表示</label>
+                <label><input :checked="isPermissionGroupChecked(sesPermissionMenus, 'canView')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(sesPermissionMenus, 'canView', ($event.target as HTMLInputElement).checked)" />閲覧</label>
+                <label><input :checked="isPermissionGroupChecked(sesPermissionMenus, 'canEdit')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(sesPermissionMenus, 'canEdit', ($event.target as HTMLInputElement).checked)" />更新</label>
+                <label><input :checked="isPermissionGroupChecked(sesPermissionMenus, 'canViewAll')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(sesPermissionMenus, 'canViewAll', ($event.target as HTMLInputElement).checked)" />全件</label>
+              </div>
               <div class="permission-row header">
                 <span>メニュー</span><span>区分</span><span>表示</span><span>閲覧</span><span>更新</span><span>全件</span>
               </div>
@@ -1497,7 +1530,14 @@ onMounted(async () => {
               <div class="permission-row header">
                 <span>メニュー</span><span>区分</span><span>表示</span><span>閲覧</span><span>更新</span><span>全件</span>
               </div>
-              <div v-for="menu in ['USERS', 'PERMISSIONS'] as PermissionMenu[]" :key="`admin-${menu}`" class="permission-row">
+              <div class="permission-bulk-row">
+                <span>管理メニュー 一括</span>
+                <label><input :checked="isPermissionGroupChecked(adminPermissionMenus, 'canShow')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(adminPermissionMenus, 'canShow', ($event.target as HTMLInputElement).checked)" />表示</label>
+                <label><input :checked="isPermissionGroupChecked(adminPermissionMenus, 'canView')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(adminPermissionMenus, 'canView', ($event.target as HTMLInputElement).checked)" />閲覧</label>
+                <label><input :checked="isPermissionGroupChecked(adminPermissionMenus, 'canEdit')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(adminPermissionMenus, 'canEdit', ($event.target as HTMLInputElement).checked)" />更新</label>
+                <label><input :checked="isPermissionGroupChecked(adminPermissionMenus, 'canViewAll')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(adminPermissionMenus, 'canViewAll', ($event.target as HTMLInputElement).checked)" />全件</label>
+              </div>
+              <div v-for="menu in adminPermissionMenus" :key="`admin-${menu}`" class="permission-row">
                 <span>{{ menuLabels[menu] }}</span>
                 <span>親メニュー</span>
                 <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canShow" :disabled="!canEditPermissions" type="checkbox" /></label>
