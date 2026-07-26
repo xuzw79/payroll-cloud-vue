@@ -702,9 +702,7 @@ p {
 }
 
 .permission-row.header {
-  color: #333;
-  font-size: 12px;
-  font-weight: 700;
+  display: none;
 }
 
 .permission-row span {
@@ -726,9 +724,9 @@ p {
 
 .permission-bulk-row {
   display: grid;
-  grid-template-columns: minmax(120px, 2.2fr) repeat(4, minmax(64px, 0.6fr));
+  grid-template-columns: minmax(96px, 1.1fr) minmax(96px, 1.1fr) repeat(4, minmax(54px, 0.6fr));
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   padding: 6px;
   border: 1px solid #cfd8e6;
   background: #eef4ff;
@@ -739,6 +737,10 @@ p {
 .permission-bulk-row span,
 .permission-bulk-row label {
   min-width: 0;
+}
+
+.permission-bulk-row span {
+  grid-column: 1 / span 2;
 }
 
 .permission-bulk-row label {
