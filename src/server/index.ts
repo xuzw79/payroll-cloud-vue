@@ -1,7 +1,7 @@
 import { pbkdf2Sync, randomBytes, timingSafeEqual } from "node:crypto";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
-import type { AppUser, Bonus, Employee, Payroll, Prisma, SesBillingType, SesMemberSource, UserRole } from "@prisma/client";
+import type { AppUser, Bonus, Employee, Payroll, PermissionMenu, Prisma, SesBillingType, SesMemberSource, UserRole } from "@prisma/client";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
@@ -24,6 +24,27 @@ const roleRank: Record<UserRole, number> = {
   ACCOUNTING: 2,
   ADMIN: 3
 };
+
+const permissionMenus: PermissionMenu[] = ["PAYROLL", "SES"];
+
+function defaultRolePermission(role: UserRole, menu: PermissionMenu) {
+  if (role === "ADMIN") return { role, menu, canShow: true, canView: true, canEdit: true, canViewAll: true };
+  if (role === "ACCOUNTING") return { role, menu, canShow: true, canView: true, canEdit: true, canViewAll: true };
+  if (role === "VIEWER") return { role, menu, canShow: true, canView: true, canEdit: false, canViewAll: true };
+  return { role, menu, canShow: menu === "PAYROLL", canView: menu === "PAYROLL", canEdit: false, canViewAll: false };
+}
+
+async function rolePermissions(role: UserRole) {
+  const saved = await prisma.rolePermission.findMany({ where: { role } });
+  const savedByMenu = new Map(saved.map((permission) => [permission.menu, permission]));
+  return permissionMenus.map((menu) => ({ ...defaultRolePermission(role, menu), ...savedByMenu.get(menu) }));
+}
+
+async function menuPermission(c: Context, menu: PermissionMenu) {
+  const user = currentUser(c);
+  const permissions = await rolePermissions(user.role);
+  return permissions.find((permission) => permission.menu === menu) || defaultRolePermission(user.role, menu);
+}
 
 function hashPassword(password: string) {
   const salt = randomBytes(16).toString("base64url");
@@ -52,6 +73,13 @@ function publicUser(user: AppUser & { employee?: Employee | null }) {
       employeeNo: user.employee.employeeNo,
       name: user.employee.name
     } : null
+  };
+}
+
+async function publicUserWithPermissions(user: AppUser & { employee?: Employee | null }) {
+  return {
+    ...publicUser(user),
+    permissions: await rolePermissions(user.role)
   };
 }
 
@@ -89,15 +117,26 @@ function requireRole(c: Context, role: UserRole) {
   return null;
 }
 
-function readableEmployeeId(c: Context, requestedEmployeeId?: string | null) {
+async function readableEmployeeId(c: Context, requestedEmployeeId?: string | null) {
   const user = currentUser(c);
-  if (user.role !== "EMPLOYEE") return requestedEmployeeId || undefined;
+  const permission = await menuPermission(c, "PAYROLL");
+  if (!permission.canView) return "__none__";
+  if (permission.canViewAll) return requestedEmployeeId || undefined;
   return user.employeeId || "__none__";
 }
 
-function canAccessEmployee(c: Context, employeeId: string) {
+async function canAccessEmployee(c: Context, employeeId: string) {
   const user = currentUser(c);
-  return user.role !== "EMPLOYEE" || user.employeeId === employeeId;
+  const permission = await menuPermission(c, "PAYROLL");
+  return permission.canView && (permission.canViewAll || user.employeeId === employeeId);
+}
+
+async function requireMenu(c: Context, menu: PermissionMenu, action: "view" | "edit") {
+  const permission = await menuPermission(c, menu);
+  if ((action === "view" && !permission.canView) || (action === "edit" && !permission.canEdit)) {
+    return c.json({ message: "\u6a29\u9650\u304c\u3042\u308a\u307e\u305b\u3093" }, 403);
+  }
+  return null;
 }
 
 function periodToFiscalYear(period: string) {
@@ -350,7 +389,7 @@ api.post("/login", async (c) => {
     path: "/",
     maxAge: 60 * 60 * 12
   });
-  return c.json(publicUser(user));
+  return c.json(await publicUserWithPermissions(user));
 });
 
 api.post("/logout", (c) => {
@@ -360,7 +399,13 @@ api.post("/logout", (c) => {
 
 api.use("*", requireAuth);
 
-api.get("/me", (c) => c.json(currentUser(c)));
+api.get("/me", async (c) => {
+  const user = currentUser(c);
+  return c.json({
+    ...user,
+    permissions: await rolePermissions(user.role)
+  });
+});
 
 api.get("/users", async (c) => {
   const denied = requireRole(c, "ADMIN");
@@ -439,6 +484,46 @@ api.delete("/users/:id", async (c) => {
   return c.json(publicUser(user));
 });
 
+api.get("/role-permissions", async (c) => {
+  const denied = requireRole(c, "ADMIN");
+  if (denied) return denied;
+
+  const roles: UserRole[] = ["ADMIN", "ACCOUNTING", "VIEWER", "EMPLOYEE"];
+  const permissions = (await Promise.all(roles.map(rolePermissions))).flat();
+  return c.json(permissions);
+});
+
+api.put("/role-permissions", async (c) => {
+  const denied = requireRole(c, "ADMIN");
+  if (denied) return denied;
+
+  const body = await c.req.json<{ permissions?: Array<Record<string, unknown>> }>();
+  const permissions = Array.isArray(body.permissions) ? body.permissions : [];
+  const data = permissions
+    .map((permission) => {
+      const role = String(permission.role) as UserRole;
+      const menu = String(permission.menu) as PermissionMenu;
+      if (!["ADMIN", "ACCOUNTING", "VIEWER", "EMPLOYEE"].includes(role)) return null;
+      if (!permissionMenus.includes(menu)) return null;
+      return {
+        role,
+        menu,
+        canShow: permission.canShow === true,
+        canView: permission.canView === true,
+        canEdit: permission.canEdit === true,
+        canViewAll: permission.canViewAll === true
+      };
+    })
+    .filter((permission): permission is ReturnType<typeof defaultRolePermission> => !!permission);
+
+  await prisma.$transaction(data.map((permission) => prisma.rolePermission.upsert({
+    where: { role_menu: { role: permission.role, menu: permission.menu } },
+    update: permission,
+    create: permission
+  })));
+  return c.json((await Promise.all((["ADMIN", "ACCOUNTING", "VIEWER", "EMPLOYEE"] as UserRole[]).map(rolePermissions))).flat());
+});
+
 api.get("/settings", async (c) => {
   const currentFiscalYear = new Date().getFullYear();
   const settings = await prisma.companySetting.upsert({
@@ -450,8 +535,8 @@ api.get("/settings", async (c) => {
 });
 
 api.put("/settings", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
+  const permissionDenied = await requireMenu(c, "PAYROLL", "edit");
+  if (permissionDenied) return permissionDenied;
 
   const body = await c.req.json();
   const healthInsuranceRate = Number(body.healthInsuranceRate ?? Number(body.socialInsuranceRate || 0) / 2);
@@ -487,9 +572,14 @@ api.put("/settings", async (c) => {
   return c.json(settings);
 });
 
-api.get("/ses/company-setting", async (c) => {
-  const denied = requireRole(c, "VIEWER");
+api.use("/ses/*", async (c, next) => {
+  const action = c.req.method === "GET" || c.req.method === "HEAD" ? "view" : "edit";
+  const denied = await requireMenu(c, "SES", action);
   if (denied) return denied;
+  await next();
+});
+
+api.get("/ses/company-setting", async (c) => {
 
   const settings = await prisma.companySetting.upsert({
     where: { id: "default" },
@@ -500,8 +590,6 @@ api.get("/ses/company-setting", async (c) => {
 });
 
 api.put("/ses/company-setting", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
 
   const body = await c.req.json();
   const settings = await prisma.companySetting.upsert({
@@ -542,8 +630,8 @@ api.get("/fiscal-rates", async (c) => {
 });
 
 api.post("/fiscal-rates", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
+  const permissionDenied = await requireMenu(c, "PAYROLL", "edit");
+  if (permissionDenied) return permissionDenied;
 
   const body = await c.req.json();
   const healthInsuranceRate = Number(body.healthInsuranceRate ?? Number(body.socialInsuranceRate || 0) / 2);
@@ -587,8 +675,8 @@ api.get("/income-tax-brackets", async (c) => {
 });
 
 api.post("/income-tax-brackets/import", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
+  const permissionDenied = await requireMenu(c, "PAYROLL", "edit");
+  if (permissionDenied) return permissionDenied;
 
   const body = await c.req.json<{ csv?: string }>();
   const rows = parseCsv(body.csv || "");
@@ -612,11 +700,11 @@ api.post("/income-tax-brackets/import", async (c) => {
 
 api.get("/employees", async (c) => {
   const q = c.req.query("q") || "";
-  const user = currentUser(c);
+  const employeeId = await readableEmployeeId(c);
   const employees = await prisma.employee.findMany({
     where: {
       isActive: true,
-      id: user.role === "EMPLOYEE" ? user.employeeId || "__none__" : undefined,
+      id: employeeId || undefined,
       OR: q ? [{ name: { contains: q, mode: "insensitive" } }, { employeeNo: { contains: q, mode: "insensitive" } }] : undefined
     },
     orderBy: { employeeNo: "asc" }
@@ -625,8 +713,8 @@ api.get("/employees", async (c) => {
 });
 
 api.get("/customers", async (c) => {
-  const denied = requireRole(c, "VIEWER");
-  if (denied) return denied;
+  const permissionDenied = await requireMenu(c, "SES", "view");
+  if (permissionDenied) return permissionDenied;
 
   const q = c.req.query("q") || "";
   const customers = await prisma.customer.findMany({
@@ -644,8 +732,8 @@ api.get("/customers", async (c) => {
 });
 
 api.post("/customers", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
+  const permissionDenied = await requireMenu(c, "SES", "edit");
+  if (permissionDenied) return permissionDenied;
 
   const body = await c.req.json();
   const name = String(body.name || "").trim();
@@ -671,8 +759,8 @@ api.post("/customers", async (c) => {
 });
 
 api.put("/customers/:id", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
+  const permissionDenied = await requireMenu(c, "SES", "edit");
+  if (permissionDenied) return permissionDenied;
 
   const body = await c.req.json();
   const name = String(body.name || "").trim();
@@ -699,16 +787,14 @@ api.put("/customers/:id", async (c) => {
 });
 
 api.delete("/customers/:id", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
+  const permissionDenied = await requireMenu(c, "SES", "edit");
+  if (permissionDenied) return permissionDenied;
 
   await prisma.customer.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
   return c.json({ ok: true });
 });
 
 api.get("/ses/external-members", async (c) => {
-  const denied = requireRole(c, "VIEWER");
-  if (denied) return denied;
 
   const q = c.req.query("q") || "";
   const members = await prisma.sesExternalMember.findMany({
@@ -727,8 +813,6 @@ api.get("/ses/external-members", async (c) => {
 });
 
 api.post("/ses/external-members", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
 
   const body = await c.req.json();
   const name = String(body.name || "").trim();
@@ -751,8 +835,6 @@ api.post("/ses/external-members", async (c) => {
 });
 
 api.get("/ses/contracts", async (c) => {
-  const denied = requireRole(c, "VIEWER");
-  if (denied) return denied;
 
   const q = c.req.query("q") || "";
   const includeEnded = c.req.query("includeEnded") === "true";
@@ -839,8 +921,6 @@ function contractCustomerData(body: Record<string, unknown>) {
 }
 
 api.post("/ses/contracts", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
 
   const body = await c.req.json();
   const title = String(body.title || "").trim();
@@ -874,8 +954,6 @@ api.post("/ses/contracts", async (c) => {
 });
 
 api.put("/ses/contracts/:id", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
 
   const body = await c.req.json();
   const title = String(body.title || "").trim();
@@ -913,16 +991,12 @@ api.put("/ses/contracts/:id", async (c) => {
 });
 
 api.delete("/ses/contracts/:id", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
 
   await prisma.sesContract.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
   return c.json({ ok: true });
 });
 
 api.get("/ses/revenues", async (c) => {
-  const denied = requireRole(c, "VIEWER");
-  if (denied) return denied;
 
   const settings = await prisma.companySetting.upsert({
     where: { id: "default" },
@@ -1074,8 +1148,6 @@ async function revenueData(body: Record<string, unknown>) {
 }
 
 api.post("/ses/revenues", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
 
   try {
     const body = await c.req.json();
@@ -1095,8 +1167,6 @@ api.post("/ses/revenues", async (c) => {
 });
 
 api.put("/ses/revenues/:id", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
 
   try {
     const body = await c.req.json();
@@ -1117,8 +1187,6 @@ api.put("/ses/revenues/:id", async (c) => {
 });
 
 api.delete("/ses/revenues/:id", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
 
   await prisma.sesRevenue.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
   return c.json({ ok: true });
@@ -1151,8 +1219,6 @@ async function expenseData(body: Record<string, unknown>) {
 }
 
 api.post("/ses/expenses", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
 
   try {
     const body = await c.req.json();
@@ -1172,8 +1238,6 @@ api.post("/ses/expenses", async (c) => {
 });
 
 api.put("/ses/expenses/:id", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
 
   try {
     const body = await c.req.json();
@@ -1194,16 +1258,12 @@ api.put("/ses/expenses/:id", async (c) => {
 });
 
 api.delete("/ses/expenses/:id", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
 
   await prisma.sesExpense.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
   return c.json({ ok: true });
 });
 
 api.get("/ses/partner-costs", async (c) => {
-  const denied = requireRole(c, "VIEWER");
-  if (denied) return denied;
 
   const period = c.req.query("period") || previousYearMonthServer();
   if (!isPeriod(period)) return c.json({ message: "外注費対象月を指定してください" }, 400);
@@ -1257,8 +1317,6 @@ function partnerCostTitle(member: {
 }
 
 api.post("/ses/partner-costs", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
 
   const body = await c.req.json();
   const period = String(body.period || "");
@@ -1303,8 +1361,6 @@ api.post("/ses/partner-costs", async (c) => {
 });
 
 api.get("/ses/invoices", async (c) => {
-  const denied = requireRole(c, "VIEWER");
-  if (denied) return denied;
 
   const q = c.req.query("q") || "";
   const period = c.req.query("period") || "";
@@ -1463,8 +1519,6 @@ async function nextSesInvoiceNo(period: string) {
 }
 
 api.post("/ses/invoices/generate", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
 
   const body = await c.req.json();
   const contractId = nullableText(body.contractId);
@@ -1541,16 +1595,12 @@ api.post("/ses/invoices/generate", async (c) => {
 });
 
 api.delete("/ses/invoices/:id", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
 
   await prisma.sesInvoice.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
   return c.json({ ok: true });
 });
 
 api.get("/ses/invoices/:id/pdf", async (c) => {
-  const denied = requireRole(c, "VIEWER");
-  if (denied) return denied;
 
   const invoice = await prisma.sesInvoice.findUnique({
     where: { id: c.req.param("id") },
@@ -1605,8 +1655,8 @@ api.get("/ses/invoices/:id/pdf", async (c) => {
 });
 
 api.post("/employees", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
+  const permissionDenied = await requireMenu(c, "PAYROLL", "edit");
+  if (permissionDenied) return permissionDenied;
 
   const body = await c.req.json();
   const employee = await prisma.employee.create({
@@ -1627,8 +1677,8 @@ api.post("/employees", async (c) => {
 });
 
 api.put("/employees/:id", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
+  const permissionDenied = await requireMenu(c, "PAYROLL", "edit");
+  if (permissionDenied) return permissionDenied;
 
   const body = await c.req.json();
   const employee = await prisma.employee.update({
@@ -1650,8 +1700,8 @@ api.put("/employees/:id", async (c) => {
 });
 
 api.delete("/employees/:id", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
+  const permissionDenied = await requireMenu(c, "PAYROLL", "edit");
+  if (permissionDenied) return permissionDenied;
 
   await prisma.employee.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
   return c.json({ ok: true });
@@ -1659,7 +1709,7 @@ api.delete("/employees/:id", async (c) => {
 
 api.get("/payrolls", async (c) => {
   const period = c.req.query("period");
-  const employeeId = readableEmployeeId(c, c.req.query("employeeId"));
+  const employeeId = await readableEmployeeId(c, c.req.query("employeeId"));
   const q = c.req.query("q") || "";
   const payrolls = await prisma.payroll.findMany({
     where: {
@@ -1680,7 +1730,7 @@ api.get("/payrolls", async (c) => {
 
 api.get("/bonuses", async (c) => {
   const period = c.req.query("period");
-  const employeeId = readableEmployeeId(c, c.req.query("employeeId"));
+  const employeeId = await readableEmployeeId(c, c.req.query("employeeId"));
   const q = c.req.query("q") || "";
   const bonuses = await prisma.bonus.findMany({
     where: {
@@ -1700,8 +1750,8 @@ api.get("/bonuses", async (c) => {
 });
 
 api.post("/bonuses", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
+  const permissionDenied = await requireMenu(c, "PAYROLL", "edit");
+  if (permissionDenied) return permissionDenied;
 
   const body = await c.req.json();
   const period = String(body.period);
@@ -1780,7 +1830,7 @@ api.get("/bonuses/:id/pdf", async (c) => {
       where: { id: c.req.param("id") },
       include: { employee: true }
     });
-    if (!canAccessEmployee(c, bonus.employeeId)) {
+    if (!await canAccessEmployee(c, bonus.employeeId)) {
       return c.json({ message: "権限がありません" }, 403);
     }
     const pdf = await createBonusPdf(toBonusPdfInput(bonus));
@@ -1801,8 +1851,8 @@ api.get("/bonuses/:id/pdf", async (c) => {
 });
 
 api.get("/payrolls/latest-template", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
+  const permissionDenied = await requireMenu(c, "PAYROLL", "edit");
+  if (permissionDenied) return permissionDenied;
 
   const employeeId = c.req.query("employeeId") || "";
   const beforePeriod = c.req.query("beforePeriod") || "";
@@ -1936,8 +1986,8 @@ api.get("/payrolls/pdf-range", async (c) => {
 });
 
 api.post("/payrolls", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
+  const permissionDenied = await requireMenu(c, "PAYROLL", "edit");
+  if (permissionDenied) return permissionDenied;
 
   const body = await c.req.json();
   const period = String(body.period);
@@ -2076,7 +2126,7 @@ api.get("/payrolls/:id/pdf", async (c) => {
       where: { id: c.req.param("id") },
       include: { employee: true }
     });
-    if (!canAccessEmployee(c, payroll.employeeId)) {
+    if (!await canAccessEmployee(c, payroll.employeeId)) {
       return c.json({ message: "権限がありません" }, 403);
     }
     const pdf = await createPayslipPdf(toPayslipPdfInput(payroll));
@@ -2097,8 +2147,8 @@ api.get("/payrolls/:id/pdf", async (c) => {
 });
 
 api.post("/payrolls/:id/email", async (c) => {
-  const denied = requireRole(c, "ACCOUNTING");
-  if (denied) return denied;
+  const permissionDenied = await requireMenu(c, "PAYROLL", "edit");
+  if (permissionDenied) return permissionDenied;
 
   try {
     const payroll = await prisma.payroll.findUniqueOrThrow({

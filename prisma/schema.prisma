@@ -19,6 +19,11 @@ enum UserRole {
   EMPLOYEE
 }
 
+enum PermissionMenu {
+  PAYROLL
+  SES
+}
+
 enum SesBillingType {
   FIXED
   TIME_RANGE
@@ -74,6 +79,22 @@ model AppUser {
 
   @@index([role])
   @@index([employeeId])
+}
+
+model RolePermission {
+  id         String         @id @default(cuid())
+  role       UserRole
+  menu       PermissionMenu
+  canShow    Boolean        @default(true)
+  canView    Boolean        @default(true)
+  canEdit    Boolean        @default(false)
+  canViewAll Boolean        @default(false)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@unique([role, menu])
+  @@index([role])
+  @@index([menu])
 }
 
 model Payroll {

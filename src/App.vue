@@ -5,6 +5,7 @@ import SesManagement from "./components/SesManagement.vue";
 
 type PayType = "MONTHLY" | "HOURLY";
 type UserRole = "ADMIN" | "ACCOUNTING" | "VIEWER" | "EMPLOYEE";
+type PermissionMenu = "PAYROLL" | "SES";
 
 type Employee = {
   id: string;
@@ -105,6 +106,17 @@ type AppUser = {
   employeeId?: string | null;
   isActive: boolean;
   employee?: { id: string; employeeNo: string; name: string } | null;
+  permissions?: RolePermission[];
+};
+
+type RolePermission = {
+  id?: string;
+  role: UserRole;
+  menu: PermissionMenu;
+  canShow: boolean;
+  canView: boolean;
+  canEdit: boolean;
+  canViewAll: boolean;
 };
 
 const yen = new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", maximumFractionDigits: 0 });
@@ -157,6 +169,12 @@ const roleLabels: Record<UserRole, string> = {
   VIEWER: "閲覧のみ",
   EMPLOYEE: "社員本人"
 };
+const permissionRoles: UserRole[] = ["ADMIN", "ACCOUNTING", "VIEWER", "EMPLOYEE"];
+const permissionMenus: PermissionMenu[] = ["PAYROLL", "SES"];
+const menuLabels: Record<PermissionMenu, string> = {
+  PAYROLL: "\u7d66\u4e0e\u7ba1\u7406",
+  SES: "SES\u7ba1\u7406"
+};
 const loggedIn = ref(false);
 const loading = ref(false);
 const message = ref("");
@@ -173,6 +191,7 @@ const employees = ref<Employee[]>([]);
 const payrolls = ref<Payroll[]>([]);
 const bonuses = ref<Bonus[]>([]);
 const users = ref<AppUser[]>([]);
+const rolePermissions = ref<RolePermission[]>([]);
 const fiscalRates = ref<FiscalRate[]>([]);
 const incomeTaxBrackets = ref<IncomeTaxBracket[]>([]);
 const selectedEmployeeId = ref("");
@@ -235,10 +254,28 @@ const taxImport = reactive({
   csv: "fiscalYear,dependentCount,minTaxable,maxTaxable,taxAmount\n2026,0,0,88000,0\n2026,0,88001,99000,130\n2026,1,0,99000,0\n"
 });
 const roleRank: Record<UserRole, number> = { EMPLOYEE: 0, VIEWER: 1, ACCOUNTING: 2, ADMIN: 3 };
+function defaultPermission(role: UserRole, menu: PermissionMenu): RolePermission {
+  if (role === "ADMIN") return { role, menu, canShow: true, canView: true, canEdit: true, canViewAll: true };
+  if (role === "ACCOUNTING") return { role, menu, canShow: true, canView: true, canEdit: true, canViewAll: true };
+  if (role === "VIEWER") return { role, menu, canShow: true, canView: true, canEdit: false, canViewAll: true };
+  return { role, menu, canShow: menu === "PAYROLL", canView: menu === "PAYROLL", canEdit: false, canViewAll: false };
+}
+
+function permissionFor(menu: PermissionMenu) {
+  const role = me.value?.role || "EMPLOYEE";
+  return me.value?.permissions?.find((permission) => permission.menu === menu)
+    || rolePermissions.value.find((permission) => permission.role === role && permission.menu === menu)
+    || defaultPermission(role, menu);
+}
+
 const canManageUsers = computed(() => me.value?.role === "ADMIN");
-const canEditPayroll = computed(() => !!me.value && roleRank[me.value.role] >= roleRank.ACCOUNTING);
-const canViewAll = computed(() => !!me.value && me.value.role !== "EMPLOYEE");
-const canEditSes = computed(() => canEditPayroll.value);
+const canShowPayroll = computed(() => !!me.value && permissionFor("PAYROLL").canShow);
+const canViewPayroll = computed(() => !!me.value && permissionFor("PAYROLL").canView);
+const canEditPayroll = computed(() => !!me.value && permissionFor("PAYROLL").canEdit);
+const canViewAll = computed(() => !!me.value && permissionFor("PAYROLL").canViewAll);
+const canShowSes = computed(() => !!me.value && permissionFor("SES").canShow);
+const canViewSes = computed(() => !!me.value && permissionFor("SES").canView);
+const canEditSes = computed(() => !!me.value && permissionFor("SES").canEdit);
 const selectedEmployee = computed(() => employees.value.find((employee) => employee.id === selectedEmployeeId.value));
 const selectedPayroll = computed(() => payrolls.value.find((payroll) => payroll.employeeId === selectedEmployeeId.value));
 const selectedBonus = computed(() => bonuses.value.find((bonus) => bonus.employeeId === selectedEmployeeId.value));
@@ -318,6 +355,24 @@ function resetUserForm() {
     password: "",
     isActive: true
   });
+}
+
+function permissionRow(role: UserRole, menu: PermissionMenu) {
+  let permission = rolePermissions.value.find((item) => item.role === role && item.menu === menu);
+  if (!permission) {
+    permission = defaultPermission(role, menu);
+    rolePermissions.value.push(permission);
+  }
+  return permission;
+}
+
+function normalizeActiveMenu() {
+  if (activeMenu.value === "payroll" && !canShowPayroll.value && canShowSes.value) activeMenu.value = "ses";
+  if (activeMenu.value === "ses" && !canShowSes.value && canShowPayroll.value) activeMenu.value = "payroll";
+}
+
+async function refreshRolePermissions() {
+  rolePermissions.value = canManageUsers.value ? await request<RolePermission[]>("/role-permissions") : [];
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -472,6 +527,8 @@ async function refresh() {
     fiscalRates.value = fiscalRateData;
     incomeTaxBrackets.value = taxData;
     users.value = canManageUsers.value ? await request<AppUser[]>("/users") : [];
+    await refreshRolePermissions();
+    normalizeActiveMenu();
     if (!selectedEmployeeId.value && employees.value[0]) applyEmployee(employees.value[0]);
     const current = fiscalRateData.find((rate) => rate.fiscalYear === fiscalYear);
     if (current) applyRate(current);
@@ -548,6 +605,20 @@ async function saveUser() {
   message.value = "ユーザーを保存しました";
   resetUserForm();
   await refresh();
+}
+
+async function saveRolePermissions() {
+  if (!canManageUsers.value) return;
+  const permissions = permissionRoles.flatMap((role) => permissionMenus.map((menu) => permissionRow(role, menu)));
+  const saved = await request<RolePermission[]>("/role-permissions", {
+    method: "PUT",
+    body: JSON.stringify({ permissions })
+  });
+  rolePermissions.value = saved;
+  if (me.value) {
+    me.value.permissions = saved.filter((permission) => permission.role === me.value?.role);
+  }
+  message.value = "\u6a29\u9650\u8a2d\u5b9a\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f";
 }
 
 async function deactivateUser() {
@@ -845,11 +916,11 @@ onMounted(async () => {
     </header>
 
     <nav class="main-menu">
-      <button :class="{ active: activeMenu === 'payroll' }" @click="activeMenu = 'payroll'">給与管理</button>
-      <button v-if="canViewAll" :class="{ active: activeMenu === 'ses' }" @click="activeMenu = 'ses'">SES管理</button>
+      <button v-if="canShowPayroll" :class="{ active: activeMenu === 'payroll' }" @click="activeMenu = 'payroll'">給与管理</button>
+      <button v-if="canShowSes" :class="{ active: activeMenu === 'ses' }" @click="activeMenu = 'ses'">SES管理</button>
     </nav>
 
-    <section v-if="activeMenu === 'payroll'" class="filters">
+    <section v-if="activeMenu === 'payroll' && canViewPayroll" class="filters">
       <div class="filter-row search-row">
         <label>支給月<input v-model="period" type="month" @change="refresh" /></label>
         <label v-if="canViewAll">社員検索<input v-model="query" placeholder="氏名・社員番号" @keyup.enter="refresh" /></label>
@@ -865,7 +936,7 @@ onMounted(async () => {
       <span v-if="message" class="message">{{ message }}</span>
     </section>
 
-    <section v-if="activeMenu === 'payroll'" class="summary">
+    <section v-if="activeMenu === 'payroll' && canViewPayroll" class="summary">
       <div><span>社員数</span><strong>{{ employees.length }}名</strong></div>
       <div><span>総支給額</span><strong>{{ yen.format(totals.gross) }}</strong></div>
       <div><span>控除合計</span><strong>{{ yen.format(totals.deduction) }}</strong></div>
@@ -874,7 +945,7 @@ onMounted(async () => {
       <div><span>賞与差引額</span><strong>{{ yen.format(bonusTotals.net) }}</strong></div>
     </section>
 
-    <div v-if="activeMenu === 'payroll'" class="workspace">
+    <div v-if="activeMenu === 'payroll' && canViewPayroll" class="workspace">
       <section class="panel employee-list">
         <div class="panel-head" :class="sectionHeadClass('employees')" @click="toggleSection('employees')">
           <h2>社員</h2>
@@ -942,6 +1013,31 @@ onMounted(async () => {
             <strong>{{ user.name }}</strong>
             <span>{{ user.email }} / {{ roleLabels[user.role] }}{{ user.employee ? ` / ${user.employee.name}` : "" }} / {{ user.isActive ? "有効" : "停止" }}</span>
           </button>
+        </div>
+
+        <div v-if="canManageUsers" v-show="!collapsedSections.users" class="permission-table">
+          <div class="permission-head">
+            <strong>権限設定</strong>
+            <button class="primary" @click="saveRolePermissions"><Save :size="16" />権限保存</button>
+          </div>
+          <div class="permission-row header">
+            <span>権限</span>
+            <span>メニュー</span>
+            <span>表示</span>
+            <span>閲覧</span>
+            <span>更新</span>
+            <span>全件</span>
+          </div>
+          <div v-for="role in permissionRoles" :key="role" class="permission-group">
+            <div v-for="menu in permissionMenus" :key="`${role}-${menu}`" class="permission-row">
+              <span>{{ roleLabels[role] }}</span>
+              <span>{{ menuLabels[menu] }}</span>
+              <label class="check-cell"><input v-model="permissionRow(role, menu).canShow" type="checkbox" /></label>
+              <label class="check-cell"><input v-model="permissionRow(role, menu).canView" type="checkbox" /></label>
+              <label class="check-cell"><input v-model="permissionRow(role, menu).canEdit" type="checkbox" /></label>
+              <label class="check-cell"><input v-model="permissionRow(role, menu).canViewAll" type="checkbox" /></label>
+            </div>
+          </div>
         </div>
 
         <div v-if="!canEditPayroll" v-show="!collapsedSections.employeePayroll" class="empty">閲覧権限です。給与・賞与の保存操作はできません。</div>
@@ -1080,7 +1176,7 @@ onMounted(async () => {
     </div>
 
     <SesManagement
-      v-if="activeMenu === 'ses' && canViewAll"
+      v-if="activeMenu === 'ses' && canViewSes"
       :can-edit-ses="canEditSes"
       :message="sesMessage"
       @message="sesMessage = $event"

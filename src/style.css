@@ -674,6 +674,56 @@ p {
   padding: 0 8px 8px;
 }
 
+.permission-table {
+  display: grid;
+  gap: 6px;
+  margin: 0 8px 10px;
+  padding: 8px;
+  border: 1px solid #c9d0da;
+  background: #fff;
+}
+
+.permission-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.permission-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 1.1fr) minmax(96px, 1.1fr) repeat(4, minmax(54px, 0.6fr));
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px 0;
+  border-bottom: 1px solid #e3e7ee;
+}
+
+.permission-row.header {
+  color: #333;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.permission-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.check-cell {
+  justify-content: center;
+  min-height: 32px;
+  padding: 0;
+  background: transparent;
+}
+
+.check-cell input {
+  width: 16px;
+  height: 16px;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(260px, 1fr));
