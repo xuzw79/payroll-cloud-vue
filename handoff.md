@@ -288,3 +288,9 @@ Manual files / マニュアルファイル / 手册文件:
 | 日本語 | 中文 |
 | --- | --- |
 | ファビコンがブラウザキャッシュで更新されない問題に対応するため、`favicon.png` の参照URLにバージョンを付与し、`shortcut icon` と `apple-touch-icon` も追加しました。 | 为解决浏览器缓存导致 favicon 不更新的问题，已给 `favicon.png` 引用URL追加版本号，并追加 `shortcut icon` 与 `apple-touch-icon`。 |
+
+## 15. Release Update 2026-07-26-6 / リリース更新 / 发布更新
+
+| 日本語 | 中文 |
+| --- | --- |
+| Chromeが `/favicon.ico` を優先するケースに対応するため、`public/favicon.ico` を実ICO形式で生成し、HTMLの先頭で参照するようにしました。 | 为兼容 Chrome 优先读取 `/favicon.ico` 的情况，已生成真正 ICO 格式的 `public/favicon.ico`，并在 HTML 中优先引用。 |
