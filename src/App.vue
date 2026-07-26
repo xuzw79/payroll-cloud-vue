@@ -245,6 +245,7 @@ const loggedIn = ref(false);
 const loading = ref(false);
 const message = ref("");
 const sesMessage = ref("");
+const permissionMessage = ref("");
 const me = ref<AppUser | null>(null);
 const activeMenu = ref<"payroll" | "ses" | "users" | "permissions">("payroll");
 const query = ref("");
@@ -595,6 +596,7 @@ function applyUser(user?: AppUser) {
 }
 
 async function applyPermissionRole(role?: PermissionRoleMaster) {
+  permissionMessage.value = "";
   if (!role) {
     resetPermissionRoleForm();
     return;
@@ -774,42 +776,52 @@ async function saveUser() {
 async function saveRolePermissions() {
   if (!canManageUsers.value) return;
   if (!permissionRoleForm.id) {
-    message.value = "\u5148\u306b\u30ed\u30fc\u30eb\u3092\u4fdd\u5b58\u3057\u3066\u304f\u3060\u3055\u3044";
+    permissionMessage.value = "\u5148\u306b\u30ed\u30fc\u30eb\u3092\u4fdd\u5b58\u3057\u3066\u304f\u3060\u3055\u3044";
     return;
   }
-  const permissions = permissionMenus.map((menu) => permissionRow(permissionRoleForm.baseRole, menu));
-  const saved = await request<RolePermission[]>("/role-permissions", {
-    method: "PUT",
-    body: JSON.stringify({ permissionRoleId: permissionRoleForm.id, permissions })
-  });
-  rolePermissions.value = saved;
-  if (me.value) {
-    me.value.permissions = saved.filter((permission) => permission.role === me.value?.role);
+  permissionMessage.value = "";
+  try {
+    const permissions = permissionMenus.map((menu) => permissionRow(permissionRoleForm.baseRole, menu));
+    const saved = await request<RolePermission[]>("/role-permissions", {
+      method: "PUT",
+      body: JSON.stringify({ permissionRoleId: permissionRoleForm.id, permissions })
+    });
+    rolePermissions.value = saved;
+    if (me.value) {
+      me.value.permissions = saved.filter((permission) => permission.role === me.value?.role);
+    }
+    permissionMessage.value = "\u6a29\u9650\u8a2d\u5b9a\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f";
+  } catch (error) {
+    permissionMessage.value = error instanceof Error ? error.message : "\u6a29\u9650\u8a2d\u5b9a\u3092\u4fdd\u5b58\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f";
   }
-  message.value = "\u6a29\u9650\u8a2d\u5b9a\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f";
 }
 
 async function savePermissionRole() {
   if (!canManageUsers.value) return;
-  message.value = "";
+  permissionMessage.value = "";
   try {
     const method = permissionRoleForm.id ? "PUT" : "POST";
     const path = permissionRoleForm.id ? `/permission-roles/${permissionRoleForm.id}` : "/permission-roles";
     const saved = await request<PermissionRoleMaster>(path, { method, body: JSON.stringify(permissionRoleForm) });
     await refreshRolePermissions();
     await applyPermissionRole(saved);
-    message.value = "\u30ed\u30fc\u30eb\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f";
+    permissionMessage.value = "\u30ed\u30fc\u30eb\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f";
   } catch (error) {
-    message.value = error instanceof Error ? error.message : "\u30ed\u30fc\u30eb\u3092\u4fdd\u5b58\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f";
+    permissionMessage.value = error instanceof Error ? error.message : "\u30ed\u30fc\u30eb\u3092\u4fdd\u5b58\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f";
   }
 }
 
 async function deletePermissionRole() {
   if (!canManageUsers.value || !permissionRoleForm.id || !confirm("\u3053\u306e\u30ed\u30fc\u30eb\u3092\u975e\u8868\u793a\u306b\u3057\u307e\u3059\u304b\uff1f")) return;
-  await request(`/permission-roles/${permissionRoleForm.id}`, { method: "DELETE" });
-  resetPermissionRoleForm();
-  await refreshRolePermissions();
-  message.value = "\u30ed\u30fc\u30eb\u3092\u975e\u8868\u793a\u306b\u3057\u307e\u3057\u305f";
+  permissionMessage.value = "";
+  try {
+    await request(`/permission-roles/${permissionRoleForm.id}`, { method: "DELETE" });
+    resetPermissionRoleForm();
+    await refreshRolePermissions();
+    permissionMessage.value = "\u30ed\u30fc\u30eb\u3092\u975e\u8868\u793a\u306b\u3057\u307e\u3057\u305f";
+  } catch (error) {
+    permissionMessage.value = error instanceof Error ? error.message : "\u30ed\u30fc\u30eb\u3092\u975e\u8868\u793a\u306b\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f";
+  }
 }
 
 async function saveUserPermissions() {
@@ -1477,6 +1489,7 @@ onMounted(async () => {
               <button v-if="canEditPermissions" class="primary" @click="savePermissionRole"><Save :size="16" />ロール保存</button>
               <button v-if="canEditPermissions" class="primary" :disabled="!permissionRoleForm.id" @click="saveRolePermissions"><Save :size="16" />権限保存</button>
             </div>
+            <p v-if="permissionMessage" class="message full">{{ permissionMessage }}</p>
           </div>
 
           <div class="permission-table">
