@@ -136,6 +136,10 @@ type PermissionRoleMaster = {
   isActive: boolean;
 };
 
+type PublicSettings = {
+  systemName?: string | null;
+};
+
 type RolePermission = {
   id?: string;
   role: UserRole;
@@ -246,6 +250,7 @@ const loading = ref(false);
 const message = ref("");
 const sesMessage = ref("");
 const permissionMessage = ref("");
+const systemName = ref("給与管理クラウド");
 const me = ref<AppUser | null>(null);
 const activeMenu = ref<"payroll" | "ses" | "users" | "permissions">("payroll");
 const query = ref("");
@@ -533,6 +538,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new Error(error.message || "通信に失敗しました");
   }
   return response.json();
+}
+
+async function refreshPublicSettings() {
+  const settings = await request<PublicSettings>("/public-settings");
+  systemName.value = settings.systemName || "給与管理クラウド";
+  document.title = systemName.value;
 }
 
 function applyEmployee(employee?: Employee) {
@@ -1089,6 +1100,9 @@ function sectionHeadClass(id: string) {
 }
 
 onMounted(async () => {
+  await refreshPublicSettings().catch(() => {
+    document.title = systemName.value;
+  });
   try {
     me.value = await request<AppUser>("/me");
     loggedIn.value = true;
@@ -1105,7 +1119,7 @@ onMounted(async () => {
     <form class="login-panel" @submit.prevent="login">
       <div class="login-brand">
         <img src="/logo_rcloud.png" alt="R Cloud" />
-        <h1>給与管理クラウド</h1>
+        <h1>{{ systemName }}</h1>
       </div>
       <label>メールアドレス<input v-model="loginForm.email" type="email" autocomplete="username" required /></label>
       <label>パスワード<input v-model="loginForm.password" type="password" autocomplete="current-password" required /></label>
@@ -1119,7 +1133,7 @@ onMounted(async () => {
       <div class="brand">
         <img src="/logo_rcloud.png" alt="R Cloud" />
         <div>
-        <h1>給与管理クラウド</h1>
+        <h1>{{ systemName }}</h1>
         <p>{{ me ? `${me.name} / ${roleLabels[me.role]}` : "Vue + Hono + PostgreSQL / Railway" }}</p>
         </div>
       </div>
@@ -1570,6 +1584,7 @@ onMounted(async () => {
       :permissions="me?.permissions || []"
       :message="sesMessage"
       @message="sesMessage = $event"
+      @settings-updated="refreshPublicSettings"
     />
   </main>
 </template>

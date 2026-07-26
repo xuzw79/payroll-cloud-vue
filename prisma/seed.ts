@@ -10,6 +10,7 @@ async function main() {
     update: { currentFiscalYear: fiscalYear, fiscalClosingMonth: 3 },
     create: {
       id: "default",
+      systemName: "給与管理クラウド",
       currentFiscalYear: fiscalYear,
       fiscalClosingMonth: 3,
       overtimeRate: 1.25,

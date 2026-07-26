@@ -201,6 +201,7 @@ model Payroll {
 
 model CompanySetting {
   id                       String   @id @default("default")
+  systemName               String   @default("給与管理クラウド")
   currentFiscalYear        Int?
   fiscalClosingMonth       Int      @default(3)
   overtimeRate             Decimal  @db.Decimal(8, 6) @default(1.250000)

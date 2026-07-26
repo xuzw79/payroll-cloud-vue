@@ -294,3 +294,10 @@ Manual files / マニュアルファイル / 手册文件:
 | 日本語 | 中文 |
 | --- | --- |
 | Chromeが `/favicon.ico` を優先するケースに対応するため、`public/favicon.ico` を実ICO形式で生成し、HTMLの先頭で参照するようにしました。 | 为兼容 Chrome 优先读取 `/favicon.ico` 的情况，已生成真正 ICO 格式的 `public/favicon.ico`，并在 HTML 中优先引用。 |
+
+## 16. Release Update 2026-07-26-7 / リリース更新 / 发布更新
+
+| 日本語 | 中文 |
+| --- | --- |
+| `CompanySetting.systemName` を追加し、マスタ管理の自社情報からシステム名を設定できるようにしました。 | 已追加 `CompanySetting.systemName`，可以在主数据管理的自社信息中设置系统名称。 |
+| ログイン画面とヘッダーの「給与管理クラウド」は、公開設定API `/api/public-settings` から取得した値を表示します。 | 登录画面和页眉中的“給与管理クラウド”改为显示公开设置 API `/api/public-settings` 取得的值。 |

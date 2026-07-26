@@ -161,6 +161,7 @@ type RevenueResponse = {
 };
 
 type CompanySetting = {
+  systemName?: string | null;
   fiscalClosingMonth?: number | null;
   invoiceCompanyName?: string | null;
   invoicePostalCode?: string | null;
@@ -191,7 +192,7 @@ type ContractMemberForm = {
 };
 
 const props = defineProps<{ canEditSes: boolean; permissions?: RolePermission[]; message?: string }>();
-const emit = defineEmits<{ message: [value: string] }>();
+const emit = defineEmits<{ message: [value: string]; settingsUpdated: [] }>();
 
 function currentYearMonth() {
   return new Date().toISOString().slice(0, 7);
@@ -313,6 +314,7 @@ const externalMemberForm = reactive({
 });
 
 const companyForm = reactive({
+  systemName: "",
   fiscalClosingMonth: 3,
   invoiceCompanyName: "",
   invoicePostalCode: "",
@@ -711,6 +713,7 @@ function showError(error: unknown, fallback: string) {
 async function refreshCompanySetting() {
   const setting = await request<CompanySetting>("/ses/company-setting");
   Object.assign(companyForm, {
+    systemName: setting.systemName || "給与管理クラウド",
     fiscalClosingMonth: setting.fiscalClosingMonth || 3,
     invoiceCompanyName: setting.invoiceCompanyName || "",
     invoicePostalCode: setting.invoicePostalCode || "",
@@ -847,6 +850,7 @@ async function saveCompanySetting() {
   try {
     await request<CompanySetting>("/ses/company-setting", { method: "PUT", body: JSON.stringify(companyForm) });
     emit("message", "請求書用の自社情報を保存しました");
+    emit("settingsUpdated");
     await refreshRevenues();
   } catch (error) {
     showError(error, "請求書用の自社情報を保存できませんでした");
@@ -1455,6 +1459,7 @@ onMounted(async () => {
           <h3>自社情報</h3>
           <div class="form-grid compact">
             <label>決算月<input v-model.number="companyForm.fiscalClosingMonth" type="number" min="1" max="12" /></label>
+            <label>システム名<input v-model="companyForm.systemName" /></label>
             <label>会社名<input v-model="companyForm.invoiceCompanyName" /></label>
             <label>郵便番号<input v-model="companyForm.invoicePostalCode" /></label>
             <label class="wide">住所<input v-model="companyForm.invoiceAddress" /></label>

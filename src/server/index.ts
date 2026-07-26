@@ -436,6 +436,15 @@ api.post("/login", async (c) => {
   return c.json(await publicUserWithPermissions(user));
 });
 
+api.get("/public-settings", async (c) => {
+  const settings = await prisma.companySetting.upsert({
+    where: { id: "default" },
+    update: {},
+    create: { id: "default", currentFiscalYear: new Date().getFullYear() }
+  });
+  return c.json({ systemName: settings.systemName || "給与管理クラウド" });
+});
+
 api.post("/logout", (c) => {
   deleteCookie(c, cookieName, { path: "/" });
   return c.json({ ok: true });
@@ -756,6 +765,7 @@ api.put("/ses/company-setting", async (c) => {
   const settings = await prisma.companySetting.upsert({
     where: { id: "default" },
     update: {
+      systemName: nullableText(body.systemName) || "給与管理クラウド",
       invoiceCompanyName: nullableText(body.invoiceCompanyName),
       invoicePostalCode: nullableText(body.invoicePostalCode),
       invoiceAddress: nullableText(body.invoiceAddress),
@@ -769,6 +779,7 @@ api.put("/ses/company-setting", async (c) => {
     },
     create: {
       id: "default",
+      systemName: nullableText(body.systemName) || "給与管理クラウド",
       currentFiscalYear: new Date().getFullYear(),
       invoiceCompanyName: nullableText(body.invoiceCompanyName),
       invoicePostalCode: nullableText(body.invoicePostalCode),
