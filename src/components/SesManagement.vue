@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { Download, Plus, Save, Search, Trash2 } from "lucide-vue-next";
 
 type SesSubMenu = "customers" | "projects" | "invoices" | "masters" | "revenue" | "partnerCosts" | "profit";
+type PermissionMenu = "SES_CUSTOMERS" | "SES_PROJECTS" | "SES_INVOICES" | "SES_PARTNER_COSTS" | "SES_REVENUE" | "SES_MASTERS" | "SES_PROFIT";
+type RolePermission = { menu: string; canShow: boolean; canView: boolean; canEdit: boolean; canViewAll: boolean };
 type MemberSource = "NONE" | "EMPLOYEE" | "EXTERNAL";
 type BillingType = "FIXED" | "TIME_RANGE" | "HOURLY";
 type ContractType = "SALES" | "PURCHASE";
@@ -188,7 +190,7 @@ type ContractMemberForm = {
   memo: string;
 };
 
-const props = defineProps<{ canEditSes: boolean; message?: string }>();
+const props = defineProps<{ canEditSes: boolean; permissions?: RolePermission[]; message?: string }>();
 const emit = defineEmits<{ message: [value: string] }>();
 
 function currentYearMonth() {
@@ -210,6 +212,16 @@ const subMenus: { key: SesSubMenu; label: string; description: string }[] = [
   { key: "partnerCosts", label: "外注費入力", description: "協力会社への月額支払を登録します。" },
   { key: "profit", label: "個人別利益", description: "売上、給与、外注費から利益を確認します。" }
 ];
+
+const sesSubMenuPermissions: Record<SesSubMenu, PermissionMenu> = {
+  customers: "SES_CUSTOMERS",
+  projects: "SES_PROJECTS",
+  invoices: "SES_INVOICES",
+  masters: "SES_MASTERS",
+  revenue: "SES_REVENUE",
+  partnerCosts: "SES_PARTNER_COSTS",
+  profit: "SES_PROFIT"
+};
 
 const activeSubMenu = ref<SesSubMenu>("customers");
 const loading = ref(false);
@@ -246,7 +258,16 @@ const invoiceWorkHours = reactive<Record<string, number | null>>({});
 const collapsedSesSections = reactive<Record<string, boolean>>({});
 let revenueFiscalYearInitialized = false;
 
-const activeMenuInfo = computed(() => subMenus.find((menu) => menu.key === activeSubMenu.value) || subMenus[0]);
+const activeMenuInfo = computed(() => visibleSubMenus.value.find((menu) => menu.key === activeSubMenu.value) || visibleSubMenus.value[0] || subMenus[0]);
+function canShowSesSubMenu(key: SesSubMenu) {
+  return props.permissions?.find((permission) => permission.menu === sesSubMenuPermissions[key])?.canShow !== false;
+}
+const visibleSubMenus = computed(() => subMenus.filter((menu) => canShowSesSubMenu(menu.key)));
+watch(visibleSubMenus, (menus) => {
+  if (menus.length && !menus.some((menu) => menu.key === activeSubMenu.value)) {
+    activeSubMenu.value = menus[0].key;
+  }
+}, { immediate: true });
 const selectedCustomerExternalMembers = computed(() => externalMembers.value.filter((member) => member.customerId === customerForm.id));
 const salesContracts = computed(() => contracts.value.filter((contract) => contract.contractType === "SALES"));
 const invoiceableSalesContracts = computed(() => salesContracts.value.filter((contract) => !!contract.customerId && !!contract.customer));
@@ -984,7 +1005,7 @@ onMounted(async () => {
   <div class="ses-workspace">
     <nav class="sub-menu" aria-label="SES管理メニュー">
       <button
-        v-for="menu in subMenus"
+        v-for="menu in visibleSubMenus"
         :key="menu.key"
         :class="{ active: activeSubMenu === menu.key }"
         @click="activeSubMenu = menu.key"

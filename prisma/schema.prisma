@@ -21,7 +21,23 @@ enum UserRole {
 
 enum PermissionMenu {
   PAYROLL
+  PAYROLL_EMPLOYEES
+  PAYROLL_INPUT
+  BONUS_INPUT
+  RATES
+  TAX_IMPORT
+  PAYSLIP
+  BONUS_SLIP
   SES
+  SES_CUSTOMERS
+  SES_PROJECTS
+  SES_INVOICES
+  SES_PARTNER_COSTS
+  SES_REVENUE
+  SES_MASTERS
+  SES_PROFIT
+  USERS
+  PERMISSIONS
 }
 
 enum SesBillingType {
@@ -76,6 +92,7 @@ model AppUser {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   employee     Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  permissions  UserPermission[]
 
   @@index([role])
   @@index([employeeId])
@@ -94,6 +111,23 @@ model RolePermission {
 
   @@unique([role, menu])
   @@index([role])
+  @@index([menu])
+}
+
+model UserPermission {
+  id         String         @id @default(cuid())
+  userId     String
+  menu       PermissionMenu
+  canShow    Boolean        @default(true)
+  canView    Boolean        @default(true)
+  canEdit    Boolean        @default(false)
+  canViewAll Boolean        @default(false)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  user       AppUser        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, menu])
+  @@index([userId])
   @@index([menu])
 }
 

@@ -25,13 +25,37 @@ const roleRank: Record<UserRole, number> = {
   ADMIN: 3
 };
 
-const permissionMenus: PermissionMenu[] = ["PAYROLL", "SES"];
+const permissionMenus: PermissionMenu[] = [
+  "PAYROLL",
+  "PAYROLL_EMPLOYEES",
+  "PAYROLL_INPUT",
+  "BONUS_INPUT",
+  "RATES",
+  "TAX_IMPORT",
+  "PAYSLIP",
+  "BONUS_SLIP",
+  "SES",
+  "SES_CUSTOMERS",
+  "SES_PROJECTS",
+  "SES_INVOICES",
+  "SES_PARTNER_COSTS",
+  "SES_REVENUE",
+  "SES_MASTERS",
+  "SES_PROFIT",
+  "USERS",
+  "PERMISSIONS"
+];
+
+const payrollMenus = new Set<PermissionMenu>(["PAYROLL", "PAYROLL_EMPLOYEES", "PAYROLL_INPUT", "BONUS_INPUT", "RATES", "TAX_IMPORT", "PAYSLIP", "BONUS_SLIP"]);
+const sesMenus = new Set<PermissionMenu>(["SES", "SES_CUSTOMERS", "SES_PROJECTS", "SES_INVOICES", "SES_PARTNER_COSTS", "SES_REVENUE", "SES_MASTERS", "SES_PROFIT"]);
 
 function defaultRolePermission(role: UserRole, menu: PermissionMenu) {
   if (role === "ADMIN") return { role, menu, canShow: true, canView: true, canEdit: true, canViewAll: true };
+  if (menu === "USERS" || menu === "PERMISSIONS") return { role, menu, canShow: false, canView: false, canEdit: false, canViewAll: false };
   if (role === "ACCOUNTING") return { role, menu, canShow: true, canView: true, canEdit: true, canViewAll: true };
   if (role === "VIEWER") return { role, menu, canShow: true, canView: true, canEdit: false, canViewAll: true };
-  return { role, menu, canShow: menu === "PAYROLL", canView: menu === "PAYROLL", canEdit: false, canViewAll: false };
+  const canUse = payrollMenus.has(menu);
+  return { role, menu, canShow: canUse, canView: canUse, canEdit: false, canViewAll: false };
 }
 
 async function rolePermissions(role: UserRole) {
@@ -42,8 +66,15 @@ async function rolePermissions(role: UserRole) {
 
 async function menuPermission(c: Context, menu: PermissionMenu) {
   const user = currentUser(c);
-  const permissions = await rolePermissions(user.role);
+  const permissions = await effectiveUserPermissions(user.id, user.role);
   return permissions.find((permission) => permission.menu === menu) || defaultRolePermission(user.role, menu);
+}
+
+async function effectiveUserPermissions(userId: string, role: UserRole) {
+  const base = await rolePermissions(role);
+  const overrides = await prisma.userPermission.findMany({ where: { userId } });
+  const overrideByMenu = new Map(overrides.map((permission) => [permission.menu, permission]));
+  return base.map((permission) => ({ ...permission, ...overrideByMenu.get(permission.menu), role }));
 }
 
 function hashPassword(password: string) {
@@ -79,7 +110,7 @@ function publicUser(user: AppUser & { employee?: Employee | null }) {
 async function publicUserWithPermissions(user: AppUser & { employee?: Employee | null }) {
   return {
     ...publicUser(user),
-    permissions: await rolePermissions(user.role)
+    permissions: await effectiveUserPermissions(user.id, user.role)
   };
 }
 
@@ -403,7 +434,7 @@ api.get("/me", async (c) => {
   const user = currentUser(c);
   return c.json({
     ...user,
-    permissions: await rolePermissions(user.role)
+    permissions: await effectiveUserPermissions(user.id, user.role)
   });
 });
 
@@ -522,6 +553,44 @@ api.put("/role-permissions", async (c) => {
     create: permission
   })));
   return c.json((await Promise.all((["ADMIN", "ACCOUNTING", "VIEWER", "EMPLOYEE"] as UserRole[]).map(rolePermissions))).flat());
+});
+
+api.get("/users/:id/permissions", async (c) => {
+  const denied = requireRole(c, "ADMIN");
+  if (denied) return denied;
+
+  const user = await prisma.appUser.findUniqueOrThrow({ where: { id: c.req.param("id") } });
+  return c.json(await effectiveUserPermissions(user.id, user.role));
+});
+
+api.put("/users/:id/permissions", async (c) => {
+  const denied = requireRole(c, "ADMIN");
+  if (denied) return denied;
+
+  const user = await prisma.appUser.findUniqueOrThrow({ where: { id: c.req.param("id") } });
+  const body = await c.req.json<{ permissions?: Array<Record<string, unknown>> }>();
+  const permissions = Array.isArray(body.permissions) ? body.permissions : [];
+  const data = permissions
+    .map((permission) => {
+      const menu = String(permission.menu) as PermissionMenu;
+      if (!permissionMenus.includes(menu)) return null;
+      return {
+        userId: user.id,
+        menu,
+        canShow: permission.canShow === true,
+        canView: permission.canView === true,
+        canEdit: permission.canEdit === true,
+        canViewAll: permission.canViewAll === true
+      };
+    })
+    .filter((permission): permission is { userId: string; menu: PermissionMenu; canShow: boolean; canView: boolean; canEdit: boolean; canViewAll: boolean } => !!permission);
+
+  await prisma.$transaction(data.map((permission) => prisma.userPermission.upsert({
+    where: { userId_menu: { userId: permission.userId, menu: permission.menu } },
+    update: permission,
+    create: permission
+  })));
+  return c.json(await effectiveUserPermissions(user.id, user.role));
 });
 
 api.get("/settings", async (c) => {

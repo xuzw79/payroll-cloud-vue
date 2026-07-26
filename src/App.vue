@@ -5,7 +5,25 @@ import SesManagement from "./components/SesManagement.vue";
 
 type PayType = "MONTHLY" | "HOURLY";
 type UserRole = "ADMIN" | "ACCOUNTING" | "VIEWER" | "EMPLOYEE";
-type PermissionMenu = "PAYROLL" | "SES";
+type PermissionMenu =
+  | "PAYROLL"
+  | "PAYROLL_EMPLOYEES"
+  | "PAYROLL_INPUT"
+  | "BONUS_INPUT"
+  | "RATES"
+  | "TAX_IMPORT"
+  | "PAYSLIP"
+  | "BONUS_SLIP"
+  | "SES"
+  | "SES_CUSTOMERS"
+  | "SES_PROJECTS"
+  | "SES_INVOICES"
+  | "SES_PARTNER_COSTS"
+  | "SES_REVENUE"
+  | "SES_MASTERS"
+  | "SES_PROFIT"
+  | "USERS"
+  | "PERMISSIONS";
 
 type Employee = {
   id: string;
@@ -170,17 +188,52 @@ const roleLabels: Record<UserRole, string> = {
   EMPLOYEE: "社員本人"
 };
 const permissionRoles: UserRole[] = ["ADMIN", "ACCOUNTING", "VIEWER", "EMPLOYEE"];
-const permissionMenus: PermissionMenu[] = ["PAYROLL", "SES"];
+const permissionMenus: PermissionMenu[] = [
+  "PAYROLL",
+  "PAYROLL_EMPLOYEES",
+  "PAYROLL_INPUT",
+  "BONUS_INPUT",
+  "RATES",
+  "TAX_IMPORT",
+  "PAYSLIP",
+  "BONUS_SLIP",
+  "SES",
+  "SES_CUSTOMERS",
+  "SES_PROJECTS",
+  "SES_INVOICES",
+  "SES_PARTNER_COSTS",
+  "SES_REVENUE",
+  "SES_MASTERS",
+  "SES_PROFIT",
+  "USERS",
+  "PERMISSIONS"
+];
 const menuLabels: Record<PermissionMenu, string> = {
   PAYROLL: "\u7d66\u4e0e\u7ba1\u7406",
-  SES: "SES\u7ba1\u7406"
+  PAYROLL_EMPLOYEES: "\u793e\u54e1\u4e00\u89a7",
+  PAYROLL_INPUT: "\u7d66\u4e0e\u5165\u529b",
+  BONUS_INPUT: "\u8cde\u4e0e\u5165\u529b",
+  RATES: "\u5e74\u5ea6\u6599\u7387",
+  TAX_IMPORT: "\u6240\u5f97\u7a0e\u8868\u30a4\u30f3\u30dd\u30fc\u30c8",
+  PAYSLIP: "\u7d66\u4e0e\u660e\u7d30",
+  BONUS_SLIP: "\u8cde\u4e0e\u660e\u7d30",
+  SES: "SES\u7ba1\u7406",
+  SES_CUSTOMERS: "\u53d6\u5f15\u5148\u7ba1\u7406",
+  SES_PROJECTS: "\u6848\u4ef6\u30fb\u5951\u7d04\u7ba1\u7406",
+  SES_INVOICES: "\u8acb\u6c42\u7ba1\u7406",
+  SES_PARTNER_COSTS: "\u5916\u6ce8\u8cbb\u5165\u529b",
+  SES_REVENUE: "\u5e74\u9593\u58f2\u4e0a",
+  SES_MASTERS: "\u30de\u30b9\u30bf\u7ba1\u7406",
+  SES_PROFIT: "\u500b\u4eba\u5225\u5229\u76ca",
+  USERS: "\u30e6\u30fc\u30b6\u30fc\u7ba1\u7406",
+  PERMISSIONS: "\u6a29\u9650\u7ba1\u7406"
 };
 const loggedIn = ref(false);
 const loading = ref(false);
 const message = ref("");
 const sesMessage = ref("");
 const me = ref<AppUser | null>(null);
-const activeMenu = ref<"payroll" | "ses">("payroll");
+const activeMenu = ref<"payroll" | "ses" | "users" | "permissions">("payroll");
 const query = ref("");
 const period = ref(today);
 const pdfRangeStart = ref(today);
@@ -192,6 +245,7 @@ const payrolls = ref<Payroll[]>([]);
 const bonuses = ref<Bonus[]>([]);
 const users = ref<AppUser[]>([]);
 const rolePermissions = ref<RolePermission[]>([]);
+const userPermissions = ref<RolePermission[]>([]);
 const fiscalRates = ref<FiscalRate[]>([]);
 const incomeTaxBrackets = ref<IncomeTaxBracket[]>([]);
 const selectedEmployeeId = ref("");
@@ -256,9 +310,11 @@ const taxImport = reactive({
 const roleRank: Record<UserRole, number> = { EMPLOYEE: 0, VIEWER: 1, ACCOUNTING: 2, ADMIN: 3 };
 function defaultPermission(role: UserRole, menu: PermissionMenu): RolePermission {
   if (role === "ADMIN") return { role, menu, canShow: true, canView: true, canEdit: true, canViewAll: true };
+  if (menu === "USERS" || menu === "PERMISSIONS") return { role, menu, canShow: false, canView: false, canEdit: false, canViewAll: false };
   if (role === "ACCOUNTING") return { role, menu, canShow: true, canView: true, canEdit: true, canViewAll: true };
   if (role === "VIEWER") return { role, menu, canShow: true, canView: true, canEdit: false, canViewAll: true };
-  return { role, menu, canShow: menu === "PAYROLL", canView: menu === "PAYROLL", canEdit: false, canViewAll: false };
+  const canUse = menu.startsWith("PAYROLL") || menu === "BONUS_INPUT" || menu === "RATES" || menu === "TAX_IMPORT" || menu === "PAYSLIP" || menu === "BONUS_SLIP";
+  return { role, menu, canShow: canUse, canView: canUse, canEdit: false, canViewAll: false };
 }
 
 function permissionFor(menu: PermissionMenu) {
@@ -266,6 +322,10 @@ function permissionFor(menu: PermissionMenu) {
   return me.value?.permissions?.find((permission) => permission.menu === menu)
     || rolePermissions.value.find((permission) => permission.role === role && permission.menu === menu)
     || defaultPermission(role, menu);
+}
+
+function canShowMenu(menu: PermissionMenu) {
+  return permissionFor(menu).canShow;
 }
 
 const canManageUsers = computed(() => me.value?.role === "ADMIN");
@@ -276,6 +336,12 @@ const canViewAll = computed(() => !!me.value && permissionFor("PAYROLL").canView
 const canShowSes = computed(() => !!me.value && permissionFor("SES").canShow);
 const canViewSes = computed(() => !!me.value && permissionFor("SES").canView);
 const canEditSes = computed(() => !!me.value && permissionFor("SES").canEdit);
+const canShowUsers = computed(() => !!me.value && permissionFor("USERS").canShow);
+const canViewUsers = computed(() => !!me.value && permissionFor("USERS").canView);
+const canEditUsers = computed(() => !!me.value && permissionFor("USERS").canEdit);
+const canShowPermissions = computed(() => !!me.value && permissionFor("PERMISSIONS").canShow);
+const canViewPermissions = computed(() => !!me.value && permissionFor("PERMISSIONS").canView);
+const canEditPermissions = computed(() => !!me.value && permissionFor("PERMISSIONS").canEdit);
 const selectedEmployee = computed(() => employees.value.find((employee) => employee.id === selectedEmployeeId.value));
 const selectedPayroll = computed(() => payrolls.value.find((payroll) => payroll.employeeId === selectedEmployeeId.value));
 const selectedBonus = computed(() => bonuses.value.find((bonus) => bonus.employeeId === selectedEmployeeId.value));
@@ -355,6 +421,7 @@ function resetUserForm() {
     password: "",
     isActive: true
   });
+  userPermissions.value = permissionMenus.map((menu) => ({ ...permissionRow("VIEWER", menu), role: "VIEWER" }));
 }
 
 function permissionRow(role: UserRole, menu: PermissionMenu) {
@@ -366,13 +433,36 @@ function permissionRow(role: UserRole, menu: PermissionMenu) {
   return permission;
 }
 
+function userPermissionRow(menu: PermissionMenu) {
+  let permission = userPermissions.value.find((item) => item.menu === menu);
+  if (!permission) {
+    permission = { ...permissionRow(userForm.role, menu), role: userForm.role };
+    userPermissions.value.push(permission);
+  }
+  return permission;
+}
+
 function normalizeActiveMenu() {
   if (activeMenu.value === "payroll" && !canShowPayroll.value && canShowSes.value) activeMenu.value = "ses";
   if (activeMenu.value === "ses" && !canShowSes.value && canShowPayroll.value) activeMenu.value = "payroll";
+  if (activeMenu.value === "users" && !canShowUsers.value && canShowPayroll.value) activeMenu.value = "payroll";
+  if (activeMenu.value === "permissions" && !canShowPermissions.value && canShowPayroll.value) activeMenu.value = "payroll";
 }
 
 async function refreshRolePermissions() {
   rolePermissions.value = canManageUsers.value ? await request<RolePermission[]>("/role-permissions") : [];
+}
+
+async function refreshUserPermissions() {
+  if (!canManageUsers.value || !userForm.id) {
+    userPermissions.value = permissionMenus.map((menu) => ({ ...permissionRow(userForm.role, menu), role: userForm.role }));
+    return;
+  }
+  userPermissions.value = await request<RolePermission[]>(`/users/${userForm.id}/permissions`);
+}
+
+function onUserRoleChange() {
+  userPermissions.value = permissionMenus.map((menu) => ({ ...permissionRow(userForm.role, menu), role: userForm.role }));
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -444,6 +534,7 @@ function applyUser(user?: AppUser) {
     password: "",
     isActive: user.isActive
   });
+  void refreshUserPermissions();
 }
 
 function applyRate(rate: FiscalRate) {
@@ -594,7 +685,7 @@ async function saveUser() {
   }
   const method = userForm.id ? "PUT" : "POST";
   const path = userForm.id ? `/users/${userForm.id}` : "/users";
-  await request<AppUser>(path, {
+  const saved = await request<AppUser>(path, {
     method,
     body: JSON.stringify({
       ...userForm,
@@ -603,8 +694,8 @@ async function saveUser() {
     })
   });
   message.value = "ユーザーを保存しました";
-  resetUserForm();
   await refresh();
+  applyUser(saved);
 }
 
 async function saveRolePermissions() {
@@ -619,6 +710,19 @@ async function saveRolePermissions() {
     me.value.permissions = saved.filter((permission) => permission.role === me.value?.role);
   }
   message.value = "\u6a29\u9650\u8a2d\u5b9a\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f";
+}
+
+async function saveUserPermissions() {
+  if (!canManageUsers.value || !userForm.id) return;
+  const saved = await request<RolePermission[]>(`/users/${userForm.id}/permissions`, {
+    method: "PUT",
+    body: JSON.stringify({ permissions: permissionMenus.map((menu) => userPermissionRow(menu)) })
+  });
+  userPermissions.value = saved;
+  if (me.value?.id === userForm.id) {
+    me.value.permissions = saved;
+  }
+  message.value = "\u30e6\u30fc\u30b6\u30fc\u500b\u5225\u6a29\u9650\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f";
 }
 
 async function deactivateUser() {
@@ -918,6 +1022,8 @@ onMounted(async () => {
     <nav class="main-menu">
       <button v-if="canShowPayroll" :class="{ active: activeMenu === 'payroll' }" @click="activeMenu = 'payroll'">給与管理</button>
       <button v-if="canShowSes" :class="{ active: activeMenu === 'ses' }" @click="activeMenu = 'ses'">SES管理</button>
+      <button v-if="canShowUsers" :class="{ active: activeMenu === 'users' }" @click="activeMenu = 'users'">ユーザー管理</button>
+      <button v-if="canShowPermissions" :class="{ active: activeMenu === 'permissions' }" @click="activeMenu = 'permissions'">権限管理</button>
     </nav>
 
     <section v-if="activeMenu === 'payroll' && canViewPayroll" class="filters">
@@ -946,7 +1052,7 @@ onMounted(async () => {
     </section>
 
     <div v-if="activeMenu === 'payroll' && canViewPayroll" class="workspace">
-      <section class="panel employee-list">
+      <section v-if="canShowMenu('PAYROLL_EMPLOYEES')" class="panel employee-list">
         <div class="panel-head" :class="sectionHeadClass('employees')" @click="toggleSection('employees')">
           <h2>社員</h2>
           <button v-if="canEditPayroll" @click.stop="applyEmployee()"><Plus :size="16" />追加</button>
@@ -965,8 +1071,8 @@ onMounted(async () => {
       </section>
 
       <section class="panel">
-        <div class="panel-head" :class="sectionHeadClass('employeePayroll')" @click="toggleSection('employeePayroll')"><h2>社員・給与入力</h2></div>
-        <div v-if="canEditPayroll" v-show="!collapsedSections.employeePayroll" class="form-grid">
+        <div v-if="canShowMenu('PAYROLL_INPUT')" class="panel-head" :class="sectionHeadClass('employeePayroll')" @click="toggleSection('employeePayroll')"><h2>社員・給与入力</h2></div>
+        <div v-if="canEditPayroll && canShowMenu('PAYROLL_INPUT')" v-show="!collapsedSections.employeePayroll" class="form-grid">
           <label>社員番号<input v-model="employeeForm.employeeNo" /></label>
           <label>氏名<input v-model="employeeForm.name" /></label>
           <label>職位<input v-model="employeeForm.position" /></label>
@@ -983,12 +1089,12 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div v-if="canManageUsers" class="divider"></div>
-        <div v-if="canManageUsers" class="panel-head" :class="sectionHeadClass('users')" @click="toggleSection('users')">
+        <div v-if="false && canManageUsers" class="divider"></div>
+        <div v-if="false && canManageUsers" class="panel-head" :class="sectionHeadClass('users')" @click="toggleSection('users')">
           <h2>ユーザー権限管理</h2>
           <button @click.stop="applyUser()"><Plus :size="16" />ユーザー追加</button>
         </div>
-        <div v-if="canManageUsers" v-show="!collapsedSections.users" class="form-grid">
+        <div v-if="false && canManageUsers" v-show="!collapsedSections.users" class="form-grid">
           <label>メール<input v-model="userForm.email" type="email" /></label>
           <label>氏名<input v-model="userForm.name" /></label>
           <label>ロール<select v-model="userForm.role">
@@ -1008,14 +1114,14 @@ onMounted(async () => {
             <button class="primary" @click="saveUser"><Save :size="16" />ユーザー保存</button>
           </div>
         </div>
-        <div v-if="canManageUsers" v-show="!collapsedSections.users" class="user-list">
+        <div v-if="false && canManageUsers" v-show="!collapsedSections.users" class="user-list">
           <button v-for="user in users" :key="user.id" class="user-item" @click="applyUser(user)">
             <strong>{{ user.name }}</strong>
             <span>{{ user.email }} / {{ roleLabels[user.role] }}{{ user.employee ? ` / ${user.employee.name}` : "" }} / {{ user.isActive ? "有効" : "停止" }}</span>
           </button>
         </div>
 
-        <div v-if="canManageUsers" v-show="!collapsedSections.users" class="permission-table">
+        <div v-if="false && canManageUsers" v-show="!collapsedSections.users" class="permission-table">
           <div class="permission-head">
             <strong>権限設定</strong>
             <button class="primary" @click="saveRolePermissions"><Save :size="16" />権限保存</button>
@@ -1040,10 +1146,10 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div v-if="!canEditPayroll" v-show="!collapsedSections.employeePayroll" class="empty">閲覧権限です。給与・賞与の保存操作はできません。</div>
+        <div v-if="!canEditPayroll && canShowMenu('PAYROLL_INPUT')" v-show="!collapsedSections.employeePayroll" class="empty">閲覧権限です。給与・賞与の保存操作はできません。</div>
 
-        <div v-if="canEditPayroll" v-show="!collapsedSections.employeePayroll" class="divider"></div>
-        <div v-if="canEditPayroll" v-show="!collapsedSections.employeePayroll" class="form-grid">
+        <div v-if="canEditPayroll && canShowMenu('PAYROLL_INPUT')" v-show="!collapsedSections.employeePayroll" class="divider"></div>
+        <div v-if="canEditPayroll && canShowMenu('PAYROLL_INPUT')" v-show="!collapsedSections.employeePayroll" class="form-grid">
           <label>所定労働日数<input v-model.number="payrollForm.workDays" type="number" min="0" step="0.5" /></label>
           <label>実働時間<input v-model.number="payrollForm.workHours" type="number" min="0" step="0.25" /></label>
           <label>残業時間<input v-model.number="payrollForm.overtimeHours" type="number" min="0" step="0.25" /></label>
@@ -1065,9 +1171,9 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div v-if="canEditPayroll" class="divider"></div>
-        <div v-if="canEditPayroll" class="panel-head" :class="sectionHeadClass('bonusInput')" @click="toggleSection('bonusInput')"><h2>賞与入力</h2></div>
-        <div v-if="canEditPayroll" v-show="!collapsedSections.bonusInput" class="form-grid">
+        <div v-if="canEditPayroll && canShowMenu('BONUS_INPUT')" class="divider"></div>
+        <div v-if="canEditPayroll && canShowMenu('BONUS_INPUT')" class="panel-head" :class="sectionHeadClass('bonusInput')" @click="toggleSection('bonusInput')"><h2>賞与入力</h2></div>
+        <div v-if="canEditPayroll && canShowMenu('BONUS_INPUT')" v-show="!collapsedSections.bonusInput" class="form-grid">
           <div class="bonus-guidance full" :class="{ active: isBonusPaymentMonth }">{{ bonusPaymentMessage }}</div>
           <label>賞与額<input v-model.number="bonusForm.bonusAmount" type="number" min="0" /></label>
           <label>社会保険加入<select v-model="bonusForm.socialInsuranceEnrolled"><option :value="true">加入</option><option :value="false">未加入</option></select></label>
@@ -1083,8 +1189,8 @@ onMounted(async () => {
       </section>
 
       <section class="panel payslip">
-        <div v-if="canEditPayroll" class="panel-head" :class="sectionHeadClass('rates')" @click="toggleSection('rates')"><h2>年度料率</h2></div>
-        <div v-if="canEditPayroll" v-show="!collapsedSections.rates" class="form-grid compact">
+        <div v-if="canEditPayroll && canShowMenu('RATES')" class="panel-head" :class="sectionHeadClass('rates')" @click="toggleSection('rates')"><h2>年度料率</h2></div>
+        <div v-if="canEditPayroll && canShowMenu('RATES')" v-show="!collapsedSections.rates" class="form-grid compact">
           <label>年度<input v-model.number="rateForm.fiscalYear" type="number" /></label>
           <label>残業割増率<input v-model.number="rateForm.overtimeRate" type="number" step="0.000001" /></label>
           <label>所得税率（表なし時）<input v-model.number="rateForm.incomeTaxRate" type="number" step="0.000001" /></label>
@@ -1097,15 +1203,15 @@ onMounted(async () => {
             <button class="primary" @click="saveRate"><Save :size="16" />年度料率保存</button>
           </div>
         </div>
-        <div v-if="canEditPayroll" v-show="!collapsedSections.rates" class="rate-list">
+        <div v-if="canEditPayroll && canShowMenu('RATES')" v-show="!collapsedSections.rates" class="rate-list">
           <button v-for="rate in fiscalRates" :key="rate.fiscalYear" @click="applyRate(rate)">
             {{ rate.fiscalYear }}年度
           </button>
         </div>
 
-        <div v-if="canEditPayroll" class="divider"></div>
-        <div v-if="canEditPayroll" class="panel-head" :class="sectionHeadClass('taxImport')" @click="toggleSection('taxImport')"><h2>所得税表インポート</h2></div>
-        <div v-if="canEditPayroll" v-show="!collapsedSections.taxImport" class="tax-import">
+        <div v-if="canEditPayroll && canShowMenu('TAX_IMPORT')" class="divider"></div>
+        <div v-if="canEditPayroll && canShowMenu('TAX_IMPORT')" class="panel-head" :class="sectionHeadClass('taxImport')" @click="toggleSection('taxImport')"><h2>所得税表インポート</h2></div>
+        <div v-if="canEditPayroll && canShowMenu('TAX_IMPORT')" v-show="!collapsedSections.taxImport" class="tax-import">
           <p class="note">CSV列: fiscalYear, dependentCount, minTaxable, maxTaxable, taxAmount</p>
           <textarea v-model="taxImport.csv" rows="6"></textarea>
           <div class="form-actions">
@@ -1114,9 +1220,9 @@ onMounted(async () => {
           <p class="note">{{ fiscalYearFromPeriod(period) }}年度の読込行数: {{ incomeTaxBrackets.length }}件</p>
         </div>
 
-        <div class="divider"></div>
-        <div class="panel-head" :class="sectionHeadClass('payrollSlip')" @click="toggleSection('payrollSlip')"><h2>給与明細</h2></div>
-        <div v-if="selectedPayroll" v-show="!collapsedSections.payrollSlip" class="slip">
+        <div v-if="canShowMenu('PAYSLIP')" class="divider"></div>
+        <div v-if="canShowMenu('PAYSLIP')" class="panel-head" :class="sectionHeadClass('payrollSlip')" @click="toggleSection('payrollSlip')"><h2>給与明細</h2></div>
+        <div v-if="selectedPayroll && canShowMenu('PAYSLIP')" v-show="!collapsedSections.payrollSlip" class="slip">
           <h3>{{ selectedPayroll.employee.name }}</h3>
           <p class="message">適用年度: {{ activeRate?.fiscalYear || fiscalYearFromPeriod(period) }}年度</p>
           <dl>
@@ -1145,11 +1251,11 @@ onMounted(async () => {
             <button @click="downloadPayslipPdf"><Download :size="16" />給与PDFダウンロード</button>
           </div>
         </div>
-        <div v-else v-show="!collapsedSections.payrollSlip" class="empty">この社員の給与はまだ保存されていません。</div>
+        <div v-else-if="canShowMenu('PAYSLIP')" v-show="!collapsedSections.payrollSlip" class="empty">この社員の給与はまだ保存されていません。</div>
 
-        <div class="divider"></div>
-        <div class="panel-head" :class="sectionHeadClass('bonusSlip')" @click="toggleSection('bonusSlip')"><h2>賞与明細</h2></div>
-        <div v-if="selectedBonus" v-show="!collapsedSections.bonusSlip" class="slip">
+        <div v-if="canShowMenu('BONUS_SLIP')" class="divider"></div>
+        <div v-if="canShowMenu('BONUS_SLIP')" class="panel-head" :class="sectionHeadClass('bonusSlip')" @click="toggleSection('bonusSlip')"><h2>賞与明細</h2></div>
+        <div v-if="selectedBonus && canShowMenu('BONUS_SLIP')" v-show="!collapsedSections.bonusSlip" class="slip">
           <h3>{{ selectedBonus.employee.name }}</h3>
           <p class="message">所得税率: {{ Number(selectedBonus.incomeTaxRate).toFixed(6) }}</p>
           <dl>
@@ -1171,13 +1277,97 @@ onMounted(async () => {
             <button @click="downloadBonusPdf"><Download :size="16" />賞与PDFダウンロード</button>
           </div>
         </div>
-        <div v-else v-show="!collapsedSections.bonusSlip" class="empty">この社員の賞与はまだ保存されていません。</div>
+        <div v-else-if="canShowMenu('BONUS_SLIP')" v-show="!collapsedSections.bonusSlip" class="empty">この社員の賞与はまだ保存されていません。</div>
       </section>
     </div>
+
+    <section v-if="activeMenu === 'users' && canViewUsers" class="panel">
+      <div class="panel-head" :class="sectionHeadClass('usersMenu')" @click="toggleSection('usersMenu')">
+        <h2>ユーザー管理</h2>
+        <button v-if="canEditUsers" @click.stop="applyUser()"><Plus :size="16" />ユーザー追加</button>
+      </div>
+      <div v-show="!collapsedSections.usersMenu" class="form-grid">
+        <label>メール<input v-model="userForm.email" type="email" /></label>
+        <label>氏名<input v-model="userForm.name" /></label>
+        <label>ロール<select v-model="userForm.role" @change="onUserRoleChange">
+          <option value="ADMIN">管理者</option>
+          <option value="ACCOUNTING">経理担当</option>
+          <option value="VIEWER">閲覧のみ</option>
+          <option value="EMPLOYEE">社員本人</option>
+        </select></label>
+        <label>紐付け社員<select v-model="userForm.employeeId">
+          <option value="">なし</option>
+          <option v-for="employee in employees" :key="employee.id" :value="employee.id">{{ employee.employeeNo }} / {{ employee.name }}</option>
+        </select></label>
+        <label>パスワード<input v-model="userForm.password" type="password" placeholder="更新時は空欄で変更なし" /></label>
+        <label>状態<select v-model="userForm.isActive"><option :value="true">有効</option><option :value="false">停止</option></select></label>
+        <div class="form-actions full">
+          <button v-if="canEditUsers" @click="deactivateUser"><Trash2 :size="16" />停止</button>
+          <button v-if="canEditUsers" class="primary" @click="saveUser"><Save :size="16" />ユーザー保存</button>
+        </div>
+      </div>
+      <div v-show="!collapsedSections.usersMenu" class="user-list">
+        <button v-for="user in users" :key="user.id" class="user-item" @click="applyUser(user)">
+          <strong>{{ user.name }}</strong>
+          <span>{{ user.email }} / {{ roleLabels[user.role] }}{{ user.employee ? ` / ${user.employee.name}` : "" }} / {{ user.isActive ? "有効" : "停止" }}</span>
+        </button>
+      </div>
+      <div v-show="!collapsedSections.usersMenu" class="permission-table">
+        <div class="permission-head">
+          <strong>ユーザー個別権限 {{ userForm.name || userForm.email || "未選択" }}</strong>
+          <button v-if="canEditUsers" class="primary" :disabled="!userForm.id" @click="saveUserPermissions"><Save :size="16" />個別権限保存</button>
+        </div>
+        <p v-if="!userForm.id" class="note">ユーザー保存後に個別権限を設定できます。現在は選択ロールの初期権限を表示しています。</p>
+        <div class="permission-row header">
+          <span>メニュー</span>
+          <span>区分</span>
+          <span>表示</span>
+          <span>閲覧</span>
+          <span>更新</span>
+          <span>全件</span>
+        </div>
+        <div v-for="menu in permissionMenus" :key="`user-${menu}`" class="permission-row">
+          <span>{{ menuLabels[menu] }}</span>
+          <span>{{ menu.includes('_') ? '子メニュー' : '親メニュー' }}</span>
+          <label class="check-cell"><input v-model="userPermissionRow(menu).canShow" :disabled="!userForm.id" type="checkbox" /></label>
+          <label class="check-cell"><input v-model="userPermissionRow(menu).canView" :disabled="!userForm.id" type="checkbox" /></label>
+          <label class="check-cell"><input v-model="userPermissionRow(menu).canEdit" :disabled="!userForm.id" type="checkbox" /></label>
+          <label class="check-cell"><input v-model="userPermissionRow(menu).canViewAll" :disabled="!userForm.id" type="checkbox" /></label>
+        </div>
+      </div>
+    </section>
+
+    <section v-if="activeMenu === 'permissions' && canViewPermissions" class="panel">
+      <div class="panel-head" :class="sectionHeadClass('permissionsMenu')" @click="toggleSection('permissionsMenu')">
+        <h2>権限管理</h2>
+        <button v-if="canEditPermissions" class="primary" @click.stop="saveRolePermissions"><Save :size="16" />権限保存</button>
+      </div>
+      <div v-show="!collapsedSections.permissionsMenu" class="permission-table">
+        <div class="permission-row header">
+          <span>権限</span>
+          <span>メニュー</span>
+          <span>表示</span>
+          <span>閲覧</span>
+          <span>更新</span>
+          <span>全件</span>
+        </div>
+        <div v-for="role in permissionRoles" :key="`role-${role}`" class="permission-group">
+          <div v-for="menu in permissionMenus" :key="`${role}-${menu}`" class="permission-row">
+            <span>{{ roleLabels[role] }}</span>
+            <span>{{ menuLabels[menu] }}</span>
+            <label class="check-cell"><input v-model="permissionRow(role, menu).canShow" :disabled="!canEditPermissions" type="checkbox" /></label>
+            <label class="check-cell"><input v-model="permissionRow(role, menu).canView" :disabled="!canEditPermissions" type="checkbox" /></label>
+            <label class="check-cell"><input v-model="permissionRow(role, menu).canEdit" :disabled="!canEditPermissions" type="checkbox" /></label>
+            <label class="check-cell"><input v-model="permissionRow(role, menu).canViewAll" :disabled="!canEditPermissions" type="checkbox" /></label>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <SesManagement
       v-if="activeMenu === 'ses' && canViewSes"
       :can-edit-ses="canEditSes"
+      :permissions="me?.permissions || []"
       :message="sesMessage"
       @message="sesMessage = $event"
     />
