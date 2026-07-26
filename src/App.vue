@@ -248,6 +248,7 @@ const adminPermissionMenus: PermissionMenu[] = ["USERS", "PERMISSIONS"];
 const loggedIn = ref(false);
 const loading = ref(false);
 const message = ref("");
+const loginMessage = ref("");
 const sesMessage = ref("");
 const permissionMessage = ref("");
 const systemName = ref("給与管理クラウド");
@@ -668,13 +669,14 @@ function applyBonusInput(bonus: Bonus) {
 
 async function login() {
   loading.value = true;
+  loginMessage.value = "";
   message.value = "";
   try {
     me.value = await request<AppUser>("/login", { method: "POST", body: JSON.stringify(loginForm) });
     loggedIn.value = true;
     await refresh();
   } catch (error) {
-    message.value = error instanceof Error ? error.message : "ログインできません";
+    loginMessage.value = error instanceof Error ? error.message : "ログインできません";
   } finally {
     loading.value = false;
   }
@@ -684,6 +686,8 @@ async function logout() {
   await request("/logout", { method: "POST" });
   loggedIn.value = false;
   me.value = null;
+  message.value = "";
+  loginMessage.value = "";
 }
 
 async function refresh() {
@@ -1124,7 +1128,7 @@ onMounted(async () => {
       <label>メールアドレス<input v-model="loginForm.email" type="email" autocomplete="username" required /></label>
       <label>パスワード<input v-model="loginForm.password" type="password" autocomplete="current-password" required /></label>
       <button class="primary" :disabled="loading">ログイン</button>
-      <p v-if="message" class="message">{{ message }}</p>
+      <p v-if="loginMessage" class="message">{{ loginMessage }}</p>
     </form>
   </main>
 
@@ -1152,6 +1156,8 @@ onMounted(async () => {
       <button v-if="canShowPermissions" :class="{ active: activeMenu === 'permissions' }" @click="activeMenu = 'permissions'">権限管理</button>
     </nav>
 
+    <div v-if="message" class="message operation-message">{{ message }}</div>
+
     <section v-if="activeMenu === 'payroll' && canViewPayroll" class="filters">
       <div class="filter-row search-row">
         <label>支給月<input v-model="period" type="month" @change="refresh" /></label>
@@ -1165,7 +1171,6 @@ onMounted(async () => {
         <label class="inline-check"><input v-model="pdfIncludeBonus" type="checkbox" />賞与含み</label>
         <button @click="downloadPayslipPdfRange"><Download :size="16" />PDF一括DL</button>
       </div>
-      <span v-if="message" class="message">{{ message }}</span>
     </section>
 
     <section v-if="activeMenu === 'payroll' && canViewPayroll" class="summary">
