@@ -2356,6 +2356,8 @@ api.post("/payrolls/:id/email", async (c) => {
 app.route("/api", api);
 app.use("/assets/*", serveStatic({ root: "./dist" }));
 app.use("/logo_rcloud.png", serveStatic({ path: "./dist/logo_rcloud.png" }));
+app.use("/favicon.ico", serveStatic({ path: "./dist/favicon.ico" }));
+app.use("/favicon.png", serveStatic({ path: "./dist/favicon.png" }));
 app.use("*", serveStatic({ path: "./dist/index.html" }));
 
 serve({

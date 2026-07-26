@@ -301,3 +301,10 @@ Manual files / マニュアルファイル / 手册文件:
 | --- | --- |
 | `CompanySetting.systemName` を追加し、マスタ管理の自社情報からシステム名を設定できるようにしました。 | 已追加 `CompanySetting.systemName`，可以在主数据管理的自社信息中设置系统名称。 |
 | ログイン画面とヘッダーの「給与管理クラウド」は、公開設定API `/api/public-settings` から取得した値を表示します。 | 登录画面和页眉中的“給与管理クラウド”改为显示公开设置 API `/api/public-settings` 取得的值。 |
+
+## 17. Release Update 2026-07-26-8 / リリース更新 / 发布更新
+
+| 日本語 | 中文 |
+| --- | --- |
+| ファビコンが直接URLで開けなかった原因は、Honoサーバーが `/favicon.ico` と `/favicon.png` を静的配信していなかったためです。 | favicon 直接 URL 打不开的原因是 Hono 服务端没有静态发布 `/favicon.ico` 和 `/favicon.png`。 |
+| `src/server/index.ts` に `/favicon.ico` と `/favicon.png` の明示的な `serveStatic` 設定を追加しました。 | 已在 `src/server/index.ts` 中追加 `/favicon.ico` 和 `/favicon.png` 的显式 `serveStatic` 设置。 |
