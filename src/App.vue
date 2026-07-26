@@ -1424,7 +1424,11 @@ onMounted(async () => {
         </div>
       </section>
 
-      <section v-if="activePayrollSubMenu === 'rates' || activePayrollSubMenu === 'taxImport' || activePayrollSubMenu === 'slips'" class="panel payslip">
+      <section
+        v-if="activePayrollSubMenu === 'rates' || activePayrollSubMenu === 'taxImport' || activePayrollSubMenu === 'slips'"
+        class="panel"
+        :class="{ payslip: activePayrollSubMenu === 'slips' }"
+      >
         <div v-if="activePayrollSubMenu === 'rates' && canEditPayroll && canShowMenu('RATES')" class="panel-head" :class="sectionHeadClass('rates')" @click="toggleSection('rates')"><h2>年度料率</h2></div>
         <div v-if="activePayrollSubMenu === 'rates' && canEditPayroll && canShowMenu('RATES')" v-show="!collapsedSections.rates" class="form-grid compact">
           <label>年度<input v-model.number="rateForm.fiscalYear" type="number" /></label>
