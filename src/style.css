@@ -688,6 +688,11 @@ p {
   overflow-wrap: anywhere;
 }
 
+.employee-item .missing-text,
+.user-item .missing-text {
+  color: #d90000;
+}
+
 .employee-status {
   display: flex;
   flex-wrap: wrap;
