@@ -391,6 +391,18 @@ function canShowMenu(menu: PermissionMenu) {
   return permissionFor(menu).canShow;
 }
 
+function canViewMenu(menu: PermissionMenu) {
+  return permissionFor(menu).canView;
+}
+
+function canEditMenu(menu: PermissionMenu) {
+  return permissionFor(menu).canEdit;
+}
+
+function canViewAllMenu(menu: PermissionMenu) {
+  return permissionFor(menu).canViewAll;
+}
+
 function canShowPayrollSubMenu(key: PayrollSubMenu) {
   return payrollSubMenuPermissions[key].some((menu) => canShowMenu(menu));
 }
@@ -398,8 +410,12 @@ function canShowPayrollSubMenu(key: PayrollSubMenu) {
 const canManageUsers = computed(() => me.value?.role === "ADMIN");
 const canShowPayroll = computed(() => !!me.value && permissionFor("PAYROLL").canShow);
 const canViewPayroll = computed(() => !!me.value && permissionFor("PAYROLL").canView);
-const canEditPayroll = computed(() => !!me.value && permissionFor("PAYROLL").canEdit);
-const canViewAll = computed(() => !!me.value && permissionFor("PAYROLL").canViewAll);
+const canEditPayrollInput = computed(() => canEditMenu("PAYROLL_INPUT"));
+const canEditBonusInput = computed(() => canEditMenu("BONUS_INPUT"));
+const canEditEmployees = computed(() => canEditMenu("PAYROLL_EMPLOYEES"));
+const canEditRates = computed(() => canEditMenu("RATES"));
+const canEditTaxImport = computed(() => canEditMenu("TAX_IMPORT"));
+const canViewAllSlipOutput = computed(() => canViewAllMenu("PAYSLIP") || canViewAllMenu("BONUS_SLIP"));
 const canShowSes = computed(() => !!me.value && permissionFor("SES").canShow);
 const canViewSes = computed(() => !!me.value && permissionFor("SES").canView);
 const canEditSes = computed(() => !!me.value && permissionFor("SES").canEdit);
@@ -420,6 +436,19 @@ const showPayrollPeriodFilters = computed(() => payrollEmployeeSubMenus.includes
 const showPayrollEmployeeList = computed(() => activePayrollSubMenu.value === "payrollBonusInput" || activePayrollSubMenu.value === "slipOutput" || activePayrollSubMenu.value === "employees");
 const showIndividualSlips = computed(() => activePayrollSubMenu.value === "payrollBonusInput" || activePayrollSubMenu.value === "slipOutput");
 const showPayrollSummary = computed(() => payrollEmployeeSubMenus.includes(activePayrollSubMenu.value));
+const canShowEmployeeListForActiveSubMenu = computed(() => {
+  if (activePayrollSubMenu.value === "employees") return canShowMenu("PAYROLL_EMPLOYEES");
+  if (activePayrollSubMenu.value === "slipOutput") return canShowPayrollSubMenu("slipOutput");
+  if (activePayrollSubMenu.value === "payrollBonusInput") return canShowPayrollSubMenu("payrollBonusInput");
+  return false;
+});
+const canViewAllForActivePayrollSubMenu = computed(() => {
+  if (activePayrollSubMenu.value === "slipOutput") return canViewAllSlipOutput.value;
+  if (activePayrollSubMenu.value === "employees") return canViewAllMenu("PAYROLL_EMPLOYEES");
+  if (activePayrollSubMenu.value === "payrollBonusInput") return canViewAllMenu("PAYROLL_INPUT") || canViewAllMenu("BONUS_INPUT");
+  if (activePayrollSubMenu.value === "yearSettings") return canViewAllMenu("RATES") || canViewAllMenu("TAX_IMPORT");
+  return false;
+});
 const selectedEmployee = computed(() => employees.value.find((employee) => employee.id === selectedEmployeeId.value));
 const selectedPayroll = computed(() => payrolls.value.find((payroll) => payroll.employeeId === selectedEmployeeId.value));
 const selectedBonus = computed(() => bonuses.value.find((bonus) => bonus.employeeId === selectedEmployeeId.value));
@@ -456,6 +485,20 @@ const bonusTotals = computed(() => bonuses.value.reduce(
   },
   { gross: 0, deduction: 0, net: 0 }
 ));
+
+function employeeReadMenuForActiveSubMenu() {
+  if (activePayrollSubMenu.value === "employees") return "PAYROLL_EMPLOYEES";
+  if (activePayrollSubMenu.value === "slipOutput") return canViewMenu("PAYSLIP") ? "PAYSLIP" : "BONUS_SLIP";
+  return canViewMenu("PAYROLL_INPUT") || canShowMenu("PAYROLL_INPUT") ? "PAYROLL_INPUT" : "BONUS_INPUT";
+}
+
+function payrollReadMenuForActiveSubMenu() {
+  return activePayrollSubMenu.value === "slipOutput" ? "PAYSLIP" : "PAYROLL_INPUT";
+}
+
+function bonusReadMenuForActiveSubMenu() {
+  return activePayrollSubMenu.value === "slipOutput" ? "BONUS_SLIP" : "BONUS_INPUT";
+}
 
 function fiscalYearFromPeriod(value: string) {
   const [year, month] = value.split("-").map(Number);
@@ -810,10 +853,13 @@ async function refresh() {
   try {
     const fiscalYear = fiscalYearFromPeriod(period.value);
     const q = encodeURIComponent(query.value);
+    const employeeMenu = encodeURIComponent(employeeReadMenuForActiveSubMenu());
+    const payrollMenu = encodeURIComponent(payrollReadMenuForActiveSubMenu());
+    const bonusMenu = encodeURIComponent(bonusReadMenuForActiveSubMenu());
     const [employeeData, payrollData, bonusData, fiscalRateData, taxData] = await Promise.all([
-      request<Employee[]>(`/employees?q=${q}`),
-      request<Payroll[]>(`/payrolls?period=${encodeURIComponent(period.value)}&q=${q}`),
-      request<Bonus[]>(`/bonuses?period=${encodeURIComponent(period.value)}&q=${q}`),
+      request<Employee[]>(`/employees?q=${q}&menu=${employeeMenu}`),
+      request<Payroll[]>(`/payrolls?period=${encodeURIComponent(period.value)}&q=${q}&menu=${payrollMenu}`),
+      request<Bonus[]>(`/bonuses?period=${encodeURIComponent(period.value)}&q=${q}&menu=${bonusMenu}`),
       request<FiscalRate[]>("/fiscal-rates"),
       request<IncomeTaxBracket[]>(`/income-tax-brackets?fiscalYear=${fiscalYear}`)
     ]);
@@ -834,7 +880,7 @@ async function refresh() {
 }
 
 async function saveRate() {
-  if (!canEditPayroll.value) return;
+  if (!canEditRates.value) return;
   const healthInsuranceRate = Number(rateForm.healthInsuranceRate || 0);
   const pensionInsuranceRate = Number(rateForm.pensionInsuranceRate || 0);
   const childCareSupportRate = Number(rateForm.childCareSupportRate || 0);
@@ -853,7 +899,7 @@ async function saveRate() {
 }
 
 async function importIncomeTaxTable() {
-  if (!canEditPayroll.value) return;
+  if (!canEditTaxImport.value) return;
   const result = await request<{ imported: number; fiscalYears: number[] }>("/income-tax-brackets/import", {
     method: "POST",
     body: JSON.stringify({ csv: taxImport.csv })
@@ -863,7 +909,7 @@ async function importIncomeTaxTable() {
 }
 
 async function saveEmployee() {
-  if (!canEditPayroll.value) return;
+  if (!canEditEmployees.value) return;
   const method = employeeForm.id ? "PUT" : "POST";
   const path = employeeForm.id ? `/employees/${employeeForm.id}` : "/employees";
   const employee = await request<Employee>(path, {
@@ -883,7 +929,7 @@ async function saveEmployee() {
 }
 
 async function deleteEmployee() {
-  if (!canEditPayroll.value) return;
+  if (!canEditEmployees.value) return;
   if (!employeeForm.id || !confirm("この社員を非表示にしますか？")) return;
   await request(`/employees/${employeeForm.id}`, { method: "DELETE" });
   selectedEmployeeId.value = "";
@@ -985,7 +1031,7 @@ async function deactivateUser() {
 }
 
 async function savePayroll(forceUpdate = false) {
-  if (!canEditPayroll.value) return;
+  if (!canEditPayrollInput.value) return;
   if (!selectedEmployee.value) {
     showErrorMessage("社員を選択してください");
     return;
@@ -1009,7 +1055,7 @@ async function savePayroll(forceUpdate = false) {
 }
 
 async function saveBonus(forceUpdate = false) {
-  if (!canEditPayroll.value) return;
+  if (!canEditBonusInput.value) return;
   if (!selectedEmployee.value) {
     showErrorMessage("社員を選択してください");
     return;
@@ -1037,7 +1083,7 @@ async function saveBonus(forceUpdate = false) {
 }
 
 async function usePreviousPayrollInput() {
-  if (!canEditPayroll.value) return;
+  if (!canEditPayrollInput.value) return;
   const currentEmployeeId = employeeForm.id || selectedEmployeeId.value;
   if (!currentEmployeeId || !selectedEmployee.value) {
     showErrorMessage("社員を選択してください");
@@ -1062,7 +1108,7 @@ async function usePreviousPayrollInput() {
 }
 
 async function sendPayslipEmail() {
-  if (!canEditPayroll.value) return;
+  if (!canEditPayrollInput.value) return;
   if (!selectedPayroll.value) {
     showErrorMessage("先に給与を保存してください");
     return;
@@ -1282,8 +1328,8 @@ onMounted(async () => {
       </div>
       <div class="actions">
         <button @click="refresh"><RefreshCw :size="16" />更新</button>
-        <button v-if="canViewAll" @click="exportCsv"><Download :size="16" />CSV出力</button>
-        <button v-if="canViewAll" @click="exportBonusCsv"><Download :size="16" />賞与CSV出力</button>
+        <button v-if="canViewAllMenu('PAYSLIP')" @click="exportCsv"><Download :size="16" />CSV出力</button>
+        <button v-if="canViewAllMenu('BONUS_SLIP')" @click="exportBonusCsv"><Download :size="16" />賞与CSV出力</button>
         <button @click="logout"><LogOut :size="16" />ログアウト</button>
       </div>
     </header>
@@ -1316,10 +1362,10 @@ onMounted(async () => {
     <section v-if="activeMenu === 'payroll' && canViewPayroll && showPayrollPeriodFilters" class="filters">
       <div class="filter-row search-row">
         <label>支給月<input v-model="period" type="month" @change="refresh" /></label>
-        <label v-if="canViewAll">社員検索<input v-model="query" placeholder="氏名・社員番号" @keyup.enter="refresh" /></label>
-        <button v-if="canViewAll" class="primary" @click="refresh"><Search :size="16" />検索</button>
+        <label v-if="canViewAllForActivePayrollSubMenu">社員検索<input v-model="query" placeholder="氏名・社員番号" @keyup.enter="refresh" /></label>
+        <button v-if="canViewAllForActivePayrollSubMenu" class="primary" @click="refresh"><Search :size="16" />検索</button>
       </div>
-      <div v-if="canViewAll && activePayrollSubMenu === 'slipOutput'" class="filter-row download-row">
+      <div v-if="canViewAllSlipOutput && activePayrollSubMenu === 'slipOutput'" class="filter-row download-row">
         <label>PDF開始月<input v-model="pdfRangeStart" type="month" /></label>
         <label>PDF終了月<input v-model="pdfRangeEnd" type="month" /></label>
         <label>PDF出力形式<select v-model="pdfOutputMode"><option value="zip">個別PDFをZIP</option><option value="single">1つのPDF</option></select></label>
@@ -1338,10 +1384,10 @@ onMounted(async () => {
     </section>
 
     <div v-if="activeMenu === 'payroll' && canViewPayroll" class="workspace">
-      <section v-if="showPayrollEmployeeList && canShowMenu('PAYROLL_EMPLOYEES')" class="panel employee-list">
+      <section v-if="showPayrollEmployeeList && canShowEmployeeListForActiveSubMenu" class="panel employee-list">
         <div class="panel-head" :class="sectionHeadClass('employees')" @click="toggleSection('employees')">
           <h2>社員</h2>
-          <button v-if="canEditPayroll" @click.stop="applyEmployee()"><Plus :size="16" />追加</button>
+          <button v-if="activePayrollSubMenu === 'employees' && canEditEmployees" @click.stop="applyEmployee()"><Plus :size="16" />追加</button>
         </div>
         <button
           v-for="employee in employees"
@@ -1366,7 +1412,7 @@ onMounted(async () => {
 
       <section v-if="activePayrollSubMenu === 'employees' || activePayrollSubMenu === 'payrollBonusInput'" class="panel">
         <div v-if="activePayrollSubMenu === 'employees' && canShowMenu('PAYROLL_EMPLOYEES')" class="panel-head" :class="sectionHeadClass('employeePayroll')" @click="toggleSection('employeePayroll')"><h2>社員管理</h2></div>
-        <div v-if="activePayrollSubMenu === 'employees' && canEditPayroll && canShowMenu('PAYROLL_EMPLOYEES')" v-show="!collapsedSections.employeePayroll" class="form-grid">
+        <div v-if="activePayrollSubMenu === 'employees' && canEditEmployees && canShowMenu('PAYROLL_EMPLOYEES')" v-show="!collapsedSections.employeePayroll" class="form-grid">
           <label>社員番号<input v-model="employeeForm.employeeNo" /></label>
           <label>氏名<input v-model="employeeForm.name" /></label>
           <label>職位<input v-model="employeeForm.position" /></label>
@@ -1448,10 +1494,10 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div v-if="activePayrollSubMenu === 'payrollBonusInput' && !canEditPayroll && canShowMenu('PAYROLL_INPUT')" v-show="!collapsedSections.employeePayroll" class="empty">閲覧権限です。給与・賞与の保存操作はできません。</div>
+        <div v-if="activePayrollSubMenu === 'payrollBonusInput' && !canEditPayrollInput && canShowMenu('PAYROLL_INPUT')" v-show="!collapsedSections.employeePayroll" class="empty">閲覧権限です。給与・賞与の保存操作はできません。</div>
 
         <div v-if="activePayrollSubMenu === 'payrollBonusInput' && canShowMenu('PAYROLL_INPUT')" class="panel-head" :class="sectionHeadClass('employeePayroll')" @click="toggleSection('employeePayroll')"><h2>給与入力</h2></div>
-        <div v-if="activePayrollSubMenu === 'payrollBonusInput' && canEditPayroll && canShowMenu('PAYROLL_INPUT')" v-show="!collapsedSections.employeePayroll" class="form-grid">
+        <div v-if="activePayrollSubMenu === 'payrollBonusInput' && canEditPayrollInput && canShowMenu('PAYROLL_INPUT')" v-show="!collapsedSections.employeePayroll" class="form-grid">
           <label>所定労働日数<input v-model.number="payrollForm.workDays" type="number" min="0" step="0.5" /></label>
           <label>実働時間<input v-model.number="payrollForm.workHours" type="number" min="0" step="0.25" /></label>
           <label>残業時間<input v-model.number="payrollForm.overtimeHours" type="number" min="0" step="0.25" /></label>
@@ -1474,7 +1520,7 @@ onMounted(async () => {
         </div>
 
         <div v-if="activePayrollSubMenu === 'payrollBonusInput' && canShowMenu('BONUS_INPUT')" class="panel-head" :class="sectionHeadClass('bonusInput')" @click="toggleSection('bonusInput')"><h2>賞与入力</h2></div>
-        <div v-if="activePayrollSubMenu === 'payrollBonusInput' && canEditPayroll && canShowMenu('BONUS_INPUT')" v-show="!collapsedSections.bonusInput" class="form-grid">
+        <div v-if="activePayrollSubMenu === 'payrollBonusInput' && canEditBonusInput && canShowMenu('BONUS_INPUT')" v-show="!collapsedSections.bonusInput" class="form-grid">
           <div class="bonus-guidance full" :class="{ active: isBonusPaymentMonth }">{{ bonusPaymentMessage }}</div>
           <label>賞与額<input v-model.number="bonusForm.bonusAmount" type="number" min="0" /></label>
           <label>社会保険加入<select v-model="bonusForm.socialInsuranceEnrolled"><option :value="true">加入</option><option :value="false">未加入</option></select></label>
@@ -1501,13 +1547,13 @@ onMounted(async () => {
           </div>
           <div class="form-actions full">
             <button @click="downloadPayslipPdfRange"><Download :size="16" />PDF一括DL</button>
-            <button v-if="canViewAll" @click="exportCsv"><Download :size="16" />給与CSV出力</button>
-            <button v-if="canViewAll" @click="exportBonusCsv"><Download :size="16" />賞与CSV出力</button>
+            <button v-if="canViewAllMenu('PAYSLIP')" @click="exportCsv"><Download :size="16" />給与CSV出力</button>
+            <button v-if="canViewAllMenu('BONUS_SLIP')" @click="exportBonusCsv"><Download :size="16" />賞与CSV出力</button>
           </div>
         </div>
 
-        <div v-if="activePayrollSubMenu === 'yearSettings' && canEditPayroll && canShowMenu('RATES')" class="panel-head" :class="sectionHeadClass('rates')" @click="toggleSection('rates')"><h2>年度料率</h2></div>
-        <div v-if="activePayrollSubMenu === 'yearSettings' && canEditPayroll && canShowMenu('RATES')" v-show="!collapsedSections.rates" class="form-grid compact">
+        <div v-if="activePayrollSubMenu === 'yearSettings' && canEditRates && canShowMenu('RATES')" class="panel-head" :class="sectionHeadClass('rates')" @click="toggleSection('rates')"><h2>年度料率</h2></div>
+        <div v-if="activePayrollSubMenu === 'yearSettings' && canEditRates && canShowMenu('RATES')" v-show="!collapsedSections.rates" class="form-grid compact">
           <label>年度<input v-model.number="rateForm.fiscalYear" type="number" /></label>
           <label>残業割増率<input v-model.number="rateForm.overtimeRate" type="number" step="0.000001" /></label>
           <label>所得税率（表なし時）<input v-model.number="rateForm.incomeTaxRate" type="number" step="0.000001" /></label>
@@ -1520,14 +1566,14 @@ onMounted(async () => {
             <button class="primary" @click="saveRate"><Save :size="16" />年度料率保存</button>
           </div>
         </div>
-        <div v-if="activePayrollSubMenu === 'yearSettings' && canEditPayroll && canShowMenu('RATES')" v-show="!collapsedSections.rates" class="rate-list">
+        <div v-if="activePayrollSubMenu === 'yearSettings' && canEditRates && canShowMenu('RATES')" v-show="!collapsedSections.rates" class="rate-list">
           <button v-for="rate in fiscalRates" :key="rate.fiscalYear" @click="applyRate(rate)">
             {{ rate.fiscalYear }}年度
           </button>
         </div>
 
-        <div v-if="activePayrollSubMenu === 'yearSettings' && canEditPayroll && canShowMenu('TAX_IMPORT')" class="panel-head" :class="sectionHeadClass('taxImport')" @click="toggleSection('taxImport')"><h2>所得税表インポート</h2></div>
-        <div v-if="activePayrollSubMenu === 'yearSettings' && canEditPayroll && canShowMenu('TAX_IMPORT')" v-show="!collapsedSections.taxImport" class="tax-import">
+        <div v-if="activePayrollSubMenu === 'yearSettings' && canEditTaxImport && canShowMenu('TAX_IMPORT')" class="panel-head" :class="sectionHeadClass('taxImport')" @click="toggleSection('taxImport')"><h2>所得税表インポート</h2></div>
+        <div v-if="activePayrollSubMenu === 'yearSettings' && canEditTaxImport && canShowMenu('TAX_IMPORT')" v-show="!collapsedSections.taxImport" class="tax-import">
           <p class="note">CSV列: fiscalYear, dependentCount, minTaxable, maxTaxable, taxAmount</p>
           <textarea v-model="taxImport.csv" rows="6"></textarea>
           <div class="form-actions">

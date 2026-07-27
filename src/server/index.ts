@@ -161,17 +161,19 @@ function requireRole(c: Context, role: UserRole) {
   return null;
 }
 
-async function readableEmployeeId(c: Context, requestedEmployeeId?: string | null) {
+async function readableEmployeeId(c: Context, menus: PermissionMenu | PermissionMenu[], requestedEmployeeId?: string | null) {
   const user = currentUser(c);
-  const permission = await menuPermission(c, "PAYROLL");
-  if (!permission.canView) return "__none__";
-  if (permission.canViewAll) return requestedEmployeeId || undefined;
+  const targets = Array.isArray(menus) ? menus : [menus];
+  const permissions = await Promise.all(targets.map((menu) => menuPermission(c, menu)));
+  const readable = permissions.filter((permission) => permission.canView);
+  if (!readable.length) return "__none__";
+  if (readable.some((permission) => permission.canViewAll)) return requestedEmployeeId || undefined;
   return user.employeeId || "__none__";
 }
 
-async function canAccessEmployee(c: Context, employeeId: string) {
+async function canAccessEmployee(c: Context, menu: PermissionMenu, employeeId: string) {
   const user = currentUser(c);
-  const permission = await menuPermission(c, "PAYROLL");
+  const permission = await menuPermission(c, menu);
   return permission.canView && (permission.canViewAll || user.employeeId === employeeId);
 }
 
@@ -294,6 +296,21 @@ function nullableDecimal(value: unknown) {
 
 function booleanOrFalse(value: unknown) {
   return value === true || value === "true";
+}
+
+function payrollEmployeeReadMenus(value: string | undefined) {
+  const menu = value as PermissionMenu | undefined;
+  return menu && ["PAYROLL_EMPLOYEES", "PAYROLL_INPUT", "BONUS_INPUT", "PAYSLIP", "BONUS_SLIP"].includes(menu)
+    ? [menu]
+    : ["PAYROLL_EMPLOYEES", "PAYROLL_INPUT", "BONUS_INPUT", "PAYSLIP", "BONUS_SLIP"] as PermissionMenu[];
+}
+
+function payrollReadMenu(value: string | undefined): PermissionMenu {
+  return value === "PAYSLIP" ? "PAYSLIP" : "PAYROLL_INPUT";
+}
+
+function bonusReadMenu(value: string | undefined): PermissionMenu {
+  return value === "BONUS_SLIP" ? "BONUS_SLIP" : "BONUS_INPUT";
 }
 
 function normalizeBonusSchedules(value: unknown) {
@@ -810,7 +827,7 @@ api.get("/fiscal-rates", async (c) => {
 });
 
 api.post("/fiscal-rates", async (c) => {
-  const permissionDenied = await requireMenu(c, "PAYROLL", "edit");
+  const permissionDenied = await requireMenu(c, "RATES", "edit");
   if (permissionDenied) return permissionDenied;
 
   const body = await c.req.json();
@@ -855,7 +872,7 @@ api.get("/income-tax-brackets", async (c) => {
 });
 
 api.post("/income-tax-brackets/import", async (c) => {
-  const permissionDenied = await requireMenu(c, "PAYROLL", "edit");
+  const permissionDenied = await requireMenu(c, "TAX_IMPORT", "edit");
   if (permissionDenied) return permissionDenied;
 
   const body = await c.req.json<{ csv?: string }>();
@@ -880,7 +897,7 @@ api.post("/income-tax-brackets/import", async (c) => {
 
 api.get("/employees", async (c) => {
   const q = c.req.query("q") || "";
-  const employeeId = await readableEmployeeId(c);
+  const employeeId = await readableEmployeeId(c, payrollEmployeeReadMenus(c.req.query("menu")));
   const employees = await prisma.employee.findMany({
     where: {
       isActive: true,
@@ -1835,7 +1852,7 @@ api.get("/ses/invoices/:id/pdf", async (c) => {
 });
 
 api.post("/employees", async (c) => {
-  const permissionDenied = await requireMenu(c, "PAYROLL", "edit");
+  const permissionDenied = await requireMenu(c, "PAYROLL_EMPLOYEES", "edit");
   if (permissionDenied) return permissionDenied;
 
   const body = await c.req.json();
@@ -1859,7 +1876,7 @@ api.post("/employees", async (c) => {
 });
 
 api.put("/employees/:id", async (c) => {
-  const permissionDenied = await requireMenu(c, "PAYROLL", "edit");
+  const permissionDenied = await requireMenu(c, "PAYROLL_EMPLOYEES", "edit");
   if (permissionDenied) return permissionDenied;
 
   const body = await c.req.json();
@@ -1884,7 +1901,7 @@ api.put("/employees/:id", async (c) => {
 });
 
 api.delete("/employees/:id", async (c) => {
-  const permissionDenied = await requireMenu(c, "PAYROLL", "edit");
+  const permissionDenied = await requireMenu(c, "PAYROLL_EMPLOYEES", "edit");
   if (permissionDenied) return permissionDenied;
 
   await prisma.employee.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
@@ -1893,7 +1910,7 @@ api.delete("/employees/:id", async (c) => {
 
 api.get("/payrolls", async (c) => {
   const period = c.req.query("period");
-  const employeeId = await readableEmployeeId(c, c.req.query("employeeId"));
+  const employeeId = await readableEmployeeId(c, payrollReadMenu(c.req.query("menu")), c.req.query("employeeId"));
   const q = c.req.query("q") || "";
   const payrolls = await prisma.payroll.findMany({
     where: {
@@ -1914,7 +1931,7 @@ api.get("/payrolls", async (c) => {
 
 api.get("/bonuses", async (c) => {
   const period = c.req.query("period");
-  const employeeId = await readableEmployeeId(c, c.req.query("employeeId"));
+  const employeeId = await readableEmployeeId(c, bonusReadMenu(c.req.query("menu")), c.req.query("employeeId"));
   const q = c.req.query("q") || "";
   const bonuses = await prisma.bonus.findMany({
     where: {
@@ -1934,7 +1951,7 @@ api.get("/bonuses", async (c) => {
 });
 
 api.post("/bonuses", async (c) => {
-  const permissionDenied = await requireMenu(c, "PAYROLL", "edit");
+  const permissionDenied = await requireMenu(c, "BONUS_INPUT", "edit");
   if (permissionDenied) return permissionDenied;
 
   const body = await c.req.json();
@@ -2014,7 +2031,7 @@ api.get("/bonuses/:id/pdf", async (c) => {
       where: { id: c.req.param("id") },
       include: { employee: true }
     });
-    if (!await canAccessEmployee(c, bonus.employeeId)) {
+    if (!await canAccessEmployee(c, "BONUS_SLIP", bonus.employeeId)) {
       return c.json({ message: "権限がありません" }, 403);
     }
     const pdf = await createBonusPdf(toBonusPdfInput(bonus));
@@ -2035,7 +2052,7 @@ api.get("/bonuses/:id/pdf", async (c) => {
 });
 
 api.get("/payrolls/latest-template", async (c) => {
-  const permissionDenied = await requireMenu(c, "PAYROLL", "edit");
+  const permissionDenied = await requireMenu(c, "PAYROLL_INPUT", "edit");
   if (permissionDenied) return permissionDenied;
 
   const employeeId = c.req.query("employeeId") || "";
@@ -2060,12 +2077,6 @@ api.get("/payrolls/latest-template", async (c) => {
 });
 
 api.get("/payrolls/pdf-range", async (c) => {
-  const denied = requireRole(c, "VIEWER");
-  if (denied) return denied;
-  if (currentUser(c).role === "EMPLOYEE") {
-    return c.json({ message: "権限がありません" }, 403);
-  }
-
   try {
     const startPeriod = c.req.query("startPeriod") || "";
     const endPeriod = c.req.query("endPeriod") || "";
@@ -2073,6 +2084,11 @@ api.get("/payrolls/pdf-range", async (c) => {
     const q = c.req.query("q") || "";
     const mode = c.req.query("mode") === "single" ? "single" : "zip";
     const includeBonus = c.req.query("includeBonus") === "true";
+    const payslipPermission = await menuPermission(c, "PAYSLIP");
+    const bonusPermission = await menuPermission(c, "BONUS_SLIP");
+    if (!payslipPermission.canView || !payslipPermission.canViewAll || (includeBonus && (!bonusPermission.canView || !bonusPermission.canViewAll))) {
+      return c.json({ message: "権限がありません" }, 403);
+    }
 
     if (!isPeriod(startPeriod) || !isPeriod(endPeriod)) {
       return c.json({ message: "開始月と終了月をYYYY-MM形式で指定してください" }, 400);
@@ -2170,7 +2186,7 @@ api.get("/payrolls/pdf-range", async (c) => {
 });
 
 api.post("/payrolls", async (c) => {
-  const permissionDenied = await requireMenu(c, "PAYROLL", "edit");
+  const permissionDenied = await requireMenu(c, "PAYROLL_INPUT", "edit");
   if (permissionDenied) return permissionDenied;
 
   const body = await c.req.json();
@@ -2310,7 +2326,7 @@ api.get("/payrolls/:id/pdf", async (c) => {
       where: { id: c.req.param("id") },
       include: { employee: true }
     });
-    if (!await canAccessEmployee(c, payroll.employeeId)) {
+    if (!await canAccessEmployee(c, "PAYSLIP", payroll.employeeId)) {
       return c.json({ message: "権限がありません" }, 403);
     }
     const pdf = await createPayslipPdf(toPayslipPdfInput(payroll));
@@ -2331,7 +2347,7 @@ api.get("/payrolls/:id/pdf", async (c) => {
 });
 
 api.post("/payrolls/:id/email", async (c) => {
-  const permissionDenied = await requireMenu(c, "PAYROLL", "edit");
+  const permissionDenied = await requireMenu(c, "PAYROLL_INPUT", "edit");
   if (permissionDenied) return permissionDenied;
 
   try {
