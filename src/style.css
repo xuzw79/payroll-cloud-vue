@@ -1012,6 +1012,10 @@ p {
   padding: 9px;
 }
 
+.readonly-info dd {
+  text-align: left;
+}
+
 .slip h3 {
   margin-bottom: 8px;
   font-size: 18px;

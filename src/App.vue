@@ -317,7 +317,9 @@ const selectedPermissionRoleId = ref("");
 const fiscalRates = ref<FiscalRate[]>([]);
 const incomeTaxBrackets = ref<IncomeTaxBracket[]>([]);
 const selectedEmployeeId = ref("");
-const collapsedSections = reactive<Record<string, boolean>>({});
+const collapsedSections = reactive<Record<string, boolean>>({
+  payrollEmployeeInfo: true
+});
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 let pdfRangeInitialized = false;
 
@@ -578,6 +580,18 @@ function hasScheduledBonusForPeriod(employee: Employee | undefined, targetPeriod
 function scheduledBonusAmount(employee: Employee | undefined, targetPeriod: string) {
   const schedule = bonusScheduleForPeriod(employee, targetPeriod);
   return Math.max(0, Math.round(Number(schedule?.amount || 0)));
+}
+
+function payTypeLabel(value: PayType) {
+  return value === "MONTHLY" ? "月給" : "時給";
+}
+
+function bonusScheduleSummary(employee: Employee | undefined) {
+  if (!employee || employee.bonusEnabled === false) return "賞与なし";
+  const schedules = normalizedBonusSchedules(employee)
+    .filter((schedule) => Number(schedule.month || 0) >= 1 && Number(schedule.month || 0) <= 12 && Number(schedule.amount || 0) > 0)
+    .map((schedule) => `${Number(schedule.month)}月 ${yen.format(Number(schedule.amount || 0))}`);
+  return schedules.length ? schedules.join(" / ") : "賞与あり（予定未設定）";
 }
 
 function resetBonusForm() {
@@ -1572,6 +1586,23 @@ onMounted(async () => {
             </div>
           </div>
         </div>
+
+        <div v-if="activePayrollSubMenu === 'payrollBonusInput'" class="panel-head" :class="sectionHeadClass('payrollEmployeeInfo')" @click="toggleSection('payrollEmployeeInfo')"><h2>社員情報</h2></div>
+        <div v-if="activePayrollSubMenu === 'payrollBonusInput' && selectedEmployee" v-show="!collapsedSections.payrollEmployeeInfo" class="slip readonly-info">
+          <dl>
+            <dt>社員番号</dt><dd>{{ selectedEmployee.employeeNo }}</dd>
+            <dt>氏名</dt><dd>{{ selectedEmployee.name }}</dd>
+            <dt>職位</dt><dd>{{ selectedEmployee.position || "SE" }}</dd>
+            <dt>メール</dt><dd>{{ selectedEmployee.email || "" }}</dd>
+            <dt>給与区分</dt><dd>{{ payTypeLabel(selectedEmployee.payType) }}</dd>
+            <dt>基本給・時給</dt><dd>{{ yen.format(selectedEmployee.basePay) }}</dd>
+            <dt>固定残業手当</dt><dd>{{ yen.format(selectedEmployee.fixedOvertimeAllowance || 0) }}</dd>
+            <dt>既定の扶養人数</dt><dd>{{ selectedEmployee.defaultDependentCount }}名</dd>
+            <dt>雇用保険適用</dt><dd>{{ selectedEmployee.employmentInsuranceEnrolled ? "適用" : "対象外" }}</dd>
+            <dt>賞与設定</dt><dd>{{ bonusScheduleSummary(selectedEmployee) }}</dd>
+          </dl>
+        </div>
+        <div v-else-if="activePayrollSubMenu === 'payrollBonusInput'" v-show="!collapsedSections.payrollEmployeeInfo" class="empty">社員を選択してください。</div>
 
         <div v-if="activePayrollSubMenu === 'payrollBonusInput' && !canEditPayrollInput && canShowMenu('PAYROLL_INPUT')" v-show="!collapsedSections.employeePayroll" class="empty">閲覧権限です。給与・賞与の保存操作はできません。</div>
 
