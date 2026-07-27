@@ -545,10 +545,22 @@ function normalizedBonusSchedules(employee?: Employee | null) {
   }));
 }
 
-function scheduledBonusAmount(employee: Employee | undefined, targetPeriod: string) {
-  if (!employee || employee.bonusEnabled === false) return 0;
+function bonusScheduleForPeriod(employee: Employee | undefined, targetPeriod: string) {
+  if (!employee || employee.bonusEnabled === false) return undefined;
   const month = monthFromPeriod(targetPeriod);
-  const schedule = normalizedBonusSchedules(employee).find((item) => Number(item.month || 0) === month);
+  const schedules = Array.isArray(employee.bonusSchedules) ? employee.bonusSchedules : [];
+  return schedules.find((schedule) =>
+    Number(schedule.month || 0) === month
+    && Math.max(0, Math.round(Number(schedule.amount || 0))) > 0
+  );
+}
+
+function hasScheduledBonusForPeriod(employee: Employee | undefined, targetPeriod: string) {
+  return !!bonusScheduleForPeriod(employee, targetPeriod);
+}
+
+function scheduledBonusAmount(employee: Employee | undefined, targetPeriod: string) {
+  const schedule = bonusScheduleForPeriod(employee, targetPeriod);
   return Math.max(0, Math.round(Number(schedule?.amount || 0)));
 }
 
@@ -1436,7 +1448,7 @@ onMounted(async () => {
             <small :class="['status-pill', payrollForEmployee(employee.id) ? 'registered' : 'missing']">
               給与 {{ payrollForEmployee(employee.id) ? "登録済" : "未登録" }}
             </small>
-            <small :class="['status-pill', bonusForEmployee(employee.id) ? 'registered' : 'missing']">
+            <small v-if="hasScheduledBonusForPeriod(employee, period)" :class="['status-pill', bonusForEmployee(employee.id) ? 'registered' : 'missing']">
               賞与 {{ bonusForEmployee(employee.id) ? "登録済" : "未登録" }}
             </small>
           </span>
