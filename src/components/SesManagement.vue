@@ -195,7 +195,9 @@ type ContractMemberForm = {
   memo: string;
 };
 
-const props = defineProps<{ canEditSes: boolean; permissions?: RolePermission[]; message?: string }>();
+const props = withDefaults(defineProps<{ canEditSes: boolean; permissions?: RolePermission[]; message?: string; mode?: "ses" | "masters" }>(), {
+  mode: "ses"
+});
 const emit = defineEmits<{ message: [value: StatusMessage]; clearMessage: []; settingsUpdated: [] }>();
 
 function currentYearMonth() {
@@ -208,7 +210,7 @@ function previousYearMonth(value = currentYearMonth()) {
   return month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, "0")}`;
 }
 
-const subMenus: { key: SesSubMenu; label: string; description: string }[] = [
+const allSubMenus: { key: SesSubMenu; label: string; description: string }[] = [
   { key: "customers", label: "取引先管理", description: "顧客・協力会社の基本情報を管理します。" },
   { key: "projects", label: "案件・契約管理", description: "請求契約と仕入契約、契約期間、作業者、契約先を管理します。" },
   { key: "invoices", label: "請求管理", description: "請求契約から請求書を作成し、PDFを出力します。" },
@@ -228,7 +230,11 @@ const sesSubMenuPermissions: Record<SesSubMenu, PermissionMenu> = {
   profit: "SES_PROFIT"
 };
 
-const activeSubMenu = ref<SesSubMenu>("customers");
+const subMenus = computed(() => props.mode === "masters"
+  ? allSubMenus.filter((menu) => menu.key === "masters")
+  : allSubMenus.filter((menu) => menu.key !== "masters")
+);
+const activeSubMenu = ref<SesSubMenu>(props.mode === "masters" ? "masters" : "customers");
 const loading = ref(false);
 const customerQuery = ref("");
 const contractQuery = ref("");
@@ -263,11 +269,11 @@ const invoiceWorkHours = reactive<Record<string, number | null>>({});
 const collapsedSesSections = reactive<Record<string, boolean>>({});
 let revenueFiscalYearInitialized = false;
 
-const activeMenuInfo = computed(() => visibleSubMenus.value.find((menu) => menu.key === activeSubMenu.value) || visibleSubMenus.value[0] || subMenus[0]);
+const activeMenuInfo = computed(() => visibleSubMenus.value.find((menu) => menu.key === activeSubMenu.value) || visibleSubMenus.value[0] || subMenus.value[0] || allSubMenus[0]);
 function canShowSesSubMenu(key: SesSubMenu) {
   return props.permissions?.find((permission) => permission.menu === sesSubMenuPermissions[key])?.canShow !== false;
 }
-const visibleSubMenus = computed(() => subMenus.filter((menu) => canShowSesSubMenu(menu.key)));
+const visibleSubMenus = computed(() => subMenus.value.filter((menu) => canShowSesSubMenu(menu.key)));
 watch(visibleSubMenus, (menus) => {
   if (menus.length && !menus.some((menu) => menu.key === activeSubMenu.value)) {
     activeSubMenu.value = menus[0].key;
@@ -753,6 +759,7 @@ async function refreshSesMasterData() {
 
 async function refreshAll() {
   await refreshCompanySetting();
+  if (props.mode === "masters") return;
   await Promise.all([refreshCustomers(), refreshContracts(), refreshSesMasterData(), refreshInvoices(), refreshRevenues()]);
   await refreshPartnerCosts();
 }
@@ -862,7 +869,7 @@ async function saveCompanySetting() {
     await request<CompanySetting>("/ses/company-setting", { method: "PUT", body: JSON.stringify(companyForm) });
     showSuccess("請求書用の自社情報を保存しました");
     emit("settingsUpdated");
-    await refreshRevenues();
+    if (props.mode !== "masters") await refreshRevenues();
   } catch (error) {
     showError(error, "請求書用の自社情報を保存できませんでした");
   }
@@ -1018,7 +1025,7 @@ onMounted(async () => {
 
 <template>
   <div class="ses-workspace">
-    <nav class="sub-menu" aria-label="SES管理メニュー">
+    <nav v-if="mode === 'ses'" class="sub-menu" aria-label="SES管理メニュー">
       <button
         v-for="menu in visibleSubMenus"
         :key="menu.key"

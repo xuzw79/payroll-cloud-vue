@@ -146,6 +146,9 @@ type PermissionRoleMaster = {
 type PublicSettings = {
   systemName?: string | null;
 };
+type CompanySettings = {
+  fiscalClosingMonth?: number | null;
+};
 type StatusMessage = {
   type: "success" | "error";
   text: string;
@@ -194,6 +197,14 @@ function initialPayrollPeriod() {
     return formatYearMonth(year, month);
   }
   return month === 1 ? formatYearMonth(year - 1, 12) : formatYearMonth(year, month - 1);
+}
+
+function fiscalStartPeriodForPeriod(targetPeriod: string, closingMonth: number) {
+  const [year, month] = targetPeriod.split("-").map(Number);
+  const normalizedClosingMonth = closingMonth >= 1 && closingMonth <= 12 ? Math.trunc(closingMonth) : 3;
+  const startMonth = normalizedClosingMonth === 12 ? 1 : normalizedClosingMonth + 1;
+  const startYear = normalizedClosingMonth === 12 || month > normalizedClosingMonth ? year : year - 1;
+  return formatYearMonth(startYear, startMonth);
 }
 
 function isPayrollLockedPeriod(value: string) {
@@ -255,7 +266,8 @@ const menuLabels: Record<PermissionMenu, string> = {
   PERMISSIONS: "\u6a29\u9650\u7ba1\u7406"
 };
 const payrollPermissionMenus = permissionMenus.filter((item) => item === "PAYROLL" || item.startsWith("PAYROLL_") || ["BONUS_INPUT", "RATES", "TAX_IMPORT", "PAYSLIP", "BONUS_SLIP"].includes(item));
-const sesPermissionMenus = permissionMenus.filter((item) => item === "SES" || item.startsWith("SES_"));
+const sesPermissionMenus = permissionMenus.filter((item) => (item === "SES" || item.startsWith("SES_")) && item !== "SES_MASTERS");
+const masterPermissionMenus: PermissionMenu[] = ["SES_MASTERS"];
 const adminPermissionMenus: PermissionMenu[] = ["USERS", "PERMISSIONS"];
 const payrollSubMenus: { key: PayrollSubMenu; label: string; description: string }[] = [
   { key: "payrollBonusInput", label: "給与・賞与入力", description: "月次給与、賞与、個別明細をまとめて入力・確認します。" },
@@ -286,7 +298,7 @@ const permissionMessage = ref("");
 const toastMessage = ref("");
 const systemName = ref("給与管理クラウド");
 const me = ref<AppUser | null>(null);
-const activeMenu = ref<"payroll" | "ses" | "users" | "permissions">("payroll");
+const activeMenu = ref<"payroll" | "ses" | "masters" | "users" | "permissions">("payroll");
 const activePayrollSubMenu = ref<PayrollSubMenu>("payrollBonusInput");
 const query = ref("");
 const period = ref(today);
@@ -307,6 +319,7 @@ const incomeTaxBrackets = ref<IncomeTaxBracket[]>([]);
 const selectedEmployeeId = ref("");
 const collapsedSections = reactive<Record<string, boolean>>({});
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
+let pdfRangeInitialized = false;
 
 const loginForm = reactive({ email: "admin@example.com", password: "" });
 const userForm = reactive({
@@ -427,6 +440,9 @@ const canViewAllSlipOutput = computed(() => canViewAllMenu("PAYSLIP") || canView
 const canShowSes = computed(() => !!me.value && permissionFor("SES").canShow);
 const canViewSes = computed(() => !!me.value && permissionFor("SES").canView);
 const canEditSes = computed(() => !!me.value && permissionFor("SES").canEdit);
+const canShowMasters = computed(() => !!me.value && permissionFor("SES_MASTERS").canShow);
+const canViewMasters = computed(() => !!me.value && permissionFor("SES_MASTERS").canView);
+const canEditMasters = computed(() => !!me.value && permissionFor("SES_MASTERS").canEdit);
 const canShowUsers = computed(() => !!me.value && permissionFor("USERS").canShow);
 const canViewUsers = computed(() => !!me.value && permissionFor("USERS").canView);
 const canEditUsers = computed(() => !!me.value && permissionFor("USERS").canEdit);
@@ -649,9 +665,17 @@ function syncPayrollParentPermission(rowForMenu: (menu: PermissionMenu) => RoleP
 
 function normalizeActiveMenu() {
   if (activeMenu.value === "payroll" && !canShowPayroll.value && canShowSes.value) activeMenu.value = "ses";
+  if (activeMenu.value === "payroll" && !canShowPayroll.value && !canShowSes.value && canShowMasters.value) activeMenu.value = "masters";
   if (activeMenu.value === "ses" && !canShowSes.value && canShowPayroll.value) activeMenu.value = "payroll";
+  if (activeMenu.value === "ses" && !canShowSes.value && !canShowPayroll.value && canShowMasters.value) activeMenu.value = "masters";
+  if (activeMenu.value === "masters" && !canShowMasters.value && canShowPayroll.value) activeMenu.value = "payroll";
+  if (activeMenu.value === "masters" && !canShowMasters.value && !canShowPayroll.value && canShowSes.value) activeMenu.value = "ses";
   if (activeMenu.value === "users" && !canShowUsers.value && canShowPayroll.value) activeMenu.value = "payroll";
+  if (activeMenu.value === "users" && !canShowUsers.value && !canShowPayroll.value && canShowSes.value) activeMenu.value = "ses";
+  if (activeMenu.value === "users" && !canShowUsers.value && !canShowPayroll.value && !canShowSes.value && canShowMasters.value) activeMenu.value = "masters";
   if (activeMenu.value === "permissions" && !canShowPermissions.value && canShowPayroll.value) activeMenu.value = "payroll";
+  if (activeMenu.value === "permissions" && !canShowPermissions.value && !canShowPayroll.value && canShowSes.value) activeMenu.value = "ses";
+  if (activeMenu.value === "permissions" && !canShowPermissions.value && !canShowPayroll.value && !canShowSes.value && canShowMasters.value) activeMenu.value = "masters";
 }
 
 async function refreshRolePermissions() {
@@ -734,6 +758,14 @@ async function refreshPublicSettings() {
   const settings = await request<PublicSettings>("/public-settings");
   systemName.value = settings.systemName || "給与管理クラウド";
   document.title = systemName.value;
+}
+
+async function refreshCompanySettingsForPayroll() {
+  const settings = await request<CompanySettings>("/settings");
+  if (!pdfRangeInitialized) {
+    pdfRangeStart.value = fiscalStartPeriodForPeriod(period.value, Number(settings.fiscalClosingMonth || 3));
+    pdfRangeInitialized = true;
+  }
 }
 
 function applyEmployee(employee?: Employee) {
@@ -890,6 +922,7 @@ async function logout() {
 async function refresh() {
   loading.value = true;
   try {
+    await refreshCompanySettingsForPayroll().catch(() => {});
     const fiscalYear = fiscalYearFromPeriod(period.value);
     const q = encodeURIComponent(query.value);
     const employeeMenu = encodeURIComponent(employeeReadMenuForActiveSubMenu());
@@ -1382,6 +1415,7 @@ onMounted(async () => {
     <nav class="main-menu">
       <button v-if="canShowPayroll" :class="{ active: activeMenu === 'payroll' }" @click="activeMenu = 'payroll'">給与管理</button>
       <button v-if="canShowSes" :class="{ active: activeMenu === 'ses' }" @click="activeMenu = 'ses'">SES管理</button>
+      <button v-if="canShowMasters" :class="{ active: activeMenu === 'masters' }" @click="activeMenu = 'masters'">マスタ管理</button>
       <button v-if="canShowUsers" :class="{ active: activeMenu === 'users' }" @click="activeMenu = 'users'">ユーザー管理</button>
       <button v-if="canShowPermissions" :class="{ active: activeMenu === 'permissions' }" @click="activeMenu = 'permissions'">権限管理</button>
     </nav>
@@ -1583,7 +1617,7 @@ onMounted(async () => {
       <section
         v-if="activePayrollSubMenu === 'yearSettings' || activePayrollSubMenu === 'slipOutput' || activePayrollSubMenu === 'payrollBonusInput'"
         class="panel"
-        :class="{ payslip: showIndividualSlips }"
+        :class="{ payslip: showIndividualSlips, 'year-settings-panel': activePayrollSubMenu === 'yearSettings' }"
       >
         <div v-if="activePayrollSubMenu === 'slipOutput'" class="panel-head" :class="sectionHeadClass('slipOutput')" @click="toggleSection('slipOutput')"><h2>明細一括出力</h2></div>
         <div v-if="activePayrollSubMenu === 'slipOutput'" v-show="!collapsedSections.slipOutput" class="form-grid compact">
@@ -1831,9 +1865,20 @@ onMounted(async () => {
                 <label><input :checked="isPermissionGroupChecked(sesPermissionMenus, 'canEdit')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(sesPermissionMenus, 'canEdit', ($event.target as HTMLInputElement).checked)" />更新</label>
                 <label><input :checked="isPermissionGroupChecked(sesPermissionMenus, 'canViewAll')" :disabled="!canEditPermissions" type="checkbox" @change="setPermissionGroup(sesPermissionMenus, 'canViewAll', ($event.target as HTMLInputElement).checked)" />全件</label>
               </div>
-              <div v-for="menu in permissionMenus.filter((item) => item === 'SES' || item.startsWith('SES_'))" :key="`ses-${menu}`" class="permission-row" :class="{ child: menu !== 'SES' }">
+              <div v-for="menu in sesPermissionMenus" :key="`ses-${menu}`" class="permission-row" :class="{ child: menu !== 'SES' }">
                 <span>{{ menuLabels[menu] }}</span>
                 <span>{{ menu === 'SES' ? '親メニュー' : '子メニュー' }}</span>
+                <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canShow" :disabled="!canEditPermissions" type="checkbox" /></label>
+                <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canView" :disabled="!canEditPermissions" type="checkbox" /></label>
+                <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canEdit" :disabled="!canEditPermissions" type="checkbox" /></label>
+                <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canViewAll" :disabled="!canEditPermissions" type="checkbox" /></label>
+              </div>
+            </div>
+            <div class="permission-parent">
+              <strong>{{ menuLabels.SES_MASTERS }}</strong>
+              <div v-for="menu in masterPermissionMenus" :key="`master-${menu}`" class="permission-row">
+                <span>{{ menuLabels[menu] }}</span>
+                <span>親メニュー</span>
                 <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canShow" :disabled="!canEditPermissions" type="checkbox" /></label>
                 <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canView" :disabled="!canEditPermissions" type="checkbox" /></label>
                 <label class="check-cell"><input v-model="permissionRow(permissionRoleForm.baseRole, menu).canEdit" :disabled="!canEditPermissions" type="checkbox" /></label>
@@ -1865,7 +1910,18 @@ onMounted(async () => {
 
     <SesManagement
       v-if="activeMenu === 'ses' && canViewSes"
+      mode="ses"
       :can-edit-ses="canEditSes"
+      :permissions="me?.permissions || []"
+      :message="sesMessage"
+      @message="handleSesMessage"
+      @clear-message="clearMessages"
+      @settings-updated="refreshPublicSettings"
+    />
+    <SesManagement
+      v-if="activeMenu === 'masters' && canViewMasters"
+      mode="masters"
+      :can-edit-ses="canEditMasters"
       :permissions="me?.permissions || []"
       :message="sesMessage"
       @message="handleSesMessage"

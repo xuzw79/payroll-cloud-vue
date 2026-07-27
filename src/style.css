@@ -995,6 +995,19 @@ p {
   overflow: hidden;
 }
 
+.year-settings-panel {
+  grid-column: 1 / -1;
+}
+
+.year-settings-panel .form-grid.compact {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  max-width: 900px;
+}
+
+.year-settings-panel .tax-import {
+  max-width: 720px;
+}
+
 .slip {
   padding: 9px;
 }

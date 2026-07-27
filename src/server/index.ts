@@ -185,6 +185,12 @@ async function requireMenu(c: Context, menu: PermissionMenu, action: "view" | "e
   return null;
 }
 
+async function requireAnyMenu(c: Context, menus: PermissionMenu[], action: "view" | "edit") {
+  const permissions = await Promise.all(menus.map((menu) => menuPermission(c, menu)));
+  const allowed = permissions.some((permission) => action === "view" ? permission.canView : permission.canEdit);
+  return allowed ? null : c.json({ message: "\u6a29\u9650\u304c\u3042\u308a\u307e\u305b\u3093" }, 403);
+}
+
 function periodToFiscalYear(period: string) {
   const [year, month] = period.split("-").map(Number);
   return month >= 4 ? year : year - 1;
@@ -769,7 +775,9 @@ api.put("/settings", async (c) => {
 
 api.use("/ses/*", async (c, next) => {
   const action = c.req.method === "GET" || c.req.method === "HEAD" ? "view" : "edit";
-  const denied = await requireMenu(c, "SES", action);
+  const path = c.req.path;
+  const menus: PermissionMenu[] = path.includes("/ses/company-setting") ? ["SES_MASTERS"] : ["SES"];
+  const denied = await requireAnyMenu(c, menus, action);
   if (denied) return denied;
   await next();
 });
