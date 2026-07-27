@@ -542,6 +542,11 @@ p {
   color: #7b4a00;
 }
 
+.missing-text {
+  color: #d90000;
+  font-weight: 700;
+}
+
 @media (max-width: 640px) {
   .partner-cost-row-head {
     grid-template-columns: 1fr;

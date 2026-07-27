@@ -808,6 +808,7 @@ function addContractMember() {
 }
 
 function removeContractMember(index: number) {
+  if (!confirm("この契約メンバー行を削除しますか？")) return;
   contractMembers.value.splice(index, 1);
   if (!contractMembers.value.length) contractMembers.value.push(newMemberRow());
 }
@@ -1306,7 +1307,8 @@ onMounted(async () => {
                     {{ row.contract.taxIncluded ? "税込み" : "税抜き" }}
                   </span>
                   <span class="status-chip" :class="{ registered: registeredPartnerCostMemberIds.has(row.member.id) }">
-                    {{ registeredPartnerCostMemberIds.has(row.member.id) ? "登録済み" : "未登録" }}
+                    <template v-if="registeredPartnerCostMemberIds.has(row.member.id)">登録済み</template>
+                    <span v-else class="missing-text">未登録</span>
                   </span>
                 </div>
               </div>

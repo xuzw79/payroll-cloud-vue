@@ -1493,11 +1493,15 @@ onMounted(async () => {
           <strong>{{ employee.name }}</strong>
           <span>{{ employee.employeeNo }} / 扶養人数: {{ employee.defaultDependentCount }}</span>
           <span v-if="activePayrollSubMenu !== 'employees'" class="employee-status">
-            <small :class="['status-pill', payrollForEmployee(employee.id) ? 'registered' : 'missing']">
-              給与 {{ payrollForEmployee(employee.id) ? "登録済" : "未登録" }}
+            <small :class="['status-pill', { registered: payrollForEmployee(employee.id) }]">
+              給与
+              <template v-if="payrollForEmployee(employee.id)">登録済</template>
+              <span v-else class="missing-text">未登録</span>
             </small>
-            <small v-if="hasScheduledBonusForPeriod(employee, period)" :class="['status-pill', bonusForEmployee(employee.id) ? 'registered' : 'missing']">
-              賞与 {{ bonusForEmployee(employee.id) ? "登録済" : "未登録" }}
+            <small v-if="hasScheduledBonusForPeriod(employee, period)" :class="['status-pill', { registered: bonusForEmployee(employee.id) }]">
+              賞与
+              <template v-if="bonusForEmployee(employee.id)">登録済</template>
+              <span v-else class="missing-text">未登録</span>
             </small>
           </span>
         </button>
