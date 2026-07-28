@@ -1019,6 +1019,14 @@ async function importIncomeTaxTable() {
 
 async function saveEmployee() {
   if (!canEditEmployees.value) return;
+  if (!employeeForm.employeeNo.trim()) {
+    showErrorMessage("社員番号を入力してください");
+    return;
+  }
+  if (!employeeForm.name.trim()) {
+    showErrorMessage("氏名を入力してください");
+    return;
+  }
   try {
     const method = employeeForm.id ? "PUT" : "POST";
     const path = employeeForm.id ? `/employees/${employeeForm.id}` : "/employees";
@@ -1458,7 +1466,7 @@ onMounted(async () => {
       <button v-if="canShowPermissions" :class="{ active: activeMenu === 'permissions' }" @click="activeMenu = 'permissions'">権限管理</button>
     </nav>
 
-    <div v-if="message" class="message operation-message">{{ message }}</div>
+    <div v-if="activeMenu !== 'payroll' && message" class="message operation-message">{{ message }}</div>
     <div v-if="activeMenu === 'permissions' && permissionMessage" class="message operation-message">{{ permissionMessage }}</div>
 
     <nav v-if="activeMenu === 'payroll' && canViewPayroll" class="sub-menu" aria-label="給与管理メニュー">
@@ -1475,6 +1483,7 @@ onMounted(async () => {
       <strong>{{ activePayrollMenuInfo.label }}</strong>
       <span>{{ activePayrollMenuInfo.description }}</span>
     </div>
+    <div v-if="activeMenu === 'payroll' && message" class="message operation-message">{{ message }}</div>
 
     <section v-if="activeMenu === 'payroll' && canViewPayroll && showPayrollPeriodFilters" class="filters">
       <div class="filter-row search-row">
