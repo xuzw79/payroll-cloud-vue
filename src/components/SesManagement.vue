@@ -1042,11 +1042,11 @@ onMounted(async () => {
     </div>
 
     <section v-if="activeSubMenu === 'customers'" class="panel">
-      <div class="panel-head">
+      <div class="panel-head" :class="sesSectionHeadClass('customers')" @click="toggleSesSection('customers')">
         <h2>取引先管理</h2>
-        <button v-if="canEditSes" @click="applyCustomer()"><Plus :size="16" />追加</button>
+        <button v-if="canEditSes" @click.stop="applyCustomer()"><Plus :size="16" />追加</button>
       </div>
-      <div class="ses-layout">
+      <div v-show="!collapsedSesSections.customers" class="ses-layout">
         <div class="ses-list">
           <div class="filter-row ses-search">
             <label>取引先検索<input v-model="customerQuery" placeholder="会社名・コード・担当者" @keyup.enter="refreshCustomers" /></label>
@@ -1202,9 +1202,10 @@ onMounted(async () => {
     </section>
 
     <section v-else-if="activeSubMenu === 'invoices'" class="panel">
-      <div class="panel-head">
+      <div class="panel-head" :class="sesSectionHeadClass('invoices')" @click="toggleSesSection('invoices')">
         <h2>請求管理</h2>
       </div>
+      <div v-show="!collapsedSesSections.invoices">
       <div class="filter-row ses-search invoice-search">
         <label>請求対象月<input v-model="invoiceSearchPeriod" type="month" @change="onInvoiceSearchPeriodChange" /></label>
         <label>請求検索<input v-model="invoiceQuery" placeholder="請求書番号・契約名・取引先" @keyup.enter="refreshInvoices" /></label>
@@ -1280,12 +1281,14 @@ onMounted(async () => {
           </div>
         </div>
       </div>
+      </div>
     </section>
 
     <section v-else-if="activeSubMenu === 'partnerCosts'" class="panel">
-      <div class="panel-head">
+      <div class="panel-head" :class="sesSectionHeadClass('partnerCosts')" @click="toggleSesSection('partnerCosts')">
         <h2>外注費入力</h2>
       </div>
+      <div v-show="!collapsedSesSections.partnerCosts">
       <div class="filter-row ses-search invoice-search">
         <label>対象月<input v-model="partnerCostPeriod" type="month" @change="refreshPartnerCosts" /></label>
         <button class="primary" @click="refreshPartnerCosts"><Search :size="16" />検索</button>
@@ -1324,13 +1327,15 @@ onMounted(async () => {
           <div v-if="!partnerCostMembers.length" class="empty">対象月の仕入契約メンバーがありません。</div>
         </div>
       </div>
+      </div>
     </section>
 
     <section v-else-if="activeSubMenu === 'revenue'" class="panel">
-      <div class="panel-head">
+      <div class="panel-head" :class="sesSectionHeadClass('revenue')" @click="toggleSesSection('revenue')">
         <h2>年間売上</h2>
-        <button v-if="canEditSes" @click="resetRevenueForm"><Plus :size="16" />追加</button>
+        <button v-if="canEditSes" @click.stop="resetRevenueForm"><Plus :size="16" />追加</button>
       </div>
+      <div v-show="!collapsedSesSections.revenue">
       <div class="filter-row ses-search invoice-search">
         <label>決算年度<input v-model.number="revenueFiscalYear" type="number" min="2000" @keyup.enter="refreshRevenues" /></label>
         <label>売上検索<input v-model="revenueQuery" placeholder="売上名・社員・取引先" @keyup.enter="refreshRevenues" /></label>
@@ -1466,13 +1471,14 @@ onMounted(async () => {
           </div>
         </div>
       </div>
+      </div>
     </section>
 
     <section v-else-if="activeSubMenu === 'masters'" class="panel">
-      <div class="panel-head">
+      <div class="panel-head" :class="sesSectionHeadClass('masters')" @click="toggleSesSection('masters')">
         <h2>マスタ管理</h2>
       </div>
-      <div class="contract-editor">
+      <div v-show="!collapsedSesSections.masters" class="contract-editor">
         <div class="ses-flow-note">
           請求書PDFに印字する自社情報と振込先を登録します。
         </div>
@@ -1499,8 +1505,8 @@ onMounted(async () => {
     </section>
 
     <section v-else class="panel">
-      <div class="panel-head"><h2>{{ activeMenuInfo.label }}</h2></div>
-      <div class="ses-cards">
+      <div class="panel-head" :class="sesSectionHeadClass('fallback')" @click="toggleSesSection('fallback')"><h2>{{ activeMenuInfo.label }}</h2></div>
+      <div v-show="!collapsedSesSections.fallback" class="ses-cards">
         <div>
           <strong>{{ activeMenuInfo.label }}</strong>
           <span>{{ activeMenuInfo.description }}</span>
