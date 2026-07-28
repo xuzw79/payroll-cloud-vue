@@ -296,6 +296,7 @@ const loginMessage = ref("");
 const sesMessage = ref("");
 const permissionMessage = ref("");
 const toastMessage = ref("");
+const confirmDialog = reactive({ visible: false, message: "" });
 const systemName = ref("給与管理クラウド");
 const me = ref<AppUser | null>(null);
 const activeMenu = ref<"payroll" | "ses" | "masters" | "users" | "permissions">("payroll");
@@ -321,6 +322,7 @@ const collapsedSections = reactive<Record<string, boolean>>({
   payrollEmployeeInfo: true
 });
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
+let confirmResolver: ((value: boolean) => void) | null = null;
 let pdfRangeInitialized = false;
 
 const loginForm = reactive({ email: "admin@example.com", password: "" });
@@ -759,6 +761,24 @@ function showSuccess(value: string) {
   }, 2800);
 }
 
+function confirmAction(value: string) {
+  if (confirmResolver) confirmResolver(false);
+  confirmDialog.message = value;
+  confirmDialog.visible = true;
+  return new Promise<boolean>((resolve) => {
+    confirmResolver = resolve;
+  });
+}
+
+function closeConfirmDialog(result: boolean) {
+  if (!confirmResolver) return;
+  const resolve = confirmResolver;
+  confirmResolver = null;
+  confirmDialog.visible = false;
+  confirmDialog.message = "";
+  resolve(result);
+}
+
 function handleSesMessage(payload: StatusMessage) {
   if (payload.type === "success") {
     sesMessage.value = "";
@@ -1019,7 +1039,7 @@ async function saveEmployee() {
 
 async function deleteEmployee() {
   if (!canEditEmployees.value) return;
-  if (!employeeForm.id || !confirm("この社員を非表示にしますか？")) return;
+  if (!employeeForm.id || !(await confirmAction("この社員を非表示にしますか？"))) return;
   await request(`/employees/${employeeForm.id}`, { method: "DELETE" });
   selectedEmployeeId.value = "";
   showSuccess("社員を非表示にしました");
@@ -1087,7 +1107,7 @@ async function savePermissionRole() {
 }
 
 async function deletePermissionRole() {
-  if (!canManageUsers.value || !permissionRoleForm.id || !confirm("\u3053\u306e\u30ed\u30fc\u30eb\u3092\u975e\u8868\u793a\u306b\u3057\u307e\u3059\u304b\uff1f")) return;
+  if (!canManageUsers.value || !permissionRoleForm.id || !(await confirmAction("このロールを非表示にしますか？"))) return;
   permissionMessage.value = "";
   try {
     await request(`/permission-roles/${permissionRoleForm.id}`, { method: "DELETE" });
@@ -1114,7 +1134,7 @@ async function saveUserPermissions() {
 }
 
 async function deactivateUser() {
-  if (!canManageUsers.value || !userForm.id || !confirm("このユーザーを停止しますか？")) return;
+  if (!canManageUsers.value || !userForm.id || !(await confirmAction("このユーザーを停止しますか？"))) return;
   await request(`/users/${userForm.id}`, { method: "DELETE" });
   showSuccess("ユーザーを停止しました");
   resetUserForm();
@@ -1949,6 +1969,7 @@ onMounted(async () => {
       :can-edit-ses="canEditSes"
       :permissions="me?.permissions || []"
       :message="sesMessage"
+      :confirm-action="confirmAction"
       @message="handleSesMessage"
       @clear-message="clearMessages"
       @settings-updated="refreshPublicSettings"
@@ -1959,9 +1980,23 @@ onMounted(async () => {
       :can-edit-ses="canEditMasters"
       :permissions="me?.permissions || []"
       :message="sesMessage"
+      :confirm-action="confirmAction"
       @message="handleSesMessage"
       @clear-message="clearMessages"
       @settings-updated="refreshPublicSettings"
     />
   </main>
+
+  <div v-if="confirmDialog.visible" class="confirm-overlay" @click.self="closeConfirmDialog(false)">
+    <section class="confirm-dialog" role="dialog" aria-modal="true">
+      <header class="confirm-head">
+        <button class="confirm-close" type="button" aria-label="閉じる" @click="closeConfirmDialog(false)">×</button>
+      </header>
+      <div class="confirm-body">{{ confirmDialog.message }}</div>
+      <footer class="confirm-actions">
+        <button class="confirm-ok" type="button" @click="closeConfirmDialog(true)">OK</button>
+        <button class="confirm-cancel" type="button" @click="closeConfirmDialog(false)">キャンセル</button>
+      </footer>
+    </section>
+  </div>
 </template>

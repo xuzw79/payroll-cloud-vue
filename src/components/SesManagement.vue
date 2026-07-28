@@ -195,8 +195,9 @@ type ContractMemberForm = {
   memo: string;
 };
 
-const props = withDefaults(defineProps<{ canEditSes: boolean; permissions?: RolePermission[]; message?: string; mode?: "ses" | "masters" }>(), {
-  mode: "ses"
+const props = withDefaults(defineProps<{ canEditSes: boolean; permissions?: RolePermission[]; message?: string; mode?: "ses" | "masters"; confirmAction?: (message: string) => Promise<boolean> }>(), {
+  mode: "ses",
+  confirmAction: async (message: string) => confirm(message)
 });
 const emit = defineEmits<{ message: [value: StatusMessage]; clearMessage: []; settingsUpdated: [] }>();
 
@@ -779,7 +780,7 @@ async function saveCustomer() {
 }
 
 async function deleteCustomer() {
-  if (!props.canEditSes || !customerForm.id || !confirm("この取引先を非表示にしますか？")) return;
+  if (!props.canEditSes || !customerForm.id || !(await props.confirmAction("この取引先を非表示にしますか？"))) return;
   await request(`/customers/${customerForm.id}`, { method: "DELETE" });
   showSuccess("取引先を非表示にしました");
   resetCustomerForm();
@@ -807,8 +808,8 @@ function addContractMember() {
   contractMembers.value.push(newMemberRow());
 }
 
-function removeContractMember(index: number) {
-  if (!confirm("この契約メンバー行を削除しますか？")) return;
+async function removeContractMember(index: number) {
+  if (!(await props.confirmAction("この契約メンバー行を削除しますか？"))) return;
   contractMembers.value.splice(index, 1);
   if (!contractMembers.value.length) contractMembers.value.push(newMemberRow());
 }
@@ -853,7 +854,7 @@ async function saveContract() {
 }
 
 async function deleteContract() {
-  if (!props.canEditSes || !contractForm.id || !confirm("この契約を非表示にしますか？")) return;
+  if (!props.canEditSes || !contractForm.id || !(await props.confirmAction("この契約を非表示にしますか？"))) return;
   try {
     await request(`/ses/contracts/${contractForm.id}`, { method: "DELETE" });
     showSuccess("契約を非表示にしました");
@@ -898,7 +899,7 @@ async function saveRevenue() {
 }
 
 async function deleteRevenue() {
-  if (!props.canEditSes || !revenueForm.id || !confirm("この売上を非表示にしますか？")) return;
+  if (!props.canEditSes || !revenueForm.id || !(await props.confirmAction("この売上を非表示にしますか？"))) return;
   try {
     await request(`/ses/revenues/${revenueForm.id}`, { method: "DELETE" });
     showSuccess("売上を非表示にしました");
@@ -931,7 +932,7 @@ async function saveExpense() {
 }
 
 async function deleteExpense() {
-  if (!props.canEditSes || !expenseForm.id || !confirm("この支出を非表示にしますか？")) return;
+  if (!props.canEditSes || !expenseForm.id || !(await props.confirmAction("この支出を非表示にしますか？"))) return;
   try {
     await request(`/ses/expenses/${expenseForm.id}`, { method: "DELETE" });
     showSuccess("支出を非表示にしました");
@@ -981,7 +982,7 @@ async function generateInvoice() {
 }
 
 async function deleteInvoice(invoice: Invoice) {
-  if (!props.canEditSes || !confirm("この請求書を非表示にしますか？")) return;
+  if (!props.canEditSes || !(await props.confirmAction("この請求書を非表示にしますか？"))) return;
   await request(`/ses/invoices/${invoice.id}`, { method: "DELETE" });
   showSuccess("請求書を非表示にしました");
   if (selectedInvoiceId.value === invoice.id) selectedInvoiceId.value = "";
