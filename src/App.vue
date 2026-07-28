@@ -1019,22 +1019,26 @@ async function importIncomeTaxTable() {
 
 async function saveEmployee() {
   if (!canEditEmployees.value) return;
-  const method = employeeForm.id ? "PUT" : "POST";
-  const path = employeeForm.id ? `/employees/${employeeForm.id}` : "/employees";
-  const employee = await request<Employee>(path, {
-    method,
-    body: JSON.stringify({
-      ...employeeForm,
-      bonusSchedules: employeeForm.bonusSchedules.map((schedule) => ({
-        month: schedule.month || null,
-        amount: Math.max(0, Math.round(Number(schedule.amount || 0)))
-      }))
-    })
-  });
-  showSuccess("社員情報を保存しました");
-  await refresh();
-  applyEmployee(employee);
-  payrollForm.dependentCount = employee.defaultDependentCount || 0;
+  try {
+    const method = employeeForm.id ? "PUT" : "POST";
+    const path = employeeForm.id ? `/employees/${employeeForm.id}` : "/employees";
+    const employee = await request<Employee>(path, {
+      method,
+      body: JSON.stringify({
+        ...employeeForm,
+        bonusSchedules: employeeForm.bonusSchedules.map((schedule) => ({
+          month: schedule.month || null,
+          amount: Math.max(0, Math.round(Number(schedule.amount || 0)))
+        }))
+      })
+    });
+    showSuccess("社員情報を保存しました");
+    await refresh();
+    applyEmployee(employee);
+    payrollForm.dependentCount = employee.defaultDependentCount || 0;
+  } catch (error) {
+    showErrorMessage(error instanceof Error ? error.message : "社員情報を保存できませんでした");
+  }
 }
 
 async function deleteEmployee() {

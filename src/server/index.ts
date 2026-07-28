@@ -1864,23 +1864,35 @@ api.post("/employees", async (c) => {
   if (permissionDenied) return permissionDenied;
 
   const body = await c.req.json();
-  const employee = await prisma.employee.create({
-    data: {
-      employeeNo: String(body.employeeNo),
-      name: String(body.name),
-      position: nullableText(body.position),
-      email: body.email || null,
-      defaultDependentCount: Number(body.defaultDependentCount || 0),
-      employmentInsuranceEnrolled: body.employmentInsuranceEnrolled !== false,
-      payType: body.payType === "HOURLY" ? "HOURLY" : "MONTHLY",
-      basePay: Number(body.basePay || 0),
-      fixedOvertimeAllowance: Number(body.fixedOvertimeAllowance || 0),
-      bonusEnabled: body.bonusEnabled !== false,
-      bonusSchedules: normalizeBonusSchedules(body.bonusSchedules),
-      memo: body.memo || null
+  const employeeNo = nullableText(body.employeeNo);
+  const name = nullableText(body.name);
+  if (!employeeNo) return c.json({ message: "社員番号を入力してください" }, 400);
+  if (!name) return c.json({ message: "氏名を入力してください" }, 400);
+
+  try {
+    const employee = await prisma.employee.create({
+      data: {
+        employeeNo,
+        name,
+        position: nullableText(body.position),
+        email: nullableText(body.email),
+        defaultDependentCount: Number(body.defaultDependentCount || 0),
+        employmentInsuranceEnrolled: body.employmentInsuranceEnrolled !== false,
+        payType: body.payType === "HOURLY" ? "HOURLY" : "MONTHLY",
+        basePay: Number(body.basePay || 0),
+        fixedOvertimeAllowance: Number(body.fixedOvertimeAllowance || 0),
+        bonusEnabled: body.bonusEnabled !== false,
+        bonusSchedules: normalizeBonusSchedules(body.bonusSchedules),
+        memo: nullableText(body.memo)
+      }
+    });
+    return c.json(employee, 201);
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "P2002") {
+      return c.json({ message: "同じ社員番号は既に登録されています" }, 409);
     }
-  });
-  return c.json(employee, 201);
+    throw error;
+  }
 });
 
 api.put("/employees/:id", async (c) => {
@@ -1888,24 +1900,39 @@ api.put("/employees/:id", async (c) => {
   if (permissionDenied) return permissionDenied;
 
   const body = await c.req.json();
-  const employee = await prisma.employee.update({
-    where: { id: c.req.param("id") },
-    data: {
-      employeeNo: String(body.employeeNo),
-      name: String(body.name),
-      position: nullableText(body.position),
-      email: body.email || null,
-      defaultDependentCount: Number(body.defaultDependentCount || 0),
-      employmentInsuranceEnrolled: body.employmentInsuranceEnrolled !== false,
-      payType: body.payType === "HOURLY" ? "HOURLY" : "MONTHLY",
-      basePay: Number(body.basePay || 0),
-      fixedOvertimeAllowance: Number(body.fixedOvertimeAllowance || 0),
-      bonusEnabled: body.bonusEnabled !== false,
-      bonusSchedules: normalizeBonusSchedules(body.bonusSchedules),
-      memo: body.memo || null
+  const employeeNo = nullableText(body.employeeNo);
+  const name = nullableText(body.name);
+  if (!employeeNo) return c.json({ message: "社員番号を入力してください" }, 400);
+  if (!name) return c.json({ message: "氏名を入力してください" }, 400);
+
+  try {
+    const employee = await prisma.employee.update({
+      where: { id: c.req.param("id") },
+      data: {
+        employeeNo,
+        name,
+        position: nullableText(body.position),
+        email: nullableText(body.email),
+        defaultDependentCount: Number(body.defaultDependentCount || 0),
+        employmentInsuranceEnrolled: body.employmentInsuranceEnrolled !== false,
+        payType: body.payType === "HOURLY" ? "HOURLY" : "MONTHLY",
+        basePay: Number(body.basePay || 0),
+        fixedOvertimeAllowance: Number(body.fixedOvertimeAllowance || 0),
+        bonusEnabled: body.bonusEnabled !== false,
+        bonusSchedules: normalizeBonusSchedules(body.bonusSchedules),
+        memo: nullableText(body.memo)
+      }
+    });
+    return c.json(employee);
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "P2002") {
+      return c.json({ message: "同じ社員番号は既に登録されています" }, 409);
     }
-  });
-  return c.json(employee);
+    if (error && typeof error === "object" && "code" in error && error.code === "P2025") {
+      return c.json({ message: "社員が見つかりません" }, 404);
+    }
+    throw error;
+  }
 });
 
 api.delete("/employees/:id", async (c) => {
