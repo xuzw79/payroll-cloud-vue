@@ -62,6 +62,11 @@ model Employee {
   employeeNo  String    @unique
   name        String
   position    String?
+  department  String?
+  hireDate    String?
+  retirementDate String?
+  employmentStatus String @default("ACTIVE")
+  employmentType String @default("REGULAR")
   email       String?
   defaultDependentCount Int @default(0)
   employmentInsuranceEnrolled Boolean @default(true)

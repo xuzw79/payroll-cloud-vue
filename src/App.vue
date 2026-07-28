@@ -30,6 +30,11 @@ type Employee = {
   employeeNo: string;
   name: string;
   position?: string | null;
+  department?: string | null;
+  hireDate?: string | null;
+  retirementDate?: string | null;
+  employmentStatus?: string | null;
+  employmentType?: string | null;
   email?: string | null;
   defaultDependentCount: number;
   employmentInsuranceEnrolled: boolean;
@@ -224,6 +229,17 @@ const roleLabels: Record<UserRole, string> = {
   VIEWER: "閲覧のみ",
   EMPLOYEE: "社員本人"
 };
+const employmentStatusLabels: Record<string, string> = {
+  ACTIVE: "在籍",
+  LEAVE: "休職",
+  RETIRED: "退職"
+};
+const employmentTypeLabels: Record<string, string> = {
+  REGULAR: "正社員",
+  CONTRACT: "契約社員",
+  SOLE_PROPRIETOR: "個人事業主",
+  OTHER: "その他"
+};
 const permissionRoles: UserRole[] = ["ADMIN", "ACCOUNTING", "VIEWER", "EMPLOYEE"];
 const permissionMenus: PermissionMenu[] = [
   "PAYROLL",
@@ -348,6 +364,11 @@ const employeeForm = reactive({
   employeeNo: "",
   name: "",
   position: "",
+  department: "",
+  hireDate: "",
+  retirementDate: "",
+  employmentStatus: "ACTIVE",
+  employmentType: "REGULAR",
   email: "",
   defaultDependentCount: 0,
   employmentInsuranceEnrolled: true,
@@ -808,6 +829,11 @@ function applyEmployee(employee?: Employee) {
     employeeNo: nextEmployeeNo(),
     name: "",
     position: "",
+    department: "",
+    hireDate: "",
+    retirementDate: "",
+    employmentStatus: "ACTIVE",
+    employmentType: "REGULAR",
     email: "",
     defaultDependentCount: 0,
     employmentInsuranceEnrolled: true,
@@ -826,6 +852,11 @@ function applyEmployee(employee?: Employee) {
   employeeForm.employeeNo = target.employeeNo;
   employeeForm.name = target.name;
   employeeForm.position = target.position || "";
+  employeeForm.department = target.department || "";
+  employeeForm.hireDate = target.hireDate || "";
+  employeeForm.retirementDate = target.retirementDate || "";
+  employeeForm.employmentStatus = target.employmentStatus || "ACTIVE";
+  employeeForm.employmentType = target.employmentType || "REGULAR";
   employeeForm.email = target.email || "";
   employeeForm.defaultDependentCount = target.defaultDependentCount || 0;
   employeeForm.employmentInsuranceEnrolled = target.employmentInsuranceEnrolled ?? true;
@@ -1546,6 +1577,11 @@ onMounted(async () => {
           <label>社員番号<input v-model="employeeForm.employeeNo" /></label>
           <label>氏名<input v-model="employeeForm.name" /></label>
           <label>職位<input v-model="employeeForm.position" /></label>
+          <label>所属<input v-model="employeeForm.department" /></label>
+          <label>入社日<input v-model="employeeForm.hireDate" type="date" /></label>
+          <label>退職日<input v-model="employeeForm.retirementDate" type="date" /></label>
+          <label>在籍状態<select v-model="employeeForm.employmentStatus"><option value="ACTIVE">在籍</option><option value="LEAVE">休職</option><option value="RETIRED">退職</option></select></label>
+          <label>雇用形態<select v-model="employeeForm.employmentType"><option value="REGULAR">正社員</option><option value="CONTRACT">契約社員</option><option value="SOLE_PROPRIETOR">個人事業主</option><option value="OTHER">その他</option></select></label>
           <label>メール<input v-model="employeeForm.email" type="email" /></label>
           <label>既定の扶養人数<input v-model.number="employeeForm.defaultDependentCount" type="number" min="0" /></label>
           <label>雇用保険適用<select v-model="employeeForm.employmentInsuranceEnrolled"><option :value="true">適用</option><option :value="false">対象外</option></select></label>
@@ -1630,6 +1666,11 @@ onMounted(async () => {
             <dt>社員番号</dt><dd>{{ selectedEmployee.employeeNo }}</dd>
             <dt>氏名</dt><dd>{{ selectedEmployee.name }}</dd>
             <dt>職位</dt><dd>{{ selectedEmployee.position || "SE" }}</dd>
+            <dt>所属</dt><dd>{{ selectedEmployee.department || "" }}</dd>
+            <dt>入社日</dt><dd>{{ selectedEmployee.hireDate || "" }}</dd>
+            <dt>退職日</dt><dd>{{ selectedEmployee.retirementDate || "" }}</dd>
+            <dt>在籍状態</dt><dd>{{ employmentStatusLabels[selectedEmployee.employmentStatus || "ACTIVE"] }}</dd>
+            <dt>雇用形態</dt><dd>{{ employmentTypeLabels[selectedEmployee.employmentType || "REGULAR"] }}</dd>
             <dt>メール</dt><dd>{{ selectedEmployee.email || "" }}</dd>
             <dt>給与区分</dt><dd>{{ payTypeLabel(selectedEmployee.payType) }}</dd>
             <dt>基本給・時給</dt><dd>{{ yen.format(selectedEmployee.basePay) }}</dd>
