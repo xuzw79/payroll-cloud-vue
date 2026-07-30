@@ -14,6 +14,12 @@ import { createBonusPdf } from "./bonusPdf.js";
 import { createInvoicePdf } from "./invoicePdf.js";
 import { createPayslipPdf } from "./pdf.js";
 import { calculateBonus, calculatePayroll } from "./payroll.js";
+import {
+  isPayrollLockedPeriod,
+  normalizePayrollPeriodSettings,
+  payrollLockMessage,
+  type PayrollPeriodSettings
+} from "./payrollPeriod.js";
 
 const app = new Hono();
 const api = new Hono();
@@ -304,6 +310,39 @@ function booleanOrFalse(value: unknown) {
   return value === true || value === "true";
 }
 
+function booleanOrDefault(value: unknown, defaultValue: boolean) {
+  if (value === undefined || value === null || value === "") return defaultValue;
+  return value === true || value === "true";
+}
+
+function dayOrDefault(value: unknown, defaultValue: number) {
+  const parsed = numberOrDefault(value, defaultValue);
+  return Math.min(31, Math.max(1, Math.trunc(parsed)));
+}
+
+function payrollPeriodDataFromBody(body: Record<string, unknown>) {
+  const settings = normalizePayrollPeriodSettings({
+    payrollPeriodType: typeof body.payrollPeriodType === "string" ? body.payrollPeriodType : undefined,
+    payrollPayDay: numberOrDefault(body.payrollPayDay, 25),
+    payrollClosingDay: numberOrDefault(body.payrollClosingDay, 31),
+    payrollInitialSwitchDay: numberOrDefault(body.payrollInitialSwitchDay, 25),
+    payrollLockDay: numberOrDefault(body.payrollLockDay, 28),
+    payrollLockEnabled: booleanOrDefault(body.payrollLockEnabled, true),
+    payrollForceUpdateEnabled: booleanOrDefault(body.payrollForceUpdateEnabled, true),
+    payrollLockTarget: typeof body.payrollLockTarget === "string" ? body.payrollLockTarget : undefined
+  });
+  return {
+    payrollPeriodType: settings.payrollPeriodType,
+    payrollPayDay: dayOrDefault(settings.payrollPayDay, 25),
+    payrollClosingDay: dayOrDefault(settings.payrollClosingDay, 31),
+    payrollInitialSwitchDay: dayOrDefault(settings.payrollInitialSwitchDay, 25),
+    payrollLockDay: dayOrDefault(settings.payrollLockDay, 28),
+    payrollLockEnabled: settings.payrollLockEnabled,
+    payrollForceUpdateEnabled: settings.payrollForceUpdateEnabled,
+    payrollLockTarget: settings.payrollLockTarget
+  };
+}
+
 function payrollEmployeeReadMenus(value: string | undefined) {
   const menu = value as PermissionMenu | undefined;
   return menu && ["PAYROLL_EMPLOYEES", "PAYROLL_INPUT", "BONUS_INPUT", "PAYSLIP", "BONUS_SLIP"].includes(menu)
@@ -366,13 +405,22 @@ function tokyoDateParts() {
   };
 }
 
-function currentTokyoPeriod() {
-  const { year, month } = tokyoDateParts();
-  return `${year}-${String(month).padStart(2, "0")}`;
+async function getCompanySettings() {
+  return prisma.companySetting.upsert({
+    where: { id: "default" },
+    update: {},
+    create: { id: "default", currentFiscalYear: new Date().getFullYear() }
+  });
 }
 
-function isPayrollLockedPeriod(period: string) {
-  return tokyoDateParts().day >= 28 && period < currentTokyoPeriod();
+async function payrollLockResult(period: string, target: "PAYROLL" | "BONUS") {
+  const settings = await getCompanySettings();
+  const periodSettings = settings as PayrollPeriodSettings;
+  return {
+    locked: isPayrollLockedPeriod(period, tokyoDateParts(), periodSettings, target),
+    message: payrollLockMessage(period, periodSettings, target),
+    forceUpdateEnabled: normalizePayrollPeriodSettings(periodSettings).payrollForceUpdateEnabled
+  };
 }
 
 function attachmentDisposition(fileName: string, fallbackFileName: string) {
@@ -739,11 +787,12 @@ api.put("/settings", async (c) => {
   const permissionDenied = await requireMenu(c, "PAYROLL", "edit");
   if (permissionDenied) return permissionDenied;
 
-  const body = await c.req.json();
+  const body = await c.req.json() as Record<string, unknown>;
   const healthInsuranceRate = Number(body.healthInsuranceRate ?? Number(body.socialInsuranceRate || 0) / 2);
   const pensionInsuranceRate = Number(body.pensionInsuranceRate ?? Number(body.socialInsuranceRate || 0) / 2);
   const childCareSupportRate = Number(body.childCareSupportRate || 0);
   const socialInsuranceRate = healthInsuranceRate + pensionInsuranceRate + childCareSupportRate;
+  const payrollPeriodData = payrollPeriodDataFromBody(body);
   const settings = await prisma.companySetting.upsert({
     where: { id: "default" },
     update: {
@@ -755,7 +804,8 @@ api.put("/settings", async (c) => {
       healthInsuranceRate,
       pensionInsuranceRate,
       childCareSupportRate,
-      employmentInsuranceRate: Number(body.employmentInsuranceRate)
+      employmentInsuranceRate: Number(body.employmentInsuranceRate),
+      ...payrollPeriodData
     },
     create: {
       id: "default",
@@ -767,7 +817,8 @@ api.put("/settings", async (c) => {
       healthInsuranceRate,
       pensionInsuranceRate,
       childCareSupportRate,
-      employmentInsuranceRate: Number(body.employmentInsuranceRate)
+      employmentInsuranceRate: Number(body.employmentInsuranceRate),
+      ...payrollPeriodData
     }
   });
   return c.json(settings);
@@ -794,7 +845,8 @@ api.get("/ses/company-setting", async (c) => {
 
 api.put("/ses/company-setting", async (c) => {
 
-  const body = await c.req.json();
+  const body = await c.req.json() as Record<string, unknown>;
+  const payrollPeriodData = payrollPeriodDataFromBody(body);
   const settings = await prisma.companySetting.upsert({
     where: { id: "default" },
     update: {
@@ -808,7 +860,8 @@ api.put("/ses/company-setting", async (c) => {
       invoiceBankBranch: nullableText(body.invoiceBankBranch),
       invoiceBankAccount: nullableText(body.invoiceBankAccount),
       invoiceBankHolder: nullableText(body.invoiceBankHolder),
-      fiscalClosingMonth: normalizeClosingMonth(body.fiscalClosingMonth)
+      fiscalClosingMonth: normalizeClosingMonth(body.fiscalClosingMonth),
+      ...payrollPeriodData
     },
     create: {
       id: "default",
@@ -823,7 +876,8 @@ api.put("/ses/company-setting", async (c) => {
       invoiceBankBranch: nullableText(body.invoiceBankBranch),
       invoiceBankAccount: nullableText(body.invoiceBankAccount),
       invoiceBankHolder: nullableText(body.invoiceBankHolder),
-      fiscalClosingMonth: normalizeClosingMonth(body.fiscalClosingMonth)
+      fiscalClosingMonth: normalizeClosingMonth(body.fiscalClosingMonth),
+      ...payrollPeriodData
     }
   });
   return c.json(settings);
@@ -2004,9 +2058,10 @@ api.post("/bonuses", async (c) => {
   if (!isPeriod(period)) {
     return c.json({ message: "支給月をYYYY-MM形式で指定してください" }, 400);
   }
-  if (isPayrollLockedPeriod(period) && body.forceUpdate !== true) {
+  const lock = await payrollLockResult(period, "BONUS");
+  if (lock.locked && (body.forceUpdate !== true || !lock.forceUpdateEnabled)) {
     return c.json({
-      message: "28日以降は前月以前の賞与データを通常保存できません。強制変更を選択して保存してください。"
+      message: lock.message
     }, 423);
   }
 
@@ -2239,9 +2294,10 @@ api.post("/payrolls", async (c) => {
   if (!isPeriod(period)) {
     return c.json({ message: "支給月をYYYY-MM形式で指定してください" }, 400);
   }
-  if (isPayrollLockedPeriod(period) && body.forceUpdate !== true) {
+  const lock = await payrollLockResult(period, "PAYROLL");
+  if (lock.locked && (body.forceUpdate !== true || !lock.forceUpdateEnabled)) {
     return c.json({
-      message: "28日以降は前月以前の給与データを通常保存できません。強制変更を選択して保存してください。"
+      message: lock.message
     }, 423);
   }
   const employee = await prisma.employee.findUniqueOrThrow({ where: { id: String(body.employeeId) } });

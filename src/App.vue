@@ -2,6 +2,14 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { Download, LogOut, Mail, Plus, RefreshCw, Save, Search, Trash2, Upload } from "lucide-vue-next";
 import SesManagement from "./components/SesManagement.vue";
+import {
+  defaultPayrollPeriodSettings,
+  initialPayrollPeriod as resolveInitialPayrollPeriod,
+  isPayrollLockedPeriod as resolvePayrollLockedPeriod,
+  normalizePayrollPeriodSettings,
+  payrollLockMessage as resolvePayrollLockMessage,
+  type PayrollPeriodSettings
+} from "./server/payrollPeriod";
 
 type PayType = "MONTHLY" | "HOURLY";
 type UserRole = "ADMIN" | "ACCOUNTING" | "VIEWER" | "EMPLOYEE";
@@ -153,6 +161,14 @@ type PublicSettings = {
 };
 type CompanySettings = {
   fiscalClosingMonth?: number | null;
+  payrollPeriodType?: string | null;
+  payrollPayDay?: number | null;
+  payrollClosingDay?: number | null;
+  payrollInitialSwitchDay?: number | null;
+  payrollLockDay?: number | null;
+  payrollLockEnabled?: boolean | null;
+  payrollForceUpdateEnabled?: boolean | null;
+  payrollLockTarget?: string | null;
 };
 type StatusMessage = {
   type: "success" | "error";
@@ -197,11 +213,7 @@ function currentTokyoPeriod() {
 }
 
 function initialPayrollPeriod() {
-  const { year, month, day } = tokyoDateParts();
-  if (day > 25) {
-    return formatYearMonth(year, month);
-  }
-  return month === 1 ? formatYearMonth(year - 1, 12) : formatYearMonth(year, month - 1);
+  return resolveInitialPayrollPeriod(tokyoDateParts(), defaultPayrollPeriodSettings);
 }
 
 function fiscalStartPeriodForPeriod(targetPeriod: string, closingMonth: number) {
@@ -213,7 +225,7 @@ function fiscalStartPeriodForPeriod(targetPeriod: string, closingMonth: number) 
 }
 
 function isPayrollLockedPeriod(value: string) {
-  return tokyoDateParts().day >= 28 && value < currentTokyoPeriod();
+  return resolvePayrollLockedPeriod(value, tokyoDateParts(), payrollPeriodSettings.value, "PAYROLL");
 }
 
 function monthFromPeriod(value: string) {
@@ -321,6 +333,7 @@ const query = ref("");
 const period = ref(today);
 const pdfRangeStart = ref(today);
 const pdfRangeEnd = ref(today);
+const payrollPeriodSettings = ref<PayrollPeriodSettings>(defaultPayrollPeriodSettings);
 const pdfOutputMode = ref<"zip" | "single">("zip");
 const pdfIncludeBonus = ref(false);
 const employees = ref<Employee[]>([]);
@@ -340,6 +353,7 @@ const collapsedSections = reactive<Record<string, boolean>>({
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 let confirmResolver: ((value: boolean) => void) | null = null;
 let pdfRangeInitialized = false;
+let payrollPeriodInitialized = false;
 
 const loginForm = reactive({ email: "admin@example.com", password: "" });
 const userForm = reactive({
@@ -509,8 +523,9 @@ function bonusForEmployee(employeeId: string) {
 }
 const activeRate = computed(() => fiscalRates.value.find((rate) => rate.fiscalYear === fiscalYearFromPeriod(period.value)));
 const isPayrollLocked = computed(() => isPayrollLockedPeriod(period.value));
-const payrollLockMessage = computed(() => `${period.value}の給与データは28日以降ロックされています。変更する場合は「強制変更して保存」を押してください。`);
-const bonusLockMessage = computed(() => `${period.value}の賞与データは28日以降ロックされています。変更する場合は「強制変更して保存」を押してください。`);
+const canForceUpdateLockedPayroll = computed(() => normalizePayrollPeriodSettings(payrollPeriodSettings.value).payrollForceUpdateEnabled);
+const payrollLockMessage = computed(() => resolvePayrollLockMessage(period.value, payrollPeriodSettings.value, "PAYROLL"));
+const bonusLockMessage = computed(() => resolvePayrollLockMessage(period.value, payrollPeriodSettings.value, "BONUS"));
 const isBonusPaymentMonth = computed(() => bonusPaymentMonths.includes(monthFromPeriod(period.value)));
 const bonusPaymentMessage = computed(() => isBonusPaymentMonth.value
   ? `${period.value}は通常の賞与支給月です。`
@@ -817,10 +832,23 @@ async function refreshPublicSettings() {
 
 async function refreshCompanySettingsForPayroll() {
   const settings = await request<CompanySettings>("/settings");
+  payrollPeriodSettings.value = normalizePayrollPeriodSettings(settings);
+  if (!payrollPeriodInitialized) {
+    period.value = resolveInitialPayrollPeriod(tokyoDateParts(), payrollPeriodSettings.value);
+    pdfRangeEnd.value = period.value;
+    payrollPeriodInitialized = true;
+  }
   if (!pdfRangeInitialized) {
     pdfRangeStart.value = fiscalStartPeriodForPeriod(period.value, Number(settings.fiscalClosingMonth || 3));
     pdfRangeInitialized = true;
   }
+}
+
+async function handleSettingsUpdated() {
+  await Promise.all([
+    refreshPublicSettings(),
+    refreshCompanySettingsForPayroll()
+  ]);
 }
 
 function applyEmployee(employee?: Employee) {
@@ -1190,7 +1218,7 @@ async function savePayroll(forceUpdate = false) {
     showErrorMessage("社員を選択してください");
     return;
   }
-  if (isPayrollLocked.value && !forceUpdate) {
+  if (isPayrollLocked.value && (!forceUpdate || !canForceUpdateLockedPayroll.value)) {
     showErrorMessage(payrollLockMessage.value);
     return;
   }
@@ -1214,7 +1242,7 @@ async function saveBonus(forceUpdate = false) {
     showErrorMessage("社員を選択してください");
     return;
   }
-  if (isPayrollLocked.value && !forceUpdate) {
+  if (isPayrollLocked.value && (!forceUpdate || !canForceUpdateLockedPayroll.value)) {
     showErrorMessage(bonusLockMessage.value);
     return;
   }
@@ -1701,7 +1729,7 @@ onMounted(async () => {
           <div class="form-actions full">
             <button @click="usePreviousPayrollInput"><RefreshCw :size="16" />この社員の前回入力を利用</button>
             <button class="primary" @click="savePayroll()"><Save :size="16" />給与保存</button>
-            <button v-if="isPayrollLocked" class="warning" @click="savePayroll(true)"><Save :size="16" />強制変更して保存</button>
+            <button v-if="isPayrollLocked && canForceUpdateLockedPayroll" class="warning" @click="savePayroll(true)"><Save :size="16" />強制変更して保存</button>
             <button @click="downloadPayslipPdf"><Download :size="16" />PDFダウンロード</button>
             <button @click="sendPayslipEmail"><Mail :size="16" />PDFメール送信</button>
           </div>
@@ -1717,7 +1745,7 @@ onMounted(async () => {
           <div v-if="isPayrollLocked" class="lock-warning full">{{ bonusLockMessage }}</div>
           <div class="form-actions full">
             <button class="primary" @click="saveBonus()"><Save :size="16" />賞与保存</button>
-            <button v-if="isPayrollLocked" class="warning" @click="saveBonus(true)"><Save :size="16" />賞与を強制変更して保存</button>
+            <button v-if="isPayrollLocked && canForceUpdateLockedPayroll" class="warning" @click="saveBonus(true)"><Save :size="16" />賞与を強制変更して保存</button>
             <button @click="downloadBonusPdf"><Download :size="16" />賞与PDFダウンロード</button>
           </div>
         </div>
@@ -2026,7 +2054,7 @@ onMounted(async () => {
       :confirm-action="confirmAction"
       @message="handleSesMessage"
       @clear-message="clearMessages"
-      @settings-updated="refreshPublicSettings"
+      @settings-updated="handleSettingsUpdated"
     />
     <SesManagement
       v-if="activeMenu === 'masters' && canViewMasters"
@@ -2037,7 +2065,7 @@ onMounted(async () => {
       :confirm-action="confirmAction"
       @message="handleSesMessage"
       @clear-message="clearMessages"
-      @settings-updated="refreshPublicSettings"
+      @settings-updated="handleSettingsUpdated"
     />
   </main>
 

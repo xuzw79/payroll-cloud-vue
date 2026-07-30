@@ -227,6 +227,14 @@ model CompanySetting {
   invoiceBankBranch        String?
   invoiceBankAccount       String?
   invoiceBankHolder        String?
+  payrollPeriodType        String   @default("PREVIOUS_MONTH")
+  payrollPayDay            Int      @default(25)
+  payrollClosingDay        Int      @default(31)
+  payrollInitialSwitchDay  Int      @default(25)
+  payrollLockDay           Int      @default(28)
+  payrollLockEnabled       Boolean  @default(true)
+  payrollForceUpdateEnabled Boolean @default(true)
+  payrollLockTarget        String   @default("PAYROLL_AND_BONUS")
   updatedAt                DateTime @updatedAt
 }
 

@@ -172,6 +172,14 @@ type CompanySetting = {
   invoiceBankBranch?: string | null;
   invoiceBankAccount?: string | null;
   invoiceBankHolder?: string | null;
+  payrollPeriodType?: string | null;
+  payrollPayDay?: number | null;
+  payrollClosingDay?: number | null;
+  payrollInitialSwitchDay?: number | null;
+  payrollLockDay?: number | null;
+  payrollLockEnabled?: boolean | null;
+  payrollForceUpdateEnabled?: boolean | null;
+  payrollLockTarget?: string | null;
 };
 type StatusMessage = {
   type: "success" | "error";
@@ -338,7 +346,15 @@ const companyForm = reactive({
   invoiceBankName: "",
   invoiceBankBranch: "",
   invoiceBankAccount: "",
-  invoiceBankHolder: ""
+  invoiceBankHolder: "",
+  payrollPeriodType: "PREVIOUS_MONTH",
+  payrollPayDay: 25,
+  payrollClosingDay: 31,
+  payrollInitialSwitchDay: 25,
+  payrollLockDay: 28,
+  payrollLockEnabled: true,
+  payrollForceUpdateEnabled: true,
+  payrollLockTarget: "PAYROLL_AND_BONUS"
 });
 
 const revenueForm = reactive({
@@ -741,7 +757,15 @@ async function refreshCompanySetting() {
     invoiceBankName: setting.invoiceBankName || "",
     invoiceBankBranch: setting.invoiceBankBranch || "",
     invoiceBankAccount: setting.invoiceBankAccount || "",
-    invoiceBankHolder: setting.invoiceBankHolder || ""
+    invoiceBankHolder: setting.invoiceBankHolder || "",
+    payrollPeriodType: setting.payrollPeriodType || "PREVIOUS_MONTH",
+    payrollPayDay: setting.payrollPayDay || 25,
+    payrollClosingDay: setting.payrollClosingDay || 31,
+    payrollInitialSwitchDay: setting.payrollInitialSwitchDay || 25,
+    payrollLockDay: setting.payrollLockDay || 28,
+    payrollLockEnabled: setting.payrollLockEnabled !== false,
+    payrollForceUpdateEnabled: setting.payrollForceUpdateEnabled !== false,
+    payrollLockTarget: setting.payrollLockTarget || "PAYROLL_AND_BONUS"
   });
   if (!revenueFiscalYearInitialized) {
     revenueFiscalYear.value = currentFiscalYearByClosingMonth(companyForm.fiscalClosingMonth || 3);
@@ -1498,6 +1522,35 @@ onMounted(async () => {
             <label>口座名義<input v-model="companyForm.invoiceBankHolder" /></label>
             <div class="form-actions full">
               <button v-if="canEditSes" class="primary" @click="saveCompanySetting"><Save :size="16" />自社情報保存</button>
+            </div>
+          </div>
+        </div>
+        <div class="sub-panel">
+          <h3>給与期間設定</h3>
+          <div class="form-grid compact">
+            <label>給与対象月ルール<select v-model="companyForm.payrollPeriodType">
+              <option value="PREVIOUS_MONTH">前月分支給</option>
+              <option value="CURRENT_MONTH">当月分支給</option>
+            </select></label>
+            <label>支給日<input v-model.number="companyForm.payrollPayDay" type="number" min="1" max="31" /></label>
+            <label>締日<input v-model.number="companyForm.payrollClosingDay" type="number" min="1" max="31" /></label>
+            <label>初期表示判定日<input v-model.number="companyForm.payrollInitialSwitchDay" type="number" min="1" max="31" /></label>
+            <label>過去月ロック開始日<input v-model.number="companyForm.payrollLockDay" type="number" min="1" max="31" /></label>
+            <label>ロック対象<select v-model="companyForm.payrollLockTarget">
+              <option value="PAYROLL_AND_BONUS">給与・賞与</option>
+              <option value="PAYROLL">給与のみ</option>
+              <option value="BONUS">賞与のみ</option>
+            </select></label>
+            <label>過去月ロック<select v-model="companyForm.payrollLockEnabled">
+              <option :value="true">有効</option>
+              <option :value="false">無効</option>
+            </select></label>
+            <label>強制変更<select v-model="companyForm.payrollForceUpdateEnabled">
+              <option :value="true">許可</option>
+              <option :value="false">禁止</option>
+            </select></label>
+            <div class="form-actions full">
+              <button v-if="canEditSes" class="primary" @click="saveCompanySetting"><Save :size="16" />給与期間設定保存</button>
             </div>
           </div>
         </div>
