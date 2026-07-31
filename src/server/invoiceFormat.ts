@@ -3,12 +3,12 @@ export type TimeAdjustmentType = "EXCESS" | "DEDUCTION";
 export function timeAdjustmentDescription(
   baseDescription: string,
   type: TimeAdjustmentType,
-  workHours: number,
-  limitLabel: string,
-  limitHours: number
+  _workHours: number,
+  _limitLabel: string,
+  _limitHours: number
 ) {
   const label = type === "EXCESS" ? "超過時間" : "控除時間";
-  return `${baseDescription} ${label}（${workHours}h / ${limitLabel}${limitHours}h）`;
+  return `${baseDescription} ${label}`;
 }
 
 export function safeInvoiceFilePart(value: string) {
