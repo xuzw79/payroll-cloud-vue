@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { Download, Plus, Save, Search, Trash2 } from "lucide-vue-next";
+import { previousYearMonth, tokyoCurrentYearMonth, tokyoTodayIso } from "../server/datePeriod";
 import { filterActiveMembersForPeriod } from "../server/sesPeriod";
 
 type SesSubMenu = "customers" | "projects" | "invoices" | "masters" | "revenue" | "partnerCosts" | "profit";
@@ -210,16 +211,6 @@ const props = withDefaults(defineProps<{ canEditSes: boolean; permissions?: Role
 });
 const emit = defineEmits<{ message: [value: StatusMessage]; clearMessage: []; settingsUpdated: [] }>();
 
-function currentYearMonth() {
-  return new Date().toISOString().slice(0, 7);
-}
-
-function previousYearMonth(value = currentYearMonth()) {
-  const [year, month] = value.split("-").map(Number);
-  if (!year || !month) return currentYearMonth();
-  return month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, "0")}`;
-}
-
 const allSubMenus: { key: SesSubMenu; label: string; description: string }[] = [
   { key: "customers", label: "取引先管理", description: "顧客・協力会社の基本情報を管理します。" },
   { key: "projects", label: "案件・契約管理", description: "請求契約と仕入契約、契約期間、作業者、契約先を管理します。" },
@@ -360,7 +351,7 @@ const companyForm = reactive({
 
 const revenueForm = reactive({
   id: "",
-  period: currentYearMonth(),
+  period: tokyoCurrentYearMonth(),
   customerId: "",
   contractId: "",
   memberSource: "EMPLOYEE" as Exclude<MemberSource, "NONE">,
@@ -373,7 +364,7 @@ const revenueForm = reactive({
 
 const expenseForm = reactive({
   id: "",
-  period: currentYearMonth(),
+  period: tokyoCurrentYearMonth(),
   customerId: "",
   contractId: "",
   memberSource: "NONE" as MemberSource,
@@ -400,7 +391,7 @@ const contractForm = reactive({
 const invoiceForm = reactive({
   contractId: "",
   period: defaultInvoicePeriod,
-  issueDate: new Date().toISOString().slice(0, 10),
+  issueDate: tokyoTodayIso(),
   dueDate: "",
   invoiceNo: "",
   title: "",
@@ -430,7 +421,7 @@ function currentFiscalYearByClosingMonth(closingMonth: number) {
 function resetRevenueForm() {
   Object.assign(revenueForm, {
     id: "",
-    period: currentYearMonth(),
+    period: tokyoCurrentYearMonth(),
     customerId: "",
     contractId: "",
     memberSource: "EMPLOYEE",
@@ -446,7 +437,7 @@ function resetRevenueForm() {
 function resetExpenseForm() {
   Object.assign(expenseForm, {
     id: "",
-    period: currentYearMonth(),
+    period: tokyoCurrentYearMonth(),
     customerId: "",
     contractId: "",
     memberSource: "NONE",
@@ -548,7 +539,7 @@ function sesSectionHeadClass(id: string) {
 }
 
 function isContractEnded(contract: Contract) {
-  return !!contract.endDate && contract.endDate < new Date().toISOString().slice(0, 10);
+  return !!contract.endDate && contract.endDate < tokyoTodayIso();
 }
 
 function newMemberRow(): ContractMemberForm {
