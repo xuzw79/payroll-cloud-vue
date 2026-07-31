@@ -1626,7 +1626,7 @@ onMounted(async () => {
           </div>
           <label class="wide">メモ<input v-model="employeeForm.memo" /></label>
           <div class="form-actions full">
-            <button @click="deleteEmployee"><Trash2 :size="16" />非表示</button>
+            <button v-if="canEditEmployees && employeeForm.id" type="button" @click="deleteEmployee"><Trash2 :size="16" />非表示</button>
             <button class="primary" @click="saveEmployee"><Save :size="16" />社員保存</button>
           </div>
         </div>
@@ -1652,7 +1652,7 @@ onMounted(async () => {
           <label>パスワード<input v-model="userForm.password" type="password" placeholder="更新時は空欄で変更なし" /></label>
           <label>状態<select v-model="userForm.isActive"><option :value="true">有効</option><option :value="false">停止</option></select></label>
           <div class="form-actions full">
-            <button @click="deactivateUser"><Trash2 :size="16" />停止</button>
+            <button v-if="userForm.id" type="button" @click="deactivateUser"><Trash2 :size="16" />停止</button>
             <button class="primary" @click="saveUser"><Save :size="16" />ユーザー保存</button>
           </div>
         </div>
@@ -1883,7 +1883,7 @@ onMounted(async () => {
         <label>パスワード<input v-model="userForm.password" type="password" placeholder="更新時は空欄で変更なし" /></label>
         <label>状態<select v-model="userForm.isActive"><option :value="true">有効</option><option :value="false">停止</option></select></label>
         <div class="form-actions full">
-          <button v-if="canEditUsers" @click="deactivateUser"><Trash2 :size="16" />停止</button>
+          <button v-if="canEditUsers && userForm.id" type="button" @click="deactivateUser"><Trash2 :size="16" />停止</button>
           <button v-if="canEditUsers" class="primary" @click="saveUser"><Save :size="16" />ユーザー保存</button>
         </div>
       </div>
@@ -1965,7 +1965,7 @@ onMounted(async () => {
             </select></label>
             <label>状態<select v-model="permissionRoleForm.isActive"><option :value="true">有効</option><option :value="false">非表示</option></select></label>
             <div class="form-actions full">
-              <button v-if="canEditPermissions && permissionRoleForm.id" @click="deletePermissionRole"><Trash2 :size="16" />非表示</button>
+              <button v-if="canEditPermissions && permissionRoleForm.id" type="button" @click="deletePermissionRole"><Trash2 :size="16" />非表示</button>
               <button v-if="canEditPermissions" class="primary" @click="savePermissionRole"><Save :size="16" />ロール保存</button>
               <button v-if="canEditPermissions" class="primary" :disabled="!permissionRoleForm.id" @click="saveRolePermissions"><Save :size="16" />権限保存</button>
             </div>

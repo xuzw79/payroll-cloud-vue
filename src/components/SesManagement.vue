@@ -1122,7 +1122,7 @@ onMounted(async () => {
           <label>支払サイト日数<input v-model.number="customerForm.paymentSiteDays" type="number" min="0" /></label>
           <label class="wide">メモ<input v-model="customerForm.memo" /></label>
           <div class="form-actions full">
-            <button v-if="canEditSes" @click="deleteCustomer"><Trash2 :size="16" />非表示</button>
+            <button v-if="canEditSes && customerForm.id" type="button" @click="deleteCustomer"><Trash2 :size="16" />非表示</button>
             <button v-if="canEditSes" class="primary" @click="saveCustomer"><Save :size="16" />取引先保存</button>
           </div>
           <div class="sub-panel full">
@@ -1216,7 +1216,7 @@ onMounted(async () => {
                   <label>終了日<input v-model="member.endDate" type="date" /></label>
                   <label class="wide">メモ<input v-model="member.memo" /></label>
                   <div class="form-actions full">
-                    <button v-if="canEditSes" @click="removeContractMember(index)"><Trash2 :size="16" />行削除</button>
+                    <button v-if="canEditSes" type="button" @click="removeContractMember(index)"><Trash2 :size="16" />行削除</button>
                   </div>
                 </div>
               </div>
@@ -1234,7 +1234,7 @@ onMounted(async () => {
           </div>
 
           <div class="form-actions full">
-            <button v-if="canEditSes" @click="deleteContract"><Trash2 :size="16" />非表示</button>
+            <button v-if="canEditSes && contractForm.id" type="button" @click="deleteContract"><Trash2 :size="16" />非表示</button>
             <button v-if="canEditSes" class="primary" @click="saveContract"><Save :size="16" />契約保存</button>
           </div>
         </div>
@@ -1314,7 +1314,7 @@ onMounted(async () => {
                 <span>{{ invoice.customer.name }} / 合計 {{ Number(invoice.totalAmount || 0).toLocaleString("ja-JP") }}円</span>
                 <div class="form-actions">
                   <button @click="downloadInvoicePdf(invoice)"><Download :size="16" />PDF</button>
-                  <button v-if="canEditSes" @click="deleteInvoice(invoice)"><Trash2 :size="16" />非表示</button>
+                  <button v-if="canEditSes" type="button" @click="deleteInvoice(invoice)"><Trash2 :size="16" />非表示</button>
                 </div>
               </div>
             </div>
@@ -1468,7 +1468,7 @@ onMounted(async () => {
             <label class="wide">売上名<input v-model="revenueForm.title" /></label>
             <label class="wide">メモ<input v-model="revenueForm.memo" /></label>
             <div class="form-actions full">
-              <button v-if="canEditSes && revenueForm.id" @click="deleteRevenue"><Trash2 :size="16" />非表示</button>
+              <button v-if="canEditSes && revenueForm.id" type="button" @click="deleteRevenue"><Trash2 :size="16" />非表示</button>
               <button v-if="canEditSes" class="primary" @click="saveRevenue"><Save :size="16" />売上保存</button>
             </div>
           </div>
@@ -1504,7 +1504,7 @@ onMounted(async () => {
               <label class="wide">支出名<input v-model="expenseForm.title" /></label>
               <label class="wide">メモ<input v-model="expenseForm.memo" /></label>
               <div class="form-actions full">
-                <button v-if="canEditSes && expenseForm.id" @click="deleteExpense"><Trash2 :size="16" />非表示</button>
+                <button v-if="canEditSes && expenseForm.id" type="button" @click="deleteExpense"><Trash2 :size="16" />非表示</button>
                 <button v-if="canEditSes" class="primary" @click="saveExpense"><Save :size="16" />支出保存</button>
               </div>
             </div>
