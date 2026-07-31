@@ -12,6 +12,7 @@ import { prisma } from "./db.js";
 import { sendPayslipMail } from "./mailer.js";
 import { createBonusPdf } from "./bonusPdf.js";
 import { createInvoicePdf } from "./invoicePdf.js";
+import { invoiceFileName, timeAdjustmentDescription } from "./invoiceFormat.js";
 import { createPayslipPdf } from "./pdf.js";
 import { calculateBonus, calculatePayroll } from "./payroll.js";
 import {
@@ -1680,9 +1681,9 @@ function invoiceItemFromContractMember(member: {
       unitPrice: hourlyRate,
       amount: Math.round(normalHours * hourlyRate)
     }];
-    if (overtimeHours > 0) {
+    if (overtimeHours > 0 && standardHours !== null) {
       items.push({
-        description: `${description} 時給超過（${workHours}h / 営業時間${standardHours}h）`,
+        description: timeAdjustmentDescription(description, "EXCESS", workHours, "営業時間", standardHours),
         quantity: overtimeHours,
         unit: "時間",
         unitPrice: overtimeRate,
@@ -1716,7 +1717,7 @@ function invoiceItemFromContractMember(member: {
     const shortageHours = Number((lowerLimitHours - workHours).toFixed(2));
     const unitPrice = Number(member.deductionHourlyRate || 0);
     items.push({
-      description: `${description} 控除（${workHours}h / 下限${lowerLimitHours}h）`,
+      description: timeAdjustmentDescription(description, "DEDUCTION", workHours, "下限", lowerLimitHours),
       quantity: shortageHours,
       unit: "時間",
       unitPrice: -unitPrice,
@@ -1727,7 +1728,7 @@ function invoiceItemFromContractMember(member: {
     const excessHours = Number((workHours - upperLimitHours).toFixed(2));
     const unitPrice = Number(member.excessHourlyRate || 0);
     items.push({
-      description: `${description} 超過（${workHours}h / 上限${upperLimitHours}h）`,
+      description: timeAdjustmentDescription(description, "EXCESS", workHours, "上限", upperLimitHours),
       quantity: excessHours,
       unit: "時間",
       unitPrice,
@@ -1897,8 +1898,7 @@ api.get("/ses/invoices/:id/pdf", async (c) => {
       amount: item.amount
     }))
   });
-  const customerName = safeFilePart(invoice.customer.name);
-  const fileName = `請求書_${customerName}_${periodForFile(invoice.period)}.pdf`;
+  const fileName = invoiceFileName(invoice.customer.name, invoice.period);
   const fallbackFileName = `invoice-${periodForFile(invoice.period)}-${safeFilePart(invoice.customer.id)}.pdf`;
   return new Response(new Uint8Array(pdf), {
     headers: {

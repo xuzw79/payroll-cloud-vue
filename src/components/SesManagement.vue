@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { Download, Plus, Save, Search, Trash2 } from "lucide-vue-next";
 import { previousYearMonth, tokyoCurrentYearMonth, tokyoTodayIso } from "../server/datePeriod";
+import { invoiceFileName } from "../server/invoiceFormat";
 import { filterActiveMembersForPeriod } from "../server/sesPeriod";
 import { refreshKeysForSesSubMenu, type SesRefreshKey } from "../server/sesRefreshPlan";
 
@@ -1037,7 +1038,7 @@ async function downloadInvoicePdf(invoice: Invoice) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `請求書_${invoice.customer.name}_${invoice.period.replace("-", "")}.pdf`;
+  link.download = invoiceFileName(invoice.customer.name, invoice.period);
   document.body.appendChild(link);
   link.click();
   link.remove();
