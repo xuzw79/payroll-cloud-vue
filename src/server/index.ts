@@ -20,6 +20,7 @@ import {
   payrollLockMessage,
   type PayrollPeriodSettings
 } from "./payrollPeriod.js";
+import { filterActiveMembersForPeriod, memberActiveInPeriod } from "./sesPeriod.js";
 
 const app = new Hono();
 const api = new Hono();
@@ -237,12 +238,6 @@ function monthPeriods(startPeriod: string, endPeriod: string) {
     }
   }
   return periods;
-}
-
-function memberActiveInPeriod(member: { startDate?: string | null; endDate?: string | null }, period: string) {
-  const startPeriod = member.startDate?.slice(0, 7);
-  const endPeriod = member.endDate?.slice(0, 7);
-  return (!startPeriod || startPeriod <= period) && (!endPeriod || endPeriod >= period);
 }
 
 function contractActiveInPeriod(contract: { startDate?: string | null; endDate?: string | null }, period: string) {
@@ -1812,7 +1807,7 @@ api.post("/ses/invoices/generate", async (c) => {
   const workHoursByMember = (body.workHoursByMember || {}) as Record<string, unknown>;
   let items: SesInvoiceItemData[];
   try {
-    items = contract.members.flatMap((member) => invoiceItemFromContractMember(member, workHoursByMember));
+    items = filterActiveMembersForPeriod(contract.members, period).flatMap((member) => invoiceItemFromContractMember(member, workHoursByMember));
   } catch (error) {
     return c.json({ message: error instanceof Error ? error.message : "請求明細を作成できませんでした" }, 400);
   }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { Download, Plus, Save, Search, Trash2 } from "lucide-vue-next";
+import { filterActiveMembersForPeriod } from "../server/sesPeriod";
 
 type SesSubMenu = "customers" | "projects" | "invoices" | "masters" | "revenue" | "partnerCosts" | "profit";
 type PermissionMenu = "SES_CUSTOMERS" | "SES_PROJECTS" | "SES_INVOICES" | "SES_PARTNER_COSTS" | "SES_REVENUE" | "SES_MASTERS" | "SES_PROFIT";
@@ -299,9 +300,9 @@ const unbilledSalesContracts = computed(() => {
   return invoiceableSalesContracts.value.filter((contract) => !billedContractIds.has(contract.id));
 });
 const selectedInvoiceContract = computed(() => invoiceableSalesContracts.value.find((contract) => contract.id === invoiceForm.contractId));
-const selectedInvoiceWorkHourMembers = computed(() => selectedInvoiceContract.value?.members.filter(
+const selectedInvoiceWorkHourMembers = computed(() => filterActiveMembersForPeriod(selectedInvoiceContract.value?.members || [], invoiceForm.period).filter(
   (member): member is ContractMember & { id: string } => member.billingType !== "FIXED" && !!member.id
-) || []);
+));
 const partnerCostMembers = computed(() => partnerCostContracts.value.flatMap((contract) =>
   contract.members
     .filter((member): member is ContractMember & { id: string } => !!member.id)
