@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { Download, Plus, Save, Search, Trash2 } from "lucide-vue-next";
 import { previousYearMonth, tokyoCurrentYearMonth, tokyoTodayIso } from "../server/datePeriod";
 import { filterActiveMembersForPeriod } from "../server/sesPeriod";
+import { refreshKeysForSesSubMenu, type SesRefreshKey } from "../server/sesRefreshPlan";
 
 type SesSubMenu = "customers" | "projects" | "invoices" | "masters" | "revenue" | "partnerCosts" | "profit";
 type PermissionMenu = "SES_CUSTOMERS" | "SES_PROJECTS" | "SES_INVOICES" | "SES_PARTNER_COSTS" | "SES_REVENUE" | "SES_MASTERS" | "SES_PROFIT";
@@ -269,6 +270,7 @@ const contractMembers = ref<ContractMemberForm[]>([]);
 const invoiceWorkHours = reactive<Record<string, number | null>>({});
 const collapsedSesSections = reactive<Record<string, boolean>>({});
 let revenueFiscalYearInitialized = false;
+let mounted = false;
 
 const activeMenuInfo = computed(() => visibleSubMenus.value.find((menu) => menu.key === activeSubMenu.value) || visibleSubMenus.value[0] || subMenus.value[0] || allSubMenus[0]);
 function canShowSesSubMenu(key: SesSubMenu) {
@@ -282,6 +284,7 @@ watch(visibleSubMenus, (menus) => {
 }, { immediate: true });
 watch(activeSubMenu, () => {
   emit("clearMessage");
+  if (mounted) void refreshActiveSubMenu();
 });
 const selectedCustomerExternalMembers = computed(() => externalMembers.value.filter((member) => member.customerId === customerForm.id));
 const salesContracts = computed(() => contracts.value.filter((contract) => contract.contractType === "SALES"));
@@ -774,11 +777,30 @@ async function refreshSesMasterData() {
   externalMembers.value = externalMemberData;
 }
 
+async function refreshByKey(key: SesRefreshKey) {
+  if (key === "customers") return refreshCustomers();
+  if (key === "contracts") return refreshContracts();
+  if (key === "masterData") return refreshSesMasterData();
+  if (key === "invoices") return refreshInvoices();
+  if (key === "revenues") return refreshRevenues();
+  return refreshPartnerCosts();
+}
+
+async function refreshActiveSubMenu() {
+  const keys = refreshKeysForSesSubMenu(activeSubMenu.value);
+  for (const key of keys) {
+    try {
+      await refreshByKey(key);
+    } catch (error) {
+      showError(error, "データを取得できませんでした");
+    }
+  }
+}
+
 async function refreshAll() {
   await refreshCompanySetting();
   if (props.mode === "masters") return;
-  await Promise.all([refreshCustomers(), refreshContracts(), refreshSesMasterData(), refreshInvoices(), refreshRevenues()]);
-  await refreshPartnerCosts();
+  await refreshActiveSubMenu();
 }
 
 async function saveCustomer() {
@@ -1037,6 +1059,7 @@ function invoiceWorkHourLabel(member: ContractMember) {
 
 onMounted(async () => {
   resetContractForm();
+  mounted = true;
   await refreshAll();
 });
 </script>
