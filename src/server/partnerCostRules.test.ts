@@ -78,4 +78,37 @@ assert.deepEqual(
   }
 );
 
+assert.deepEqual(
+  planPartnerCostRepair([
+    {
+      id: "old-contract-cost",
+      period: "2026-06",
+      contractId: "old-contract",
+      contractMemberId: "old-member",
+      employeeId: null,
+      externalMemberId: "external-a",
+      title: "OUT開発支援",
+      updatedAt: "2026-07-01T00:00:00.000Z",
+      contractMember: { id: "old-member", startDate: "2026-06-01", endDate: "2026-06-30" }
+    },
+    {
+      id: "new-contract-cost",
+      period: "2026-06",
+      contractId: "new-contract",
+      contractMemberId: "new-member",
+      employeeId: null,
+      externalMemberId: "external-a",
+      title: "OUT開発支援",
+      updatedAt: "2026-07-02T00:00:00.000Z",
+      contractMember: { id: "new-member", startDate: "2026-06-01", endDate: "2026-06-30" }
+    }
+  ]),
+  {
+    scannedCount: 2,
+    keepIds: ["new-contract-cost"],
+    deactivateIds: ["old-contract-cost"],
+    changedGroupCount: 1
+  }
+);
+
 console.log("partnerCostRules tests passed");

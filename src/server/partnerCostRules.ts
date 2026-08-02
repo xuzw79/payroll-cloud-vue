@@ -38,12 +38,9 @@ export function partnerCostDefaultAmount(unitPrice: number, taxIncluded?: boolea
 }
 
 function repairGroupKey(cost: PartnerCostRepairRecord) {
-  const memberKey = cost.employeeId
-    ? `employee:${cost.employeeId}`
-    : cost.externalMemberId
-      ? `external:${cost.externalMemberId}`
-      : `none:${cost.title}`;
-  return [cost.period, cost.contractId, memberKey, cost.title].join("|");
+  if (cost.employeeId) return [cost.period, `employee:${cost.employeeId}`, cost.title].join("|");
+  if (cost.externalMemberId) return [cost.period, `external:${cost.externalMemberId}`, cost.title].join("|");
+  return [cost.period, cost.contractId, `none:${cost.title}`, cost.title].join("|");
 }
 
 function updatedTime(cost: PartnerCostRepairRecord) {
