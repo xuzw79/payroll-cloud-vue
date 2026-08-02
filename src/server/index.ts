@@ -21,7 +21,7 @@ import {
   payrollLockMessage,
   type PayrollPeriodSettings
 } from "./payrollPeriod.js";
-import { filterActivePartnerCostsForOwnPeriod } from "./partnerCostRules.js";
+import { filterActivePartnerCostsForOwnPeriod, planPartnerCostRepair } from "./partnerCostRules.js";
 import { filterActiveMembersForPeriod, memberActiveInPeriod } from "./sesPeriod.js";
 
 const app = new Hono();
@@ -1628,6 +1628,30 @@ api.post("/ses/partner-costs", async (c) => {
     );
   }
   return c.json({ saved: saved.length });
+});
+
+api.post("/ses/partner-costs/repair", async (c) => {
+  const denied = requireRole(c, "ADMIN");
+  if (denied) return denied;
+
+  const costs = await prisma.sesPartnerCost.findMany({
+    where: { isActive: true },
+    include: { contractMember: true },
+    orderBy: [{ period: "asc" }, { updatedAt: "desc" }]
+  });
+  const plan = planPartnerCostRepair(costs);
+  if (plan.deactivateIds.length) {
+    await prisma.sesPartnerCost.updateMany({
+      where: { id: { in: plan.deactivateIds } },
+      data: { isActive: false }
+    });
+  }
+  return c.json({
+    scannedCount: plan.scannedCount,
+    keptCount: plan.keepIds.length,
+    deactivatedCount: plan.deactivateIds.length,
+    changedGroupCount: plan.changedGroupCount
+  });
 });
 
 api.get("/ses/invoices", async (c) => {

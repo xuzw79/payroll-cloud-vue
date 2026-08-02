@@ -1003,6 +1003,20 @@ async function savePartnerCosts() {
   }
 }
 
+async function repairPartnerCosts() {
+  if (!props.canEditSes) return;
+  if (!(await props.confirmAction("既存外注費データを補正します。対象月外・重複の外注費を非表示にします。よろしいですか？"))) return;
+  try {
+    const result = await request<{ scannedCount: number; deactivatedCount: number; changedGroupCount: number }>("/ses/partner-costs/repair", {
+      method: "POST"
+    });
+    showSuccess(`外注費データを補正しました（確認 ${result.scannedCount}件 / 非表示 ${result.deactivatedCount}件）`);
+    await Promise.all([refreshPartnerCosts(), refreshRevenues()]);
+  } catch (error) {
+    showError(error, "外注費データを補正できませんでした");
+  }
+}
+
 async function generateInvoice() {
   if (!props.canEditSes) return;
   try {
@@ -1338,7 +1352,10 @@ onMounted(async () => {
         <div class="sub-panel">
           <div class="sub-panel-head">
             <h3>{{ partnerCostPeriod }} 外注費 登録済み {{ partnerCostRegisteredCount }} / {{ partnerCostMembers.length }} 件</h3>
-            <button v-if="canEditSes" class="primary" @click="savePartnerCosts"><Save :size="16" />外注費保存</button>
+            <div class="form-actions">
+              <button v-if="canEditSes" type="button" @click="repairPartnerCosts">既存データ補正</button>
+              <button v-if="canEditSes" class="primary" @click="savePartnerCosts"><Save :size="16" />外注費保存</button>
+            </div>
           </div>
           <div class="partner-cost-list">
             <div v-for="row in partnerCostMembers" :key="row.member.id" class="partner-cost-row">
