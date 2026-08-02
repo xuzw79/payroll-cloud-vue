@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { Download, Plus, Save, Search, Trash2 } from "lucide-vue-next";
 import { previousYearMonth, tokyoCurrentYearMonth, tokyoTodayIso } from "../server/datePeriod";
 import { invoiceFileName } from "../server/invoiceFormat";
+import { activePartnerCostRows, partnerCostDefaultAmount as resolvePartnerCostDefaultAmount } from "../server/partnerCostRules";
 import { filterActiveMembersForPeriod } from "../server/sesPeriod";
 import { refreshKeysForSesSubMenu, type SesRefreshKey } from "../server/sesRefreshPlan";
 
@@ -298,10 +299,8 @@ const selectedInvoiceContract = computed(() => invoiceableSalesContracts.value.f
 const selectedInvoiceWorkHourMembers = computed(() => filterActiveMembersForPeriod(selectedInvoiceContract.value?.members || [], invoiceForm.period).filter(
   (member): member is ContractMember & { id: string } => member.billingType !== "FIXED" && !!member.id
 ));
-const partnerCostMembers = computed(() => partnerCostContracts.value.flatMap((contract) =>
-  contract.members
-    .filter((member): member is ContractMember & { id: string } => !!member.id)
-    .map((member) => ({ contract, member }))
+const partnerCostMembers = computed(() => activePartnerCostRows(partnerCostContracts.value, partnerCostPeriod.value).filter(
+  (row): row is { contract: Contract; member: ContractMember & { id: string } } => !!row.member.id
 ));
 const registeredPartnerCostMemberIds = computed(() => new Set(partnerCosts.value.map((cost) => cost.contractMemberId).filter(Boolean)));
 const partnerCostRegisteredCount = computed(() => partnerCostMembers.value.filter((row) => registeredPartnerCostMemberIds.value.has(row.member.id)).length);
@@ -518,8 +517,7 @@ function partnerCostMemberLabel(member: ContractMember) {
 }
 
 function partnerCostDefaultAmount(contract: Contract, member: ContractMember) {
-  const amount = Number(member.unitPrice || 0);
-  return contract.taxIncluded ? amount : Math.round(amount * 1.1);
+  return resolvePartnerCostDefaultAmount(Number(member.unitPrice || 0), contract.taxIncluded);
 }
 
 function revenuePersonName(revenue: Revenue) {

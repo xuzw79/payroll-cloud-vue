@@ -21,6 +21,7 @@ import {
   payrollLockMessage,
   type PayrollPeriodSettings
 } from "./payrollPeriod.js";
+import { filterActivePartnerCostsForOwnPeriod } from "./partnerCostRules.js";
 import { filterActiveMembersForPeriod, memberActiveInPeriod } from "./sesPeriod.js";
 
 const app = new Hono();
@@ -1330,6 +1331,7 @@ api.get("/ses/revenues", async (c) => {
       select: { period: true, bonusAmount: true, socialInsurance: true }
     })
   ]);
+  const activePartnerCosts = filterActivePartnerCostsForOwnPeriod(partnerCosts);
   const monthlyTotals = periods.map((period) => {
     const invoiceRevenueAmount = invoices.filter((invoice) => invoice.period === period).reduce((sum, invoice) => sum + invoice.totalAmount, 0);
     const individualRevenueAmount = revenues.filter((revenue) => revenue.period === period).reduce((sum, revenue) => sum + revenue.amount, 0);
@@ -1338,7 +1340,7 @@ api.get("/ses/revenues", async (c) => {
     const payrollSocialAmount = payrolls.filter((payroll) => payroll.period === period).reduce((sum, payroll) => sum + payroll.socialInsurance, 0);
     const bonusSocialAmount = bonuses.filter((bonus) => bonus.period === period).reduce((sum, bonus) => sum + bonus.socialInsurance, 0);
     const socialInsuranceAmount = payrollSocialAmount + bonusSocialAmount;
-    const partnerCostAmount = partnerCosts.filter((cost) => cost.period === period).reduce((sum, cost) => sum + cost.amount, 0);
+    const partnerCostAmount = activePartnerCosts.filter((cost) => cost.period === period).reduce((sum, cost) => sum + cost.amount, 0);
     const individualExpenseAmount = expenses.filter((expense) => expense.period === period).reduce((sum, expense) => sum + expense.amount, 0);
     const revenueAmount = invoiceRevenueAmount + individualRevenueAmount;
     const expenseAmount = payrollAmount + bonusAmount + socialInsuranceAmount + partnerCostAmount + individualExpenseAmount;
@@ -1538,7 +1540,7 @@ api.get("/ses/partner-costs", async (c) => {
     },
     orderBy: [{ updatedAt: "desc" }]
   });
-  const costs = await prisma.sesPartnerCost.findMany({
+  const costs = filterActivePartnerCostsForOwnPeriod(await prisma.sesPartnerCost.findMany({
     where: { isActive: true, period },
     include: {
       customer: true,
@@ -1548,7 +1550,7 @@ api.get("/ses/partner-costs", async (c) => {
       externalMember: { include: { customer: true } }
     },
     orderBy: [{ updatedAt: "desc" }]
-  });
+  }));
   return c.json({ period, contracts, costs });
 });
 
@@ -1593,6 +1595,7 @@ api.post("/ses/partner-costs", async (c) => {
       }
     });
     if (!member || !member.contract.isActive || member.contract.contractType !== "PURCHASE") continue;
+    if (!memberActiveInPeriod(member, period)) continue;
     const data = {
       period,
       customerId: member.contract.customerId,
@@ -1605,7 +1608,19 @@ api.post("/ses/partner-costs", async (c) => {
       memo: nullableText(item.memo)
     };
     const existing = await prisma.sesPartnerCost.findFirst({
-      where: { isActive: true, period, contractMemberId: member.id }
+      where: {
+        isActive: true,
+        period,
+        OR: [
+          { contractMemberId: member.id },
+          {
+            contractId: member.contractId,
+            employeeId: member.employeeId,
+            externalMemberId: member.externalMemberId,
+            title: data.title
+          }
+        ]
+      }
     });
     saved.push(existing
       ? await prisma.sesPartnerCost.update({ where: { id: existing.id }, data })
