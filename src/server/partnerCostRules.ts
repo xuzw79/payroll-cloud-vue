@@ -19,6 +19,12 @@ export type PartnerCostRepairRecord = PartnerCostRecord & {
   updatedAt?: string | Date | null;
 };
 
+export type PartnerCostDeleteRecord = {
+  id: string;
+  period: string;
+  isActive?: boolean | null;
+};
+
 export function activePartnerCostRows<TContract extends PartnerCostContract<TMember>, TMember extends PeriodMember>(
   contracts: TContract[],
   period: string
@@ -35,6 +41,15 @@ export function filterActivePartnerCostsForOwnPeriod<TCost extends PartnerCostRe
 export function partnerCostDefaultAmount(unitPrice: number, taxIncluded?: boolean | null, taxRate = 0.1) {
   const amount = Number(unitPrice || 0);
   return taxIncluded ? amount : Math.round(amount * (1 + taxRate));
+}
+
+export function planPartnerCostPeriodDelete(costs: PartnerCostDeleteRecord[], period: string) {
+  return {
+    scannedCount: costs.length,
+    deleteIds: costs
+      .filter((cost) => cost.period === period && cost.isActive !== false)
+      .map((cost) => cost.id)
+  };
 }
 
 function repairGroupKey(cost: PartnerCostRepairRecord) {

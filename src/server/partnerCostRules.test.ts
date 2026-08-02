@@ -3,6 +3,7 @@ import {
   activePartnerCostRows,
   filterActivePartnerCostsForOwnPeriod,
   partnerCostDefaultAmount,
+  planPartnerCostPeriodDelete,
   planPartnerCostRepair
 } from "./partnerCostRules.js";
 
@@ -33,6 +34,18 @@ assert.deepEqual(
 
 assert.equal(partnerCostDefaultAmount(400000, false), 440000);
 assert.equal(partnerCostDefaultAmount(440000, true), 440000);
+
+assert.deepEqual(
+  planPartnerCostPeriodDelete([
+    { id: "june-active", period: "2026-06", isActive: true },
+    { id: "june-inactive", period: "2026-06", isActive: false },
+    { id: "july-active", period: "2026-07", isActive: true }
+  ], "2026-06"),
+  {
+    scannedCount: 3,
+    deleteIds: ["june-active"]
+  }
+);
 
 assert.deepEqual(
   planPartnerCostRepair([
