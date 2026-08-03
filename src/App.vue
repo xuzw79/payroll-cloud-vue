@@ -1264,6 +1264,34 @@ async function saveBonus(forceUpdate = false) {
   }
 }
 
+async function deleteSelectedPayroll() {
+  if (!canEditPayrollInput.value || !selectedPayroll.value) return;
+  const payroll = selectedPayroll.value;
+  if (!(await confirmAction(`${payroll.employee.name}さんの${payroll.period}の給与を削除します。よろしいですか？`))) return;
+  try {
+    await request(`/payrolls/${payroll.id}`, { method: "DELETE" });
+    showSuccess("給与を削除しました");
+    if (selectedEmployee.value) resetPayrollForm(selectedEmployee.value);
+    await refresh();
+  } catch (error) {
+    showErrorMessage(error instanceof Error ? error.message : "給与を削除できませんでした");
+  }
+}
+
+async function deleteSelectedBonus() {
+  if (!canEditBonusInput.value || !selectedBonus.value) return;
+  const bonus = selectedBonus.value;
+  if (!(await confirmAction(`${bonus.employee.name}さんの${bonus.period}の賞与を削除します。よろしいですか？`))) return;
+  try {
+    await request(`/bonuses/${bonus.id}`, { method: "DELETE" });
+    showSuccess("賞与を削除しました");
+    resetBonusForm();
+    await refresh();
+  } catch (error) {
+    showErrorMessage(error instanceof Error ? error.message : "賞与を削除できませんでした");
+  }
+}
+
 async function usePreviousPayrollInput() {
   if (!canEditPayrollInput.value) return;
   const currentEmployeeId = employeeForm.id || selectedEmployeeId.value;
@@ -1730,6 +1758,7 @@ onMounted(async () => {
             <button @click="usePreviousPayrollInput"><RefreshCw :size="16" />この社員の前回入力を利用</button>
             <button class="primary" @click="savePayroll()"><Save :size="16" />給与保存</button>
             <button v-if="isPayrollLocked && canForceUpdateLockedPayroll" class="warning" @click="savePayroll(true)"><Save :size="16" />強制変更して保存</button>
+            <button v-if="selectedPayroll" type="button" @click="deleteSelectedPayroll"><Trash2 :size="16" />給与削除</button>
             <button @click="downloadPayslipPdf"><Download :size="16" />PDFダウンロード</button>
             <button @click="sendPayslipEmail"><Mail :size="16" />PDFメール送信</button>
           </div>
@@ -1746,6 +1775,7 @@ onMounted(async () => {
           <div class="form-actions full">
             <button class="primary" @click="saveBonus()"><Save :size="16" />賞与保存</button>
             <button v-if="isPayrollLocked && canForceUpdateLockedPayroll" class="warning" @click="saveBonus(true)"><Save :size="16" />賞与を強制変更して保存</button>
+            <button v-if="selectedBonus" type="button" @click="deleteSelectedBonus"><Trash2 :size="16" />賞与削除</button>
             <button @click="downloadBonusPdf"><Download :size="16" />賞与PDFダウンロード</button>
           </div>
         </div>
@@ -1826,6 +1856,7 @@ onMounted(async () => {
           <p class="message">メール送信: {{ selectedPayroll.emailedAt ? new Date(selectedPayroll.emailedAt).toLocaleString("ja-JP") : "未送信" }}</p>
           <div class="form-actions">
             <button @click="downloadPayslipPdf"><Download :size="16" />給与PDFダウンロード</button>
+            <button v-if="canEditPayrollInput" type="button" @click="deleteSelectedPayroll"><Trash2 :size="16" />給与削除</button>
           </div>
         </div>
         <div v-else-if="showIndividualSlips && canShowMenu('PAYSLIP')" v-show="!collapsedSections.payrollSlip" class="empty">この社員の給与はまだ保存されていません。</div>
@@ -1852,6 +1883,7 @@ onMounted(async () => {
           <div class="net"><span>賞与差引支給額</span><strong>{{ yen.format(selectedBonus.netPay) }}</strong></div>
           <div class="form-actions">
             <button @click="downloadBonusPdf"><Download :size="16" />賞与PDFダウンロード</button>
+            <button v-if="canEditBonusInput" type="button" @click="deleteSelectedBonus"><Trash2 :size="16" />賞与削除</button>
           </div>
         </div>
         <div v-else-if="showIndividualSlips && canShowMenu('BONUS_SLIP')" v-show="!collapsedSections.bonusSlip" class="empty">この社員の賞与はまだ保存されていません。</div>

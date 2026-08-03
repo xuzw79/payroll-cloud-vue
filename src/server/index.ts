@@ -186,6 +186,12 @@ async function canAccessEmployee(c: Context, menu: PermissionMenu, employeeId: s
   return permission.canView && (permission.canViewAll || user.employeeId === employeeId);
 }
 
+async function canEditEmployeeData(c: Context, menu: PermissionMenu, employeeId: string) {
+  const user = currentUser(c);
+  const permission = await menuPermission(c, menu);
+  return permission.canEdit && (permission.canViewAll || user.employeeId === employeeId);
+}
+
 async function requireMenu(c: Context, menu: PermissionMenu, action: "view" | "edit") {
   const permission = await menuPermission(c, menu);
   if ((action === "view" && !permission.canView) || (action === "edit" && !permission.canEdit)) {
@@ -2194,6 +2200,18 @@ api.get("/bonuses/:id/pdf", async (c) => {
   }
 });
 
+api.delete("/bonuses/:id", async (c) => {
+  const bonus = await prisma.bonus.findUniqueOrThrow({
+    where: { id: c.req.param("id") },
+    select: { id: true, employeeId: true }
+  });
+  if (!await canEditEmployeeData(c, "BONUS_INPUT", bonus.employeeId)) {
+    return c.json({ message: "\u6a29\u9650\u304c\u3042\u308a\u307e\u305b\u3093" }, 403);
+  }
+  await prisma.bonus.delete({ where: { id: bonus.id } });
+  return c.json({ ok: true });
+});
+
 api.get("/payrolls/latest-template", async (c) => {
   const permissionDenied = await requireMenu(c, "PAYROLL_INPUT", "edit");
   if (permissionDenied) return permissionDenied;
@@ -2488,6 +2506,18 @@ api.get("/payrolls/:id/pdf", async (c) => {
     const message = error instanceof Error ? error.message : "PDF download failed";
     return c.json({ message }, 500);
   }
+});
+
+api.delete("/payrolls/:id", async (c) => {
+  const payroll = await prisma.payroll.findUniqueOrThrow({
+    where: { id: c.req.param("id") },
+    select: { id: true, employeeId: true }
+  });
+  if (!await canEditEmployeeData(c, "PAYROLL_INPUT", payroll.employeeId)) {
+    return c.json({ message: "\u6a29\u9650\u304c\u3042\u308a\u307e\u305b\u3093" }, 403);
+  }
+  await prisma.payroll.delete({ where: { id: payroll.id } });
+  return c.json({ ok: true });
 });
 
 api.post("/payrolls/:id/email", async (c) => {
