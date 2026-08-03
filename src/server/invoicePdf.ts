@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import type PDFKit from "pdfkit";
+import { invoiceBankRows } from "./invoiceFormat.js";
 
 const require = createRequire(import.meta.url);
 const PDFDocument = require("pdfkit") as typeof PDFKit;
@@ -238,11 +239,9 @@ export async function createInvoicePdf(input: InvoicePdfInput) {
   doc.font("NotoSansJPBold").fontSize(10);
   drawText(doc, "【振込先】", tableX + 38, bankY + 18, 110);
   doc.font("NotoSansJP").fontSize(10);
-  const transferLines = bankLines(input);
-  const transferLabels = ["銀行名称", "支店名称", "口座情報", "口座名義"];
-  transferLines.forEach((line, index) => {
-    const label = transferLabels[index] || "備考";
-    drawText(doc, `${label}： ${line}`, tableX + 68, bankY + 36 + index * 15, 360);
+  const transferRows = invoiceBankRows(input);
+  transferRows.forEach(([label, line], index) => {
+    drawText(doc, `${label}： ${line}`, tableX + 68, bankY + 34 + index * 13, 360);
   });
   if (input.note) {
     doc.font("NotoSansJPBold").fontSize(9).text("備考：", tableX + 330, bankY + 18, { width: 45 });
