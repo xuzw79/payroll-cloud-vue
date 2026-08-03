@@ -174,7 +174,9 @@ type CompanySetting = {
   invoiceTel?: string | null;
   invoiceRegistrationNo?: string | null;
   invoiceBankName?: string | null;
+  invoiceBankCode?: string | null;
   invoiceBankBranch?: string | null;
+  invoiceBankBranchCode?: string | null;
   invoiceBankAccount?: string | null;
   invoiceBankHolder?: string | null;
   payrollPeriodType?: string | null;
@@ -339,7 +341,9 @@ const companyForm = reactive({
   invoiceTel: "",
   invoiceRegistrationNo: "",
   invoiceBankName: "",
+  invoiceBankCode: "",
   invoiceBankBranch: "",
+  invoiceBankBranchCode: "",
   invoiceBankAccount: "",
   invoiceBankHolder: "",
   payrollPeriodType: "PREVIOUS_MONTH",
@@ -749,7 +753,9 @@ async function refreshCompanySetting() {
     invoiceTel: setting.invoiceTel || "",
     invoiceRegistrationNo: setting.invoiceRegistrationNo || "",
     invoiceBankName: setting.invoiceBankName || "",
+    invoiceBankCode: setting.invoiceBankCode || "",
     invoiceBankBranch: setting.invoiceBankBranch || "",
+    invoiceBankBranchCode: setting.invoiceBankBranchCode || "",
     invoiceBankAccount: setting.invoiceBankAccount || "",
     invoiceBankHolder: setting.invoiceBankHolder || "",
     payrollPeriodType: setting.payrollPeriodType || "PREVIOUS_MONTH",
@@ -1549,7 +1555,9 @@ onMounted(async () => {
             <label>電話番号<input v-model="companyForm.invoiceTel" /></label>
             <label>登録番号<input v-model="companyForm.invoiceRegistrationNo" /></label>
             <label>振込先銀行<input v-model="companyForm.invoiceBankName" /></label>
+            <label>銀行コード<input v-model="companyForm.invoiceBankCode" /></label>
             <label>支店<input v-model="companyForm.invoiceBankBranch" /></label>
+            <label>支店コード<input v-model="companyForm.invoiceBankBranchCode" /></label>
             <label>口座<input v-model="companyForm.invoiceBankAccount" /></label>
             <label>口座名義<input v-model="companyForm.invoiceBankHolder" /></label>
             <div class="form-actions full">

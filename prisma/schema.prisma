@@ -224,7 +224,9 @@ model CompanySetting {
   invoiceTel               String?
   invoiceRegistrationNo    String?
   invoiceBankName          String?
+  invoiceBankCode          String?
   invoiceBankBranch        String?
+  invoiceBankBranchCode    String?
   invoiceBankAccount       String?
   invoiceBankHolder        String?
   payrollPeriodType        String   @default("PREVIOUS_MONTH")

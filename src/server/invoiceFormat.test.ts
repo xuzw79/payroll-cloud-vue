@@ -29,6 +29,24 @@ assert.deepEqual(
 
 assert.deepEqual(
   invoiceBankRows({
+    bankName: "みずほ銀行",
+    bankCode: "0001",
+    bankBranch: "鷺沼支店",
+    bankBranchCode: "379",
+    bankAccount: "普通 2319709",
+    bankHolder: "アイウィル(カ"
+  }),
+  [
+    ["銀行名称", "みずほ銀行(0001)"],
+    ["支店名称", "鷺沼支店(379)"],
+    ["口座種別", "普通"],
+    ["口座番号", "2319709"],
+    ["口座名義", "アイウィル(カ"]
+  ]
+);
+
+assert.deepEqual(
+  invoiceBankRows({
     bankName: "みずほ銀行(0001)",
     bankBranch: "鷺沼支店(379)",
     bankAccount: "2319709",

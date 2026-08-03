@@ -21,7 +21,9 @@ export function invoiceFileName(customerName: string, period: string) {
 
 export type InvoiceBankInput = {
   bankName?: string | null;
+  bankCode?: string | null;
   bankBranch?: string | null;
+  bankBranchCode?: string | null;
   bankAccount?: string | null;
   bankHolder?: string | null;
 };
@@ -38,11 +40,20 @@ function splitBankAccount(value?: string | null) {
   return { accountType: ordinary, accountNumber: raw };
 }
 
+function appendCode(name?: string | null, code?: string | null) {
+  const base = (name || "").trim();
+  const rawCode = (code || "").trim();
+  if (!base || !rawCode || base.includes(`(${rawCode})`)) return base;
+  return `${base}(${rawCode})`;
+}
+
 export function invoiceBankRows(input: InvoiceBankInput): Array<[string, string]> {
   const { accountType, accountNumber } = splitBankAccount(input.bankAccount);
+  const bankName = appendCode(input.bankName || process.env.INVOICE_BANK_NAME, input.bankCode || process.env.INVOICE_BANK_CODE);
+  const bankBranch = appendCode(input.bankBranch || process.env.INVOICE_BANK_BRANCH, input.bankBranchCode || process.env.INVOICE_BANK_BRANCH_CODE);
   const rows: Array<[string, string]> = [
-    ["\u9280\u884c\u540d\u79f0", input.bankName || process.env.INVOICE_BANK_NAME || "\u632f\u8fbc\u5148\u9280\u884c\u3092\u767b\u9332\u3057\u3066\u304f\u3060\u3055\u3044"],
-    ["\u652f\u5e97\u540d\u79f0", input.bankBranch || process.env.INVOICE_BANK_BRANCH || ""],
+    ["\u9280\u884c\u540d\u79f0", bankName || "\u632f\u8fbc\u5148\u9280\u884c\u3092\u767b\u9332\u3057\u3066\u304f\u3060\u3055\u3044"],
+    ["\u652f\u5e97\u540d\u79f0", bankBranch],
     ["\u53e3\u5ea7\u7a2e\u5225", accountType],
     ["\u53e3\u5ea7\u756a\u53f7", accountNumber || process.env.INVOICE_BANK_ACCOUNT || ""],
     ["\u53e3\u5ea7\u540d\u7fa9", input.bankHolder || process.env.INVOICE_BANK_HOLDER || ""]

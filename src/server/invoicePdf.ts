@@ -34,7 +34,9 @@ export type InvoicePdfInput = {
   companyTel?: string | null;
   companyRegistrationNo?: string | null;
   bankName?: string | null;
+  bankCode?: string | null;
   bankBranch?: string | null;
+  bankBranchCode?: string | null;
   bankAccount?: string | null;
   bankHolder?: string | null;
   items: InvoicePdfItem[];
