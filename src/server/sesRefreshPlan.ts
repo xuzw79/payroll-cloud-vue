@@ -1,4 +1,4 @@
-export type SesSubMenuKey = "customers" | "projects" | "invoices" | "masters" | "revenue" | "partnerCosts" | "profit";
+export type SesSubMenuKey = "customers" | "projects" | "invoices" | "masters" | "numberSettings" | "revenue" | "partnerCosts" | "profit";
 export type SesRefreshKey = "customers" | "contracts" | "masterData" | "invoices" | "revenues" | "partnerCosts";
 
 export function refreshKeysForSesSubMenu(menu: SesSubMenuKey): SesRefreshKey[] {

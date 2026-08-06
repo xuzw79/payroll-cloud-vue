@@ -8,5 +8,6 @@ assert.deepEqual(refreshKeysForSesSubMenu("partnerCosts"), ["partnerCosts"]);
 assert.deepEqual(refreshKeysForSesSubMenu("revenue"), ["customers", "contracts", "masterData", "revenues"]);
 assert.deepEqual(refreshKeysForSesSubMenu("profit"), ["revenues"]);
 assert.deepEqual(refreshKeysForSesSubMenu("masters"), []);
+assert.deepEqual(refreshKeysForSesSubMenu("numberSettings"), []);
 
 console.log("sesRefreshPlan tests passed");

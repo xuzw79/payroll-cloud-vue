@@ -7,7 +7,7 @@ import { activePartnerCostRows, partnerCostDefaultAmount as resolvePartnerCostDe
 import { filterActiveMembersForPeriod } from "../server/sesPeriod";
 import { refreshKeysForSesSubMenu, type SesRefreshKey } from "../server/sesRefreshPlan";
 
-type SesSubMenu = "customers" | "projects" | "invoices" | "masters" | "revenue" | "partnerCosts" | "profit";
+type SesSubMenu = "customers" | "projects" | "invoices" | "masters" | "numberSettings" | "revenue" | "partnerCosts" | "profit";
 type PermissionMenu = "SES_CUSTOMERS" | "SES_PROJECTS" | "SES_INVOICES" | "SES_PARTNER_COSTS" | "SES_REVENUE" | "SES_MASTERS" | "SES_PROFIT";
 type RolePermission = { menu: string; canShow: boolean; canView: boolean; canEdit: boolean; canViewAll: boolean };
 type MemberSource = "NONE" | "EMPLOYEE" | "EXTERNAL";
@@ -187,6 +187,11 @@ type CompanySetting = {
   payrollLockEnabled?: boolean | null;
   payrollForceUpdateEnabled?: boolean | null;
   payrollLockTarget?: string | null;
+  invoiceNoPattern?: string | null;
+  contractNoPattern?: string | null;
+  purchaseOrderNoPattern?: string | null;
+  documentNumberResetType?: string | null;
+  documentNumberSeqDigits?: number | null;
 };
 type StatusMessage = {
   type: "success" | "error";
@@ -221,6 +226,7 @@ const allSubMenus: { key: SesSubMenu; label: string; description: string }[] = [
   { key: "projects", label: "案件・契約管理", description: "請求契約と仕入契約、契約期間、作業者、契約先を管理します。" },
   { key: "invoices", label: "請求管理", description: "請求契約から請求書を作成し、PDFを出力します。" },
   { key: "masters", label: "マスタ管理", description: "自社情報、振込先など共通マスタを管理します。" },
+  { key: "numberSettings", label: "番号採番設定", description: "請求書番号、契約番号、注文書番号の自動採番ルールを管理します。" },
   { key: "revenue", label: "年間売上", description: "決算年度ごとの売上合計を表示し、個別売上を登録します。" },
   { key: "partnerCosts", label: "外注費入力", description: "協力会社への月額支払を登録します。" },
   { key: "profit", label: "個人別利益", description: "売上、給与、外注費から利益を確認します。" }
@@ -231,14 +237,15 @@ const sesSubMenuPermissions: Record<SesSubMenu, PermissionMenu> = {
   projects: "SES_PROJECTS",
   invoices: "SES_INVOICES",
   masters: "SES_MASTERS",
+  numberSettings: "SES_MASTERS",
   revenue: "SES_REVENUE",
   partnerCosts: "SES_PARTNER_COSTS",
   profit: "SES_PROFIT"
 };
 
 const subMenus = computed(() => props.mode === "masters"
-  ? allSubMenus.filter((menu) => menu.key === "masters")
-  : allSubMenus.filter((menu) => menu.key !== "masters")
+  ? allSubMenus.filter((menu) => menu.key === "masters" || menu.key === "numberSettings")
+  : allSubMenus.filter((menu) => menu.key !== "masters" && menu.key !== "numberSettings")
 );
 const activeSubMenu = ref<SesSubMenu>(props.mode === "masters" ? "masters" : "customers");
 const loading = ref(false);
@@ -353,7 +360,12 @@ const companyForm = reactive({
   payrollLockDay: 28,
   payrollLockEnabled: true,
   payrollForceUpdateEnabled: true,
-  payrollLockTarget: "PAYROLL_AND_BONUS"
+  payrollLockTarget: "PAYROLL_AND_BONUS",
+  invoiceNoPattern: "{YYYYMM}-{SEQ3}",
+  contractNoPattern: "CON-{YYYY}-{SEQ3}",
+  purchaseOrderNoPattern: "PO-{YYYYMM}-{SEQ3}",
+  documentNumberResetType: "MONTHLY",
+  documentNumberSeqDigits: 3
 });
 
 const revenueForm = reactive({
@@ -765,7 +777,12 @@ async function refreshCompanySetting() {
     payrollLockDay: setting.payrollLockDay || 28,
     payrollLockEnabled: setting.payrollLockEnabled !== false,
     payrollForceUpdateEnabled: setting.payrollForceUpdateEnabled !== false,
-    payrollLockTarget: setting.payrollLockTarget || "PAYROLL_AND_BONUS"
+    payrollLockTarget: setting.payrollLockTarget || "PAYROLL_AND_BONUS",
+    invoiceNoPattern: setting.invoiceNoPattern || "{YYYYMM}-{SEQ3}",
+    contractNoPattern: setting.contractNoPattern || "CON-{YYYY}-{SEQ3}",
+    purchaseOrderNoPattern: setting.purchaseOrderNoPattern || "PO-{YYYYMM}-{SEQ3}",
+    documentNumberResetType: setting.documentNumberResetType || "MONTHLY",
+    documentNumberSeqDigits: setting.documentNumberSeqDigits || 3
   });
   if (!revenueFiscalYearInitialized) {
     revenueFiscalYear.value = currentFiscalYearByClosingMonth(companyForm.fiscalClosingMonth || 3);
@@ -1533,6 +1550,36 @@ onMounted(async () => {
           </div>
         </div>
       </div>
+      </div>
+    </section>
+
+    <section v-else-if="activeSubMenu === 'numberSettings'" class="panel">
+      <div class="panel-head" :class="sesSectionHeadClass('numberSettings')" @click="toggleSesSection('numberSettings')">
+        <h2>番号採番設定</h2>
+      </div>
+      <div v-show="!collapsedSesSections.numberSettings" class="contract-editor">
+        <div class="ses-flow-note">
+          請求書番号、契約番号、注文書番号の自動採番ルールを管理します。番号欄が空欄の場合のみ自動採番します。
+        </div>
+        <div class="sub-panel">
+          <h3>番号採番設定</h3>
+          <div class="form-grid compact">
+            <label>請求書番号ルール<input v-model="companyForm.invoiceNoPattern" placeholder="{YYYYMM}-{SEQ3}" /></label>
+            <label>契約番号ルール<input v-model="companyForm.contractNoPattern" placeholder="CON-{YYYY}-{SEQ3}" /></label>
+            <label>注文書番号ルール<input v-model="companyForm.purchaseOrderNoPattern" placeholder="PO-{YYYYMM}-{SEQ3}" /></label>
+            <label>リセット単位<select v-model="companyForm.documentNumberResetType">
+              <option value="MONTHLY">月単位</option>
+              <option value="YEARLY">年単位</option>
+              <option value="NONE">リセットなし</option>
+            </select></label>
+            <label>標準桁数<input v-model.number="companyForm.documentNumberSeqDigits" type="number" min="1" max="8" /></label>
+            <p class="note wide">利用可能変数: {YYYY}, {YY}, {MM}, {YYYYMM}, {SEQ}, {SEQ3}, {SEQ4}</p>
+            <p class="note wide">例: INV-{YYYYMM}-{SEQ3} → INV-202608-001</p>
+            <div class="form-actions full">
+              <button v-if="canEditSes" class="primary" @click="saveCompanySetting"><Save :size="16" />番号採番設定保存</button>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 

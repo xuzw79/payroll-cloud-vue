@@ -11,6 +11,12 @@ import { cookieName, createSession, requireAuth, type SessionUser } from "./auth
 import { prisma } from "./db.js";
 import { sendPayslipMail } from "./mailer.js";
 import { createBonusPdf } from "./bonusPdf.js";
+import {
+  documentNumberPeriodKey,
+  formatDocumentNumber,
+  normalizeDocumentNumberSettings,
+  type DocumentNumberSettings
+} from "./documentNumber.js";
 import { createInvoicePdf } from "./invoicePdf.js";
 import { invoiceFileName, timeAdjustmentDescription } from "./invoiceFormat.js";
 import { createPayslipPdf } from "./pdf.js";
@@ -344,6 +350,17 @@ function payrollPeriodDataFromBody(body: Record<string, unknown>) {
     payrollForceUpdateEnabled: settings.payrollForceUpdateEnabled,
     payrollLockTarget: settings.payrollLockTarget
   };
+}
+
+function documentNumberDataFromBody(body: Record<string, unknown>) {
+  const settings = normalizeDocumentNumberSettings({
+    invoiceNoPattern: nullableText(body.invoiceNoPattern),
+    contractNoPattern: nullableText(body.contractNoPattern),
+    purchaseOrderNoPattern: nullableText(body.purchaseOrderNoPattern),
+    documentNumberResetType: nullableText(body.documentNumberResetType),
+    documentNumberSeqDigits: numberOrDefault(body.documentNumberSeqDigits, 3)
+  });
+  return settings;
 }
 
 function payrollEmployeeReadMenus(value: string | undefined) {
@@ -850,6 +867,7 @@ api.put("/ses/company-setting", async (c) => {
 
   const body = await c.req.json() as Record<string, unknown>;
   const payrollPeriodData = payrollPeriodDataFromBody(body);
+  const documentNumberData = documentNumberDataFromBody(body);
   const settings = await prisma.companySetting.upsert({
     where: { id: "default" },
     update: {
@@ -866,7 +884,8 @@ api.put("/ses/company-setting", async (c) => {
       invoiceBankAccount: nullableText(body.invoiceBankAccount),
       invoiceBankHolder: nullableText(body.invoiceBankHolder),
       fiscalClosingMonth: normalizeClosingMonth(body.fiscalClosingMonth),
-      ...payrollPeriodData
+      ...payrollPeriodData,
+      ...documentNumberData
     },
     create: {
       id: "default",
@@ -884,7 +903,8 @@ api.put("/ses/company-setting", async (c) => {
       invoiceBankAccount: nullableText(body.invoiceBankAccount),
       invoiceBankHolder: nullableText(body.invoiceBankHolder),
       fiscalClosingMonth: normalizeClosingMonth(body.fiscalClosingMonth),
-      ...payrollPeriodData
+      ...payrollPeriodData,
+      ...documentNumberData
     }
   });
   return c.json(settings);
@@ -1196,11 +1216,12 @@ api.post("/ses/contracts", async (c) => {
   try {
     const customerData = contractCustomerData(body);
     const members = contractMembersData(body.members);
+    const contractNo = nullableText(body.contractNo) || await nextDocumentNumber("CONTRACT", periodFromDateOrToday(body.startDate));
     const contract = await prisma.sesContract.create({
       data: {
         ...customerData,
         contractType,
-        contractNo: nullableText(body.contractNo),
+        contractNo,
         title,
         taxIncluded: booleanOrFalse(body.taxIncluded),
         startDate: nullableText(body.startDate),
@@ -1229,6 +1250,7 @@ api.put("/ses/contracts/:id", async (c) => {
   try {
     const customerData = contractCustomerData(body);
     const members = contractMembersData(body.members);
+    const contractNo = nullableText(body.contractNo) || await nextDocumentNumber("CONTRACT", periodFromDateOrToday(body.startDate));
     const contract = await prisma.$transaction(async (tx) => {
       await tx.sesContractMember.deleteMany({ where: { contractId: c.req.param("id") } });
       return tx.sesContract.update({
@@ -1236,7 +1258,7 @@ api.put("/ses/contracts/:id", async (c) => {
         data: {
           ...customerData,
           contractType,
-          contractNo: nullableText(body.contractNo),
+          contractNo,
           title,
           taxIncluded: booleanOrFalse(body.taxIncluded),
           startDate: nullableText(body.startDate),
@@ -1808,21 +1830,36 @@ function taxExcludedInvoiceItems(items: SesInvoiceItemData[], taxRate: number) {
   });
 }
 
-async function nextSesInvoiceNo(period: string) {
-  const prefix = `${periodForFile(period)}-`;
-  const invoices = await prisma.sesInvoice.findMany({
-    where: {
-      period,
-      invoiceNo: { startsWith: prefix }
-    },
-    select: { invoiceNo: true }
+function periodFromDateOrToday(value: unknown) {
+  const text = nullableText(value);
+  if (text && /^\d{4}-\d{2}/.test(text)) return text.slice(0, 7);
+  return todayIso().slice(0, 7);
+}
+
+function patternForDocumentType(settings: DocumentNumberSettings, documentType: string) {
+  const normalized = normalizeDocumentNumberSettings(settings);
+  if (documentType === "CONTRACT") return normalized.contractNoPattern;
+  if (documentType === "PURCHASE_ORDER") return normalized.purchaseOrderNoPattern;
+  return normalized.invoiceNoPattern;
+}
+
+async function nextDocumentNumber(documentType: "INVOICE" | "CONTRACT" | "PURCHASE_ORDER", period: string) {
+  const settings = normalizeDocumentNumberSettings(await prisma.companySetting.upsert({
+    where: { id: "default" },
+    update: {},
+    create: { id: "default", currentFiscalYear: periodToFiscalYear(period) }
+  }));
+  const periodKey = documentNumberPeriodKey(settings.documentNumberResetType, period);
+  const sequence = await prisma.documentNumberSequence.upsert({
+    where: { documentType_periodKey: { documentType, periodKey } },
+    update: { nextSeq: { increment: 1 } },
+    create: { documentType, periodKey, nextSeq: 2 }
   });
-  const maxNo = invoices.reduce((max, invoice) => {
-    const suffix = invoice.invoiceNo?.slice(prefix.length) || "";
-    const number = /^\d{3}$/.test(suffix) ? Number(suffix) : 0;
-    return Math.max(max, number);
-  }, 0);
-  return `${prefix}${String(maxNo + 1).padStart(3, "0")}`;
+  return formatDocumentNumber(patternForDocumentType(settings, documentType), period, sequence.nextSeq - 1, settings.documentNumberSeqDigits);
+}
+
+async function nextSesInvoiceNo(period: string) {
+  return nextDocumentNumber("INVOICE", period);
 }
 
 api.post("/ses/invoices/generate", async (c) => {

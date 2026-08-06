@@ -237,7 +237,23 @@ model CompanySetting {
   payrollLockEnabled       Boolean  @default(true)
   payrollForceUpdateEnabled Boolean @default(true)
   payrollLockTarget        String   @default("PAYROLL_AND_BONUS")
+  invoiceNoPattern         String   @default("{YYYYMM}-{SEQ3}")
+  contractNoPattern        String   @default("CON-{YYYY}-{SEQ3}")
+  purchaseOrderNoPattern   String   @default("PO-{YYYYMM}-{SEQ3}")
+  documentNumberResetType  String   @default("MONTHLY")
+  documentNumberSeqDigits  Int      @default(3)
   updatedAt                DateTime @updatedAt
+}
+
+model DocumentNumberSequence {
+  id           String   @id @default(cuid())
+  documentType String
+  periodKey    String
+  nextSeq      Int      @default(1)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([documentType, periodKey])
 }
 
 model FiscalRate {
