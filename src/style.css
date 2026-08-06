@@ -975,6 +975,37 @@ p {
   padding: 0 9px 9px;
 }
 
+.deleted-list {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.deleted-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #c7d0df;
+  background: #fff8e8;
+  padding: 8px;
+}
+
+.deleted-item div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.deleted-item span,
+.deleted-item small {
+  overflow-wrap: anywhere;
+}
+
+.deleted-item small {
+  color: #586579;
+}
+
 .bonus-schedule {
   display: grid;
   gap: 6px;

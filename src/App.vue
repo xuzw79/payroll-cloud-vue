@@ -89,6 +89,8 @@ type Payroll = {
   employmentInsuranceEnrolled: boolean;
   note?: string | null;
   emailedAt?: string | null;
+  isDeleted?: boolean;
+  deletedAt?: string | null;
   employee: Employee;
 };
 
@@ -111,6 +113,8 @@ type Bonus = {
   totalDeduction: number;
   netPay: number;
   note?: string | null;
+  isDeleted?: boolean;
+  deletedAt?: string | null;
   employee: Employee;
 };
 
@@ -339,6 +343,8 @@ const pdfIncludeBonus = ref(false);
 const employees = ref<Employee[]>([]);
 const payrolls = ref<Payroll[]>([]);
 const bonuses = ref<Bonus[]>([]);
+const deletedPayrolls = ref<Payroll[]>([]);
+const deletedBonuses = ref<Bonus[]>([]);
 const users = ref<AppUser[]>([]);
 const permissionRoleMasters = ref<PermissionRoleMaster[]>([]);
 const rolePermissions = ref<RolePermission[]>([]);
@@ -989,6 +995,10 @@ function applyBonusInput(bonus: Bonus) {
   bonusForm.note = bonus.note || "";
 }
 
+function formatDeletedAt(value?: string | null) {
+  return value ? new Date(value).toLocaleString("ja-JP") : "";
+}
+
 async function login() {
   loading.value = true;
   loginMessage.value = "";
@@ -1021,16 +1031,20 @@ async function refresh() {
     const employeeMenu = encodeURIComponent(employeeReadMenuForActiveSubMenu());
     const payrollMenu = encodeURIComponent(payrollReadMenuForActiveSubMenu());
     const bonusMenu = encodeURIComponent(bonusReadMenuForActiveSubMenu());
-    const [employeeData, payrollData, bonusData, fiscalRateData, taxData] = await Promise.all([
+    const [employeeData, payrollData, bonusData, deletedPayrollData, deletedBonusData, fiscalRateData, taxData] = await Promise.all([
       request<Employee[]>(`/employees?q=${q}&menu=${employeeMenu}`),
       request<Payroll[]>(`/payrolls?period=${encodeURIComponent(period.value)}&q=${q}&menu=${payrollMenu}`),
       request<Bonus[]>(`/bonuses?period=${encodeURIComponent(period.value)}&q=${q}&menu=${bonusMenu}`),
+      request<Payroll[]>(`/payrolls?period=${encodeURIComponent(period.value)}&q=${q}&menu=${payrollMenu}&deletedOnly=true`),
+      request<Bonus[]>(`/bonuses?period=${encodeURIComponent(period.value)}&q=${q}&menu=${bonusMenu}&deletedOnly=true`),
       request<FiscalRate[]>("/fiscal-rates"),
       request<IncomeTaxBracket[]>(`/income-tax-brackets?fiscalYear=${fiscalYear}`)
     ]);
     employees.value = employeeData;
     payrolls.value = payrollData;
     bonuses.value = bonusData;
+    deletedPayrolls.value = deletedPayrollData;
+    deletedBonuses.value = deletedBonusData;
     fiscalRates.value = fiscalRateData;
     incomeTaxBrackets.value = taxData;
     users.value = canManageUsers.value ? await request<AppUser[]>("/users") : [];
@@ -1289,6 +1303,30 @@ async function deleteSelectedBonus() {
     await refresh();
   } catch (error) {
     showErrorMessage(error instanceof Error ? error.message : "賞与を削除できませんでした");
+  }
+}
+
+async function restorePayroll(payroll: Payroll) {
+  if (!canEditPayrollInput.value) return;
+  if (!(await confirmAction(`${payroll.employee.name}さんの${payroll.period}の給与を復元します。よろしいですか？`))) return;
+  try {
+    await request<Payroll>(`/payrolls/${payroll.id}/restore`, { method: "POST" });
+    showSuccess("給与を復元しました");
+    await refresh();
+  } catch (error) {
+    showErrorMessage(error instanceof Error ? error.message : "給与を復元できませんでした");
+  }
+}
+
+async function restoreBonus(bonus: Bonus) {
+  if (!canEditBonusInput.value) return;
+  if (!(await confirmAction(`${bonus.employee.name}さんの${bonus.period}の賞与を復元します。よろしいですか？`))) return;
+  try {
+    await request<Bonus>(`/bonuses/${bonus.id}/restore`, { method: "POST" });
+    showSuccess("賞与を復元しました");
+    await refresh();
+  } catch (error) {
+    showErrorMessage(error instanceof Error ? error.message : "賞与を復元できませんでした");
   }
 }
 
@@ -1777,6 +1815,36 @@ onMounted(async () => {
             <button v-if="isPayrollLocked && canForceUpdateLockedPayroll" class="warning" @click="saveBonus(true)"><Save :size="16" />賞与を強制変更して保存</button>
             <button v-if="selectedBonus" type="button" @click="deleteSelectedBonus"><Trash2 :size="16" />賞与削除</button>
             <button @click="downloadBonusPdf"><Download :size="16" />賞与PDFダウンロード</button>
+          </div>
+        </div>
+        <div
+          v-if="activePayrollSubMenu === 'payrollBonusInput' && (canEditPayrollInput || canEditBonusInput) && (deletedPayrolls.length || deletedBonuses.length)"
+          class="panel-head"
+          :class="sectionHeadClass('deletedPayrollBonus')"
+          @click="toggleSection('deletedPayrollBonus')"
+        >
+          <h2>削除済みデータ</h2>
+        </div>
+        <div
+          v-if="activePayrollSubMenu === 'payrollBonusInput' && (canEditPayrollInput || canEditBonusInput) && (deletedPayrolls.length || deletedBonuses.length)"
+          v-show="!collapsedSections.deletedPayrollBonus"
+          class="deleted-list"
+        >
+          <div v-for="payroll in deletedPayrolls" :key="`payroll-${payroll.id}`" class="deleted-item">
+            <div>
+              <strong>給与</strong>
+              <span>{{ payroll.period }} / {{ payroll.employee.employeeNo }} {{ payroll.employee.name }} / {{ yen.format(payroll.netPay) }}</span>
+              <small v-if="payroll.deletedAt">削除日時: {{ formatDeletedAt(payroll.deletedAt) }}</small>
+            </div>
+            <button v-if="canEditPayrollInput" type="button" @click="restorePayroll(payroll)"><RefreshCw :size="16" />復元</button>
+          </div>
+          <div v-for="bonus in deletedBonuses" :key="`bonus-${bonus.id}`" class="deleted-item">
+            <div>
+              <strong>賞与</strong>
+              <span>{{ bonus.period }} / {{ bonus.employee.employeeNo }} {{ bonus.employee.name }} / {{ yen.format(bonus.netPay) }}</span>
+              <small v-if="bonus.deletedAt">削除日時: {{ formatDeletedAt(bonus.deletedAt) }}</small>
+            </div>
+            <button v-if="canEditBonusInput" type="button" @click="restoreBonus(bonus)"><RefreshCw :size="16" />復元</button>
           </div>
         </div>
       </section>

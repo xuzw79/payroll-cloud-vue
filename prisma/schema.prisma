@@ -198,12 +198,15 @@ model Payroll {
   taxableIncome            Int?
   emailedAt                DateTime?
   note                     String?
+  isDeleted                Boolean  @default(false)
+  deletedAt                DateTime?
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
   employee                 Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   @@unique([employeeId, period])
   @@index([period])
+  @@index([isDeleted])
 }
 
 model CompanySetting {
@@ -295,12 +298,15 @@ model Bonus {
   netPay                   Int
   fiscalYear               Int?
   note                     String?
+  isDeleted                Boolean  @default(false)
+  deletedAt                DateTime?
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
   employee                 Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   @@unique([employeeId, period])
   @@index([period])
+  @@index([isDeleted])
 }
 
 model IncomeTaxBracket {

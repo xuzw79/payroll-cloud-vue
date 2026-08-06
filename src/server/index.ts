@@ -8,6 +8,7 @@ import { deleteCookie, setCookie } from "hono/cookie";
 import JSZip from "jszip";
 import { PDFDocument } from "pdf-lib";
 import { cookieName, createSession, requireAuth, type SessionUser } from "./auth.js";
+import { deletedFilterFromQuery } from "./deletedFilter.js";
 import { prisma } from "./db.js";
 import { sendPayslipMail } from "./mailer.js";
 import { createBonusPdf } from "./bonusPdf.js";
@@ -1355,11 +1356,11 @@ api.get("/ses/revenues", async (c) => {
       select: { period: true, totalAmount: true }
     }),
     prisma.payroll.findMany({
-      where: { period: { gte: startPeriod, lte: endPeriod } },
+      where: { isDeleted: false, period: { gte: startPeriod, lte: endPeriod } },
       select: { period: true, grossPay: true, socialInsurance: true }
     }),
     prisma.bonus.findMany({
-      where: { period: { gte: startPeriod, lte: endPeriod } },
+      where: { isDeleted: false, period: { gte: startPeriod, lte: endPeriod } },
       select: { period: true, bonusAmount: true, socialInsurance: true }
     })
   ]);
@@ -2097,8 +2098,13 @@ api.get("/payrolls", async (c) => {
   const period = c.req.query("period");
   const employeeId = await readableEmployeeId(c, payrollReadMenu(c.req.query("menu")), c.req.query("employeeId"));
   const q = c.req.query("q") || "";
+  const isDeleted = deletedFilterFromQuery({
+    includeDeleted: c.req.query("includeDeleted"),
+    deletedOnly: c.req.query("deletedOnly")
+  });
   const payrolls = await prisma.payroll.findMany({
     where: {
+      isDeleted,
       period: period || undefined,
       employeeId: employeeId || undefined,
       employee: q ? {
@@ -2118,8 +2124,13 @@ api.get("/bonuses", async (c) => {
   const period = c.req.query("period");
   const employeeId = await readableEmployeeId(c, bonusReadMenu(c.req.query("menu")), c.req.query("employeeId"));
   const q = c.req.query("q") || "";
+  const isDeleted = deletedFilterFromQuery({
+    includeDeleted: c.req.query("includeDeleted"),
+    deletedOnly: c.req.query("deletedOnly")
+  });
   const bonuses = await prisma.bonus.findMany({
     where: {
+      isDeleted,
       period: period || undefined,
       employeeId: employeeId || undefined,
       employee: q ? {
@@ -2187,6 +2198,8 @@ api.post("/bonuses", async (c) => {
       employmentInsuranceEnrolled,
       socialInsuranceBaseAmount,
       fiscalYear,
+      isDeleted: false,
+      deletedAt: null,
       ...calculated,
       note: body.note || null
     },
@@ -2203,6 +2216,8 @@ api.post("/bonuses", async (c) => {
       employmentInsuranceEnrolled,
       socialInsuranceBaseAmount,
       fiscalYear,
+      isDeleted: false,
+      deletedAt: null,
       ...calculated,
       note: body.note || null
     },
@@ -2217,6 +2232,9 @@ api.get("/bonuses/:id/pdf", async (c) => {
       where: { id: c.req.param("id") },
       include: { employee: true }
     });
+    if (bonus.isDeleted) {
+      return c.json({ message: "削除済みの賞与明細は出力できません" }, 404);
+    }
     if (!await canAccessEmployee(c, "BONUS_SLIP", bonus.employeeId)) {
       return c.json({ message: "権限がありません" }, 403);
     }
@@ -2245,8 +2263,24 @@ api.delete("/bonuses/:id", async (c) => {
   if (!await canEditEmployeeData(c, "BONUS_INPUT", bonus.employeeId)) {
     return c.json({ message: "\u6a29\u9650\u304c\u3042\u308a\u307e\u305b\u3093" }, 403);
   }
-  await prisma.bonus.delete({ where: { id: bonus.id } });
+  await prisma.bonus.update({ where: { id: bonus.id }, data: { isDeleted: true, deletedAt: new Date() } });
   return c.json({ ok: true });
+});
+
+api.post("/bonuses/:id/restore", async (c) => {
+  const bonus = await prisma.bonus.findUniqueOrThrow({
+    where: { id: c.req.param("id") },
+    select: { id: true, employeeId: true }
+  });
+  if (!await canEditEmployeeData(c, "BONUS_INPUT", bonus.employeeId)) {
+    return c.json({ message: "\u6a29\u9650\u304c\u3042\u308a\u307e\u305b\u3093" }, 403);
+  }
+  const restored = await prisma.bonus.update({
+    where: { id: bonus.id },
+    data: { isDeleted: false, deletedAt: null },
+    include: { employee: true }
+  });
+  return c.json(restored);
 });
 
 api.get("/payrolls/latest-template", async (c) => {
@@ -2261,6 +2295,7 @@ api.get("/payrolls/latest-template", async (c) => {
 
   const payroll = await prisma.payroll.findFirst({
     where: {
+      isDeleted: false,
       employeeId,
       period: { lt: beforePeriod }
     },
@@ -2304,6 +2339,7 @@ api.get("/payrolls/pdf-range", async (c) => {
 
     const payrolls = await prisma.payroll.findMany({
       where: {
+        isDeleted: false,
         period: { gte: startPeriod, lte: endPeriod },
         employeeId: employeeId || undefined,
         employee: employeeFilter
@@ -2314,6 +2350,7 @@ api.get("/payrolls/pdf-range", async (c) => {
 
     const bonuses = includeBonus ? await prisma.bonus.findMany({
       where: {
+        isDeleted: false,
         period: { gte: startPeriod, lte: endPeriod },
         employeeId: employeeId || undefined,
         employee: employeeFilter
@@ -2487,6 +2524,8 @@ api.post("/payrolls", async (c) => {
       fiscalYear,
       dependentCount,
       taxableIncome,
+      isDeleted: false,
+      deletedAt: null,
       ...calculated,
       note: body.note || null
     },
@@ -2511,6 +2550,8 @@ api.post("/payrolls", async (c) => {
       fiscalYear,
       dependentCount,
       taxableIncome,
+      isDeleted: false,
+      deletedAt: null,
       ...calculated,
       note: body.note || null
     },
@@ -2525,6 +2566,9 @@ api.get("/payrolls/:id/pdf", async (c) => {
       where: { id: c.req.param("id") },
       include: { employee: true }
     });
+    if (payroll.isDeleted) {
+      return c.json({ message: "削除済みの給与明細は出力できません" }, 404);
+    }
     if (!await canAccessEmployee(c, "PAYSLIP", payroll.employeeId)) {
       return c.json({ message: "権限がありません" }, 403);
     }
@@ -2553,8 +2597,24 @@ api.delete("/payrolls/:id", async (c) => {
   if (!await canEditEmployeeData(c, "PAYROLL_INPUT", payroll.employeeId)) {
     return c.json({ message: "\u6a29\u9650\u304c\u3042\u308a\u307e\u305b\u3093" }, 403);
   }
-  await prisma.payroll.delete({ where: { id: payroll.id } });
+  await prisma.payroll.update({ where: { id: payroll.id }, data: { isDeleted: true, deletedAt: new Date() } });
   return c.json({ ok: true });
+});
+
+api.post("/payrolls/:id/restore", async (c) => {
+  const payroll = await prisma.payroll.findUniqueOrThrow({
+    where: { id: c.req.param("id") },
+    select: { id: true, employeeId: true }
+  });
+  if (!await canEditEmployeeData(c, "PAYROLL_INPUT", payroll.employeeId)) {
+    return c.json({ message: "\u6a29\u9650\u304c\u3042\u308a\u307e\u305b\u3093" }, 403);
+  }
+  const restored = await prisma.payroll.update({
+    where: { id: payroll.id },
+    data: { isDeleted: false, deletedAt: null },
+    include: { employee: true }
+  });
+  return c.json(restored);
 });
 
 api.post("/payrolls/:id/email", async (c) => {
@@ -2566,6 +2626,10 @@ api.post("/payrolls/:id/email", async (c) => {
       where: { id: c.req.param("id") },
       include: { employee: true }
     });
+
+    if (payroll.isDeleted) {
+      return c.json({ message: "削除済みの給与明細はメール送信できません" }, 404);
+    }
 
     if (!payroll.employee.email) {
       return c.json({ message: "社員メールアドレスが未設定です" }, 400);
