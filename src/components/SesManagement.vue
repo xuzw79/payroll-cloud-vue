@@ -1103,7 +1103,7 @@ onMounted(async () => {
 
 <template>
   <div class="ses-workspace">
-    <nav v-if="mode === 'ses'" class="sub-menu" aria-label="SES管理メニュー">
+    <nav v-if="visibleSubMenus.length > 1" class="sub-menu" :aria-label="mode === 'masters' ? 'マスタ管理メニュー' : 'SES管理メニュー'">
       <button
         v-for="menu in visibleSubMenus"
         :key="menu.key"
