@@ -38,6 +38,22 @@ enum PermissionMenu {
   SES_PROFIT
   USERS
   PERMISSIONS
+  AUDIT_LOGS
+}
+
+enum AuditTargetType {
+  EMPLOYEE
+  PAYROLL
+  BONUS
+  INVOICE
+  PARTNER_COST
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  RESTORE
 }
 
 enum SesBillingType {
@@ -158,6 +174,27 @@ model UserPermission {
   @@unique([userId, menu])
   @@index([userId])
   @@index([menu])
+}
+
+model AuditLog {
+  id           String          @id @default(cuid())
+  actorUserId  String?
+  actorName    String
+  actorEmail   String
+  targetType   AuditTargetType
+  targetId     String
+  targetLabel  String
+  action       AuditAction
+  summary      String
+  beforeData   Json?
+  afterData    Json?
+  createdAt    DateTime        @default(now())
+
+  @@index([createdAt])
+  @@index([actorUserId])
+  @@index([targetType])
+  @@index([action])
+  @@index([targetId])
 }
 
 model Payroll {

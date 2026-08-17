@@ -8,6 +8,7 @@ import { deleteCookie, setCookie } from "hono/cookie";
 import JSZip from "jszip";
 import { PDFDocument } from "pdf-lib";
 import { cookieName, createSession, requireAuth, type SessionUser } from "./auth.js";
+import { writeAuditLog } from "./auditLog.js";
 import { deletedFilterFromQuery } from "./deletedFilter.js";
 import { prisma } from "./db.js";
 import { sendPayslipMail } from "./mailer.js";
@@ -59,7 +60,8 @@ const permissionMenus: PermissionMenu[] = [
   "SES_MASTERS",
   "SES_PROFIT",
   "USERS",
-  "PERMISSIONS"
+  "PERMISSIONS",
+  "AUDIT_LOGS"
 ];
 
 const payrollMenus = new Set<PermissionMenu>(["PAYROLL", "PAYROLL_EMPLOYEES", "PAYROLL_INPUT", "BONUS_INPUT", "RATES", "TAX_IMPORT", "PAYSLIP", "BONUS_SLIP"]);
@@ -67,6 +69,7 @@ const sesMenus = new Set<PermissionMenu>(["SES", "SES_CUSTOMERS", "SES_PROJECTS"
 
 function defaultRolePermission(role: UserRole, menu: PermissionMenu) {
   if (role === "ADMIN") return { role, menu, canShow: true, canView: true, canEdit: true, canViewAll: true };
+  if (menu === "AUDIT_LOGS") return { role, menu, canShow: role === "ACCOUNTING", canView: role === "ACCOUNTING", canEdit: false, canViewAll: role === "ACCOUNTING" };
   if (menu === "USERS" || menu === "PERMISSIONS") return { role, menu, canShow: false, canView: false, canEdit: false, canViewAll: false };
   if (role === "ACCOUNTING") return { role, menu, canShow: true, canView: true, canEdit: true, canViewAll: true };
   if (role === "VIEWER") return { role, menu, canShow: true, canView: true, canEdit: false, canViewAll: true };
@@ -792,6 +795,57 @@ api.put("/users/:id/permissions", async (c) => {
     create: permission
   })));
   return c.json(await effectiveUserPermissions(user.id, user.role));
+});
+
+api.get("/audit-logs", async (c) => {
+  const permissionDenied = await requireMenu(c, "AUDIT_LOGS", "view");
+  if (permissionDenied) return permissionDenied;
+
+  const targetType = c.req.query("targetType") || "";
+  const action = c.req.query("action") || "";
+  const actor = c.req.query("actor") || "";
+  const q = c.req.query("q") || "";
+  const from = c.req.query("from") || "";
+  const to = c.req.query("to") || "";
+  const where: Prisma.AuditLogWhereInput = {};
+  if (["EMPLOYEE", "PAYROLL", "BONUS", "INVOICE", "PARTNER_COST"].includes(targetType)) {
+    where.targetType = targetType as Prisma.EnumAuditTargetTypeFilter["equals"];
+  }
+  if (["CREATE", "UPDATE", "DELETE", "RESTORE"].includes(action)) {
+    where.action = action as Prisma.EnumAuditActionFilter["equals"];
+  }
+  if (from || to) {
+    where.createdAt = {
+      gte: from ? new Date(`${from}T00:00:00+09:00`) : undefined,
+      lte: to ? new Date(`${to}T23:59:59+09:00`) : undefined
+    };
+  }
+  const andWhere: Prisma.AuditLogWhereInput[] = [];
+  if (actor) {
+    andWhere.push({
+      OR: [
+        { actorName: { contains: actor, mode: "insensitive" } },
+        { actorEmail: { contains: actor, mode: "insensitive" } }
+      ]
+    });
+  }
+  if (q) {
+    andWhere.push({
+      OR: [
+        { summary: { contains: q, mode: "insensitive" } },
+        { targetLabel: { contains: q, mode: "insensitive" } },
+        { targetId: { contains: q, mode: "insensitive" } }
+      ]
+    });
+  }
+  if (andWhere.length) where.AND = andWhere;
+
+  const logs = await prisma.auditLog.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    take: 300
+  });
+  return c.json(logs);
 });
 
 api.get("/settings", async (c) => {
@@ -1655,10 +1709,19 @@ api.post("/ses/partner-costs", async (c) => {
         ]
       }
     });
-    saved.push(existing
+    const savedCost = existing
       ? await prisma.sesPartnerCost.update({ where: { id: existing.id }, data })
-      : await prisma.sesPartnerCost.create({ data })
-    );
+      : await prisma.sesPartnerCost.create({ data });
+    await writeAuditLog(prisma, {
+      user: currentUser(c),
+      targetType: "PARTNER_COST",
+      targetId: savedCost.id,
+      targetLabel: `${savedCost.period} ${savedCost.title}`,
+      action: existing ? "UPDATE" : "CREATE",
+      before: existing,
+      after: savedCost
+    });
+    saved.push(savedCost);
   }
   return c.json({ saved: saved.length });
 });
@@ -1678,10 +1741,24 @@ api.post("/ses/partner-costs/repair", async (c) => {
   });
   const plan = planPartnerCostPeriodDelete(costs, period);
   if (plan.deleteIds.length) {
+    const beforeCosts = await prisma.sesPartnerCost.findMany({
+      where: { id: { in: plan.deleteIds } }
+    });
     await prisma.sesPartnerCost.updateMany({
       where: { id: { in: plan.deleteIds } },
       data: { isActive: false }
     });
+    for (const before of beforeCosts) {
+      await writeAuditLog(prisma, {
+        user: currentUser(c),
+        targetType: "PARTNER_COST",
+        targetId: before.id,
+        targetLabel: `${before.period} ${before.title}`,
+        action: "DELETE",
+        before,
+        after: { ...before, isActive: false }
+      });
+    }
   }
   return c.json({
     scannedCount: plan.scannedCount,
@@ -1930,6 +2007,14 @@ api.post("/ses/invoices/generate", async (c) => {
       },
       include: { customer: true, contract: true, items: { orderBy: { createdAt: "asc" } } }
     });
+    await writeAuditLog(prisma, {
+      user: currentUser(c),
+      targetType: "INVOICE",
+      targetId: invoice.id,
+      targetLabel: `${invoice.period} ${invoice.invoiceNo || invoice.title}`,
+      action: "CREATE",
+      after: invoice
+    });
     return c.json(invoice, 201);
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "P2002") {
@@ -1941,7 +2026,24 @@ api.post("/ses/invoices/generate", async (c) => {
 
 api.delete("/ses/invoices/:id", async (c) => {
 
-  await prisma.sesInvoice.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
+  const before = await prisma.sesInvoice.findUniqueOrThrow({
+    where: { id: c.req.param("id") },
+    include: { customer: true, contract: true, items: { orderBy: { createdAt: "asc" } } }
+  });
+  const invoice = await prisma.sesInvoice.update({
+    where: { id: c.req.param("id") },
+    data: { isActive: false },
+    include: { customer: true, contract: true, items: { orderBy: { createdAt: "asc" } } }
+  });
+  await writeAuditLog(prisma, {
+    user: currentUser(c),
+    targetType: "INVOICE",
+    targetId: invoice.id,
+    targetLabel: `${invoice.period} ${invoice.invoiceNo || invoice.title}`,
+    action: "DELETE",
+    before,
+    after: invoice
+  });
   return c.json({ ok: true });
 });
 
@@ -2032,6 +2134,14 @@ api.post("/employees", async (c) => {
         memo: nullableText(body.memo)
       }
     });
+    await writeAuditLog(prisma, {
+      user: currentUser(c),
+      targetType: "EMPLOYEE",
+      targetId: employee.id,
+      targetLabel: `${employee.employeeNo} ${employee.name}`,
+      action: "CREATE",
+      after: employee
+    });
     return c.json(employee, 201);
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "P2002") {
@@ -2052,6 +2162,7 @@ api.put("/employees/:id", async (c) => {
   if (!name) return c.json({ message: "氏名を入力してください" }, 400);
 
   try {
+    const before = await prisma.employee.findUnique({ where: { id: c.req.param("id") } });
     const employee = await prisma.employee.update({
       where: { id: c.req.param("id") },
       data: {
@@ -2074,6 +2185,15 @@ api.put("/employees/:id", async (c) => {
         memo: nullableText(body.memo)
       }
     });
+    await writeAuditLog(prisma, {
+      user: currentUser(c),
+      targetType: "EMPLOYEE",
+      targetId: employee.id,
+      targetLabel: `${employee.employeeNo} ${employee.name}`,
+      action: "UPDATE",
+      before,
+      after: employee
+    });
     return c.json(employee);
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "P2002") {
@@ -2090,7 +2210,17 @@ api.delete("/employees/:id", async (c) => {
   const permissionDenied = await requireMenu(c, "PAYROLL_EMPLOYEES", "edit");
   if (permissionDenied) return permissionDenied;
 
-  await prisma.employee.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
+  const before = await prisma.employee.findUniqueOrThrow({ where: { id: c.req.param("id") } });
+  const employee = await prisma.employee.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
+  await writeAuditLog(prisma, {
+    user: currentUser(c),
+    targetType: "EMPLOYEE",
+    targetId: employee.id,
+    targetLabel: `${employee.employeeNo} ${employee.name}`,
+    action: "DELETE",
+    before,
+    after: employee
+  });
   return c.json({ ok: true });
 });
 
@@ -2185,6 +2315,9 @@ api.post("/bonuses", async (c) => {
     socialInsuranceBaseAmount: socialInsuranceBaseAmount ?? undefined
   });
 
+  const beforeBonus = await prisma.bonus.findUnique({
+    where: { employeeId_period: { employeeId: employee.id, period } }
+  });
   const bonus = await prisma.bonus.upsert({
     where: { employeeId_period: { employeeId: employee.id, period } },
     update: {
@@ -2222,6 +2355,15 @@ api.post("/bonuses", async (c) => {
       note: body.note || null
     },
     include: { employee: true }
+  });
+  await writeAuditLog(prisma, {
+    user: currentUser(c),
+    targetType: "BONUS",
+    targetId: bonus.id,
+    targetLabel: `${period} ${bonus.employee.name}`,
+    action: beforeBonus ? beforeBonus.isDeleted ? "RESTORE" : "UPDATE" : "CREATE",
+    before: beforeBonus,
+    after: bonus
   });
   return c.json(bonus);
 });
@@ -2263,7 +2405,17 @@ api.delete("/bonuses/:id", async (c) => {
   if (!await canEditEmployeeData(c, "BONUS_INPUT", bonus.employeeId)) {
     return c.json({ message: "\u6a29\u9650\u304c\u3042\u308a\u307e\u305b\u3093" }, 403);
   }
-  await prisma.bonus.update({ where: { id: bonus.id }, data: { isDeleted: true, deletedAt: new Date() } });
+  const before = await prisma.bonus.findUniqueOrThrow({ where: { id: bonus.id }, include: { employee: true } });
+  const deleted = await prisma.bonus.update({ where: { id: bonus.id }, data: { isDeleted: true, deletedAt: new Date() }, include: { employee: true } });
+  await writeAuditLog(prisma, {
+    user: currentUser(c),
+    targetType: "BONUS",
+    targetId: deleted.id,
+    targetLabel: `${deleted.period} ${deleted.employee.name}`,
+    action: "DELETE",
+    before,
+    after: deleted
+  });
   return c.json({ ok: true });
 });
 
@@ -2279,6 +2431,15 @@ api.post("/bonuses/:id/restore", async (c) => {
     where: { id: bonus.id },
     data: { isDeleted: false, deletedAt: null },
     include: { employee: true }
+  });
+  await writeAuditLog(prisma, {
+    user: currentUser(c),
+    targetType: "BONUS",
+    targetId: restored.id,
+    targetLabel: `${restored.period} ${restored.employee.name}`,
+    action: "RESTORE",
+    before: bonus,
+    after: restored
   });
   return c.json(restored);
 });
@@ -2503,6 +2664,9 @@ api.post("/payrolls", async (c) => {
     dormitoryFee
   });
 
+  const beforePayroll = await prisma.payroll.findUnique({
+    where: { employeeId_period: { employeeId: employee.id, period } }
+  });
   const payroll = await prisma.payroll.upsert({
     where: { employeeId_period: { employeeId: employee.id, period } },
     update: {
@@ -2557,6 +2721,15 @@ api.post("/payrolls", async (c) => {
     },
     include: { employee: true }
   });
+  await writeAuditLog(prisma, {
+    user: currentUser(c),
+    targetType: "PAYROLL",
+    targetId: payroll.id,
+    targetLabel: `${period} ${payroll.employee.name}`,
+    action: beforePayroll ? beforePayroll.isDeleted ? "RESTORE" : "UPDATE" : "CREATE",
+    before: beforePayroll,
+    after: payroll
+  });
   return c.json(payroll);
 });
 
@@ -2597,7 +2770,17 @@ api.delete("/payrolls/:id", async (c) => {
   if (!await canEditEmployeeData(c, "PAYROLL_INPUT", payroll.employeeId)) {
     return c.json({ message: "\u6a29\u9650\u304c\u3042\u308a\u307e\u305b\u3093" }, 403);
   }
-  await prisma.payroll.update({ where: { id: payroll.id }, data: { isDeleted: true, deletedAt: new Date() } });
+  const before = await prisma.payroll.findUniqueOrThrow({ where: { id: payroll.id }, include: { employee: true } });
+  const deleted = await prisma.payroll.update({ where: { id: payroll.id }, data: { isDeleted: true, deletedAt: new Date() }, include: { employee: true } });
+  await writeAuditLog(prisma, {
+    user: currentUser(c),
+    targetType: "PAYROLL",
+    targetId: deleted.id,
+    targetLabel: `${deleted.period} ${deleted.employee.name}`,
+    action: "DELETE",
+    before,
+    after: deleted
+  });
   return c.json({ ok: true });
 });
 
@@ -2613,6 +2796,15 @@ api.post("/payrolls/:id/restore", async (c) => {
     where: { id: payroll.id },
     data: { isDeleted: false, deletedAt: null },
     include: { employee: true }
+  });
+  await writeAuditLog(prisma, {
+    user: currentUser(c),
+    targetType: "PAYROLL",
+    targetId: restored.id,
+    targetLabel: `${restored.period} ${restored.employee.name}`,
+    action: "RESTORE",
+    before: payroll,
+    after: restored
   });
   return c.json(restored);
 });

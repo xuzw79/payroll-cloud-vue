@@ -31,7 +31,11 @@ type PermissionMenu =
   | "SES_MASTERS"
   | "SES_PROFIT"
   | "USERS"
-  | "PERMISSIONS";
+  | "PERMISSIONS"
+  | "AUDIT_LOGS";
+
+type AuditTargetType = "EMPLOYEE" | "PAYROLL" | "BONUS" | "INVOICE" | "PARTNER_COST";
+type AuditAction = "CREATE" | "UPDATE" | "DELETE" | "RESTORE";
 
 type Employee = {
   id: string;
@@ -160,6 +164,20 @@ type PermissionRoleMaster = {
   isActive: boolean;
 };
 
+type AuditLog = {
+  id: string;
+  actorName: string;
+  actorEmail: string;
+  targetType: AuditTargetType;
+  targetId: string;
+  targetLabel: string;
+  action: AuditAction;
+  summary: string;
+  beforeData?: unknown;
+  afterData?: unknown;
+  createdAt: string;
+};
+
 type PublicSettings = {
   systemName?: string | null;
 };
@@ -275,7 +293,8 @@ const permissionMenus: PermissionMenu[] = [
   "SES_MASTERS",
   "SES_PROFIT",
   "USERS",
-  "PERMISSIONS"
+  "PERMISSIONS",
+  "AUDIT_LOGS"
 ];
 const menuLabels: Record<PermissionMenu, string> = {
   PAYROLL: "\u7d66\u4e0e\u7ba1\u7406",
@@ -295,12 +314,13 @@ const menuLabels: Record<PermissionMenu, string> = {
   SES_MASTERS: "\u30de\u30b9\u30bf\u7ba1\u7406",
   SES_PROFIT: "\u500b\u4eba\u5225\u5229\u76ca",
   USERS: "\u30e6\u30fc\u30b6\u30fc\u7ba1\u7406",
-  PERMISSIONS: "\u6a29\u9650\u7ba1\u7406"
+  PERMISSIONS: "\u6a29\u9650\u7ba1\u7406",
+  AUDIT_LOGS: "\u76e3\u67fb\u30ed\u30b0"
 };
 const payrollPermissionMenus = permissionMenus.filter((item) => item === "PAYROLL" || item.startsWith("PAYROLL_") || ["BONUS_INPUT", "RATES", "TAX_IMPORT", "PAYSLIP", "BONUS_SLIP"].includes(item));
 const sesPermissionMenus = permissionMenus.filter((item) => (item === "SES" || item.startsWith("SES_")) && item !== "SES_MASTERS");
 const masterPermissionMenus: PermissionMenu[] = ["SES_MASTERS"];
-const adminPermissionMenus: PermissionMenu[] = ["USERS", "PERMISSIONS"];
+const adminPermissionMenus: PermissionMenu[] = ["USERS", "PERMISSIONS", "AUDIT_LOGS"];
 const payrollSubMenus: { key: PayrollSubMenu; label: string; description: string }[] = [
   { key: "payrollBonusInput", label: "給与・賞与入力", description: "月次給与、賞与、個別明細をまとめて入力・確認します。" },
   { key: "slipOutput", label: "明細出力", description: "期間指定PDF、給与CSV、賞与CSVを出力します。" },
@@ -331,7 +351,7 @@ const toastMessage = ref("");
 const confirmDialog = reactive({ visible: false, message: "" });
 const systemName = ref("給与管理クラウド");
 const me = ref<AppUser | null>(null);
-const activeMenu = ref<"payroll" | "ses" | "masters" | "users" | "permissions">("payroll");
+const activeMenu = ref<"payroll" | "ses" | "masters" | "users" | "permissions" | "auditLogs">("payroll");
 const activePayrollSubMenu = ref<PayrollSubMenu>("payrollBonusInput");
 const query = ref("");
 const period = ref(today);
@@ -346,6 +366,7 @@ const bonuses = ref<Bonus[]>([]);
 const deletedPayrolls = ref<Payroll[]>([]);
 const deletedBonuses = ref<Bonus[]>([]);
 const users = ref<AppUser[]>([]);
+const auditLogs = ref<AuditLog[]>([]);
 const permissionRoleMasters = ref<PermissionRoleMaster[]>([]);
 const rolePermissions = ref<RolePermission[]>([]);
 const userPermissions = ref<RolePermission[]>([]);
@@ -378,6 +399,14 @@ const permissionRoleForm = reactive({
   name: "",
   baseRole: "VIEWER" as UserRole,
   isActive: true
+});
+const auditLogQuery = reactive({
+  targetType: "",
+  action: "",
+  actor: "",
+  q: "",
+  from: "",
+  to: ""
 });
 const employeeForm = reactive({
   id: "",
@@ -439,6 +468,7 @@ const taxImport = reactive({
 const roleRank: Record<UserRole, number> = { EMPLOYEE: 0, VIEWER: 1, ACCOUNTING: 2, ADMIN: 3 };
 function defaultPermission(role: UserRole, menu: PermissionMenu): RolePermission {
   if (role === "ADMIN") return { role, menu, canShow: true, canView: true, canEdit: true, canViewAll: true };
+  if (menu === "AUDIT_LOGS") return { role, menu, canShow: role === "ACCOUNTING", canView: role === "ACCOUNTING", canEdit: false, canViewAll: role === "ACCOUNTING" };
   if (menu === "USERS" || menu === "PERMISSIONS") return { role, menu, canShow: false, canView: false, canEdit: false, canViewAll: false };
   if (role === "ACCOUNTING") return { role, menu, canShow: true, canView: true, canEdit: true, canViewAll: true };
   if (role === "VIEWER") return { role, menu, canShow: true, canView: true, canEdit: false, canViewAll: true };
@@ -494,6 +524,8 @@ const canEditUsers = computed(() => !!me.value && permissionFor("USERS").canEdit
 const canShowPermissions = computed(() => !!me.value && permissionFor("PERMISSIONS").canShow);
 const canViewPermissions = computed(() => !!me.value && permissionFor("PERMISSIONS").canView);
 const canEditPermissions = computed(() => !!me.value && permissionFor("PERMISSIONS").canEdit);
+const canShowAuditLogs = computed(() => !!me.value && permissionFor("AUDIT_LOGS").canShow);
+const canViewAuditLogs = computed(() => !!me.value && permissionFor("AUDIT_LOGS").canView);
 const visiblePayrollSubMenus = computed(() => payrollSubMenus.filter((menu) => canShowPayrollSubMenu(menu.key)));
 const activePayrollMenuInfo = computed(() =>
   visiblePayrollSubMenus.value.find((menu) => menu.key === activePayrollSubMenu.value)
@@ -581,6 +613,25 @@ function safeFilePart(value: string) {
 
 function periodForFile(value: string) {
   return value.replace("-", "");
+}
+
+const auditTargetLabels: Record<AuditTargetType, string> = {
+  EMPLOYEE: "社員",
+  PAYROLL: "給与",
+  BONUS: "賞与",
+  INVOICE: "請求書",
+  PARTNER_COST: "外注費"
+};
+
+const auditActionLabels: Record<AuditAction, string> = {
+  CREATE: "登録",
+  UPDATE: "更新",
+  DELETE: "削除",
+  RESTORE: "復元"
+};
+
+function formatAuditDate(value: string) {
+  return new Date(value).toLocaleString("ja-JP");
 }
 
 function resetPayrollForm(employee: Employee) {
@@ -734,6 +785,9 @@ function normalizeActiveMenu() {
   if (activeMenu.value === "permissions" && !canShowPermissions.value && canShowPayroll.value) activeMenu.value = "payroll";
   if (activeMenu.value === "permissions" && !canShowPermissions.value && !canShowPayroll.value && canShowSes.value) activeMenu.value = "ses";
   if (activeMenu.value === "permissions" && !canShowPermissions.value && !canShowPayroll.value && !canShowSes.value && canShowMasters.value) activeMenu.value = "masters";
+  if (activeMenu.value === "auditLogs" && !canShowAuditLogs.value && canShowPayroll.value) activeMenu.value = "payroll";
+  if (activeMenu.value === "auditLogs" && !canShowAuditLogs.value && !canShowPayroll.value && canShowSes.value) activeMenu.value = "ses";
+  if (activeMenu.value === "auditLogs" && !canShowAuditLogs.value && !canShowPayroll.value && !canShowSes.value && canShowMasters.value) activeMenu.value = "masters";
 }
 
 async function refreshRolePermissions() {
@@ -1059,6 +1113,20 @@ async function refresh() {
   } finally {
     loading.value = false;
   }
+}
+
+async function refreshAuditLogs() {
+  if (!canViewAuditLogs.value) return;
+  const params = new URLSearchParams();
+  Object.entries(auditLogQuery).forEach(([key, value]) => {
+    if (value) params.set(key, String(value));
+  });
+  auditLogs.value = await request<AuditLog[]>(`/audit-logs?${params.toString()}`);
+}
+
+async function refreshCurrentMenu() {
+  if (activeMenu.value === "auditLogs") return refreshAuditLogs();
+  return refresh();
 }
 
 async function saveRate() {
@@ -1523,6 +1591,7 @@ function sectionHeadClass(id: string) {
 
 watch(activeMenu, () => {
   clearMessages();
+  if (loggedIn.value && activeMenu.value === "auditLogs") void refreshAuditLogs();
 });
 
 watch(visiblePayrollSubMenus, (menus) => {
@@ -1576,7 +1645,7 @@ onMounted(async () => {
         </div>
       </div>
       <div class="actions">
-        <button @click="refresh"><RefreshCw :size="16" />更新</button>
+        <button @click="refreshCurrentMenu"><RefreshCw :size="16" />更新</button>
         <button v-if="canViewAllMenu('PAYSLIP')" @click="exportCsv"><Download :size="16" />CSV出力</button>
         <button v-if="canViewAllMenu('BONUS_SLIP')" @click="exportBonusCsv"><Download :size="16" />賞与CSV出力</button>
         <button @click="logout"><LogOut :size="16" />ログアウト</button>
@@ -1589,6 +1658,7 @@ onMounted(async () => {
       <button v-if="canShowMasters" :class="{ active: activeMenu === 'masters' }" @click="activeMenu = 'masters'">マスタ管理</button>
       <button v-if="canShowUsers" :class="{ active: activeMenu === 'users' }" @click="activeMenu = 'users'">ユーザー管理</button>
       <button v-if="canShowPermissions" :class="{ active: activeMenu === 'permissions' }" @click="activeMenu = 'permissions'">権限管理</button>
+      <button v-if="canShowAuditLogs" :class="{ active: activeMenu === 'auditLogs' }" @click="activeMenu = 'auditLogs'">監査ログ</button>
     </nav>
 
     <div v-if="activeMenu !== 'payroll' && message" class="message operation-message">{{ message }}</div>
@@ -1957,6 +2027,40 @@ onMounted(async () => {
         <div v-else-if="showIndividualSlips && canShowMenu('BONUS_SLIP')" v-show="!collapsedSections.bonusSlip" class="empty">この社員の賞与はまだ保存されていません。</div>
       </section>
     </div>
+
+    <section v-if="activeMenu === 'auditLogs' && canViewAuditLogs" class="panel">
+      <div class="panel-head" :class="sectionHeadClass('auditLogs')" @click="toggleSection('auditLogs')">
+        <h2>監査ログ</h2>
+      </div>
+      <div v-show="!collapsedSections.auditLogs" class="audit-log-panel">
+        <div class="filter-row audit-search">
+          <label>対象<select v-model="auditLogQuery.targetType"><option value="">すべて</option><option value="EMPLOYEE">社員</option><option value="PAYROLL">給与</option><option value="BONUS">賞与</option><option value="INVOICE">請求書</option><option value="PARTNER_COST">外注費</option></select></label>
+          <label>操作<select v-model="auditLogQuery.action"><option value="">すべて</option><option value="CREATE">登録</option><option value="UPDATE">更新</option><option value="DELETE">削除</option><option value="RESTORE">復元</option></select></label>
+          <label>操作者<input v-model="auditLogQuery.actor" placeholder="氏名・メール" @keyup.enter="refreshAuditLogs" /></label>
+          <label>開始日<input v-model="auditLogQuery.from" type="date" /></label>
+          <label>終了日<input v-model="auditLogQuery.to" type="date" /></label>
+          <label class="wide">キーワード<input v-model="auditLogQuery.q" placeholder="対象名・概要・ID" @keyup.enter="refreshAuditLogs" /></label>
+          <button class="primary" @click="refreshAuditLogs"><Search :size="16" />検索</button>
+        </div>
+        <div class="audit-log-table">
+          <div class="audit-log-head">
+            <span>日時</span>
+            <span>操作者</span>
+            <span>対象</span>
+            <span>操作</span>
+            <span>概要</span>
+          </div>
+          <div v-for="log in auditLogs" :key="log.id" class="audit-log-row">
+            <span>{{ formatAuditDate(log.createdAt) }}</span>
+            <span>{{ log.actorName }}<small>{{ log.actorEmail }}</small></span>
+            <span>{{ auditTargetLabels[log.targetType] }}<small>{{ log.targetLabel }}</small></span>
+            <span>{{ auditActionLabels[log.action] }}</span>
+            <span>{{ log.summary }}</span>
+          </div>
+          <div v-if="!auditLogs.length" class="empty">監査ログがありません。</div>
+        </div>
+      </div>
+    </section>
 
     <section v-if="activeMenu === 'users' && canViewUsers" class="panel">
       <div class="panel-head" :class="sectionHeadClass('usersMenu')" @click="toggleSection('usersMenu')">
