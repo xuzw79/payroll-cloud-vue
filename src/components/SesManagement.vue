@@ -5,7 +5,7 @@ import { previousYearMonth, tokyoCurrentYearMonth, tokyoTodayIso } from "../serv
 import { invoiceFileName } from "../server/invoiceFormat";
 import { activePartnerCostRows, partnerCostDefaultAmount as resolvePartnerCostDefaultAmount } from "../server/partnerCostRules";
 import { filterActiveMembersForPeriod } from "../server/sesPeriod";
-import { refreshKeysForSesSubMenu, type SesRefreshKey } from "../server/sesRefreshPlan";
+import { refreshKeysForSesSubMenu, shouldContinueSesRefreshAfterCompanySettingError, type SesRefreshKey } from "../server/sesRefreshPlan";
 
 type SesSubMenu = "customers" | "projects" | "invoices" | "masters" | "numberSettings" | "revenue" | "partnerCosts" | "profit";
 type PermissionMenu = "SES_CUSTOMERS" | "SES_PROJECTS" | "SES_INVOICES" | "SES_PARTNER_COSTS" | "SES_REVENUE" | "SES_MASTERS" | "SES_PROFIT";
@@ -820,7 +820,14 @@ async function refreshActiveSubMenu() {
 }
 
 async function refreshAll() {
-  await refreshCompanySetting();
+  try {
+    await refreshCompanySetting();
+  } catch (error) {
+    if (!shouldContinueSesRefreshAfterCompanySettingError(props.mode)) {
+      showError(error, "会社設定を取得できませんでした");
+      return;
+    }
+  }
   if (props.mode === "masters") return;
   await refreshActiveSubMenu();
 }

@@ -10,3 +10,7 @@ export function refreshKeysForSesSubMenu(menu: SesSubMenuKey): SesRefreshKey[] {
   if (menu === "profit") return ["revenues"];
   return [];
 }
+
+export function shouldContinueSesRefreshAfterCompanySettingError(mode: "ses" | "masters") {
+  return mode === "ses";
+}

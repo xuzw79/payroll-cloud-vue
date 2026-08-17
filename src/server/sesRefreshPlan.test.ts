@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { refreshKeysForSesSubMenu } from "./sesRefreshPlan.js";
+import { refreshKeysForSesSubMenu, shouldContinueSesRefreshAfterCompanySettingError } from "./sesRefreshPlan.js";
 
 assert.deepEqual(refreshKeysForSesSubMenu("customers"), ["customers"]);
 assert.deepEqual(refreshKeysForSesSubMenu("projects"), ["customers", "contracts", "masterData"]);
@@ -9,5 +9,8 @@ assert.deepEqual(refreshKeysForSesSubMenu("revenue"), ["customers", "contracts",
 assert.deepEqual(refreshKeysForSesSubMenu("profit"), ["revenues"]);
 assert.deepEqual(refreshKeysForSesSubMenu("masters"), []);
 assert.deepEqual(refreshKeysForSesSubMenu("numberSettings"), []);
+
+assert.equal(shouldContinueSesRefreshAfterCompanySettingError("ses"), true);
+assert.equal(shouldContinueSesRefreshAfterCompanySettingError("masters"), false);
 
 console.log("sesRefreshPlan tests passed");
