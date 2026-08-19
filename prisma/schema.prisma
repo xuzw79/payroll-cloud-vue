@@ -39,6 +39,7 @@ enum PermissionMenu {
   USERS
   PERMISSIONS
   AUDIT_LOGS
+  MONTHLY_CHECK
 }
 
 enum AuditTargetType {
@@ -477,6 +478,7 @@ model SesInvoice {
   taxAmount       Int      @default(0)
   totalAmount     Int      @default(0)
   note            String?
+  pdfDownloadedAt DateTime?
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -489,6 +491,21 @@ model SesInvoice {
   @@index([period])
   @@index([contractId, period])
   @@index([isActive])
+}
+
+model MonthlyCheckConfirmation {
+  id                String   @id @default(cuid())
+  period            String
+  checkKey          String
+  confirmedByUserId String?
+  confirmedByName   String?
+  confirmedAt       DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([period, checkKey])
+  @@index([period])
+  @@index([checkKey])
 }
 
 model SesInvoiceItem {

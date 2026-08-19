@@ -1048,6 +1048,91 @@ p {
   margin-top: 2px;
 }
 
+.monthly-check-panel {
+  margin-bottom: 14px;
+}
+
+.monthly-check-body {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+.monthly-check-search {
+  grid-template-columns: minmax(240px, 320px) auto;
+}
+
+.monthly-check-summary {
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  margin-bottom: 0;
+}
+
+.monthly-check-list {
+  display: grid;
+  gap: 8px;
+}
+
+.monthly-check-item {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #c7d0df;
+  background: #fff;
+}
+
+.monthly-check-item.ng {
+  border-color: #d9a3a8;
+  background: #fffafa;
+}
+
+.monthly-check-item-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.monthly-check-item-head div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.monthly-check-item-head small {
+  color: #586579;
+}
+
+.monthly-check-status {
+  min-width: 74px;
+  padding: 3px 8px;
+  border: 1px solid #7fb083;
+  background: #eef8ef;
+  color: #1c7c2b;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.monthly-check-status.ng {
+  border-color: #e0a1a8;
+  background: #fff1f2;
+  color: #d92333;
+}
+
+.monthly-check-details {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding-left: 18px;
+  color: #344054;
+}
+
+.monthly-check-details li {
+  overflow-wrap: anywhere;
+}
+
 .bonus-schedule {
   display: grid;
   gap: 6px;

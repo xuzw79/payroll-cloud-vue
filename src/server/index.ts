@@ -21,6 +21,7 @@ import {
 } from "./documentNumber.js";
 import { createInvoicePdf } from "./invoicePdf.js";
 import { invoiceFileName, timeAdjustmentDescription } from "./invoiceFormat.js";
+import { buildMonthlyChecklist, individualRevenueExpenseCheckKey } from "./monthlyChecklist.js";
 import { createPayslipPdf } from "./pdf.js";
 import { calculateBonus, calculatePayroll } from "./payroll.js";
 import {
@@ -61,7 +62,8 @@ const permissionMenus: PermissionMenu[] = [
   "SES_PROFIT",
   "USERS",
   "PERMISSIONS",
-  "AUDIT_LOGS"
+  "AUDIT_LOGS",
+  "MONTHLY_CHECK"
 ];
 
 const payrollMenus = new Set<PermissionMenu>(["PAYROLL", "PAYROLL_EMPLOYEES", "PAYROLL_INPUT", "BONUS_INPUT", "RATES", "TAX_IMPORT", "PAYSLIP", "BONUS_SLIP"]);
@@ -70,6 +72,7 @@ const sesMenus = new Set<PermissionMenu>(["SES", "SES_CUSTOMERS", "SES_PROJECTS"
 function defaultRolePermission(role: UserRole, menu: PermissionMenu) {
   if (role === "ADMIN") return { role, menu, canShow: true, canView: true, canEdit: true, canViewAll: true };
   if (menu === "AUDIT_LOGS") return { role, menu, canShow: role === "ACCOUNTING", canView: role === "ACCOUNTING", canEdit: false, canViewAll: role === "ACCOUNTING" };
+  if (menu === "MONTHLY_CHECK") return { role, menu, canShow: role === "ACCOUNTING" || role === "VIEWER", canView: role === "ACCOUNTING" || role === "VIEWER", canEdit: role === "ACCOUNTING", canViewAll: role === "ACCOUNTING" || role === "VIEWER" };
   if (menu === "USERS" || menu === "PERMISSIONS") return { role, menu, canShow: false, canView: false, canEdit: false, canViewAll: false };
   if (role === "ACCOUNTING") return { role, menu, canShow: true, canView: true, canEdit: true, canViewAll: true };
   if (role === "VIEWER") return { role, menu, canShow: true, canView: true, canEdit: false, canViewAll: true };
@@ -846,6 +849,124 @@ api.get("/audit-logs", async (c) => {
     take: 300
   });
   return c.json(logs);
+});
+
+api.get("/monthly-checklist", async (c) => {
+  const permissionDenied = await requireMenu(c, "MONTHLY_CHECK", "view");
+  if (permissionDenied) return permissionDenied;
+
+  const period = c.req.query("period") || previousYearMonthServer();
+  if (!isPeriod(period)) return c.json({ message: "\u5bfe\u8c61\u6708\u3092\u6307\u5b9a\u3057\u3066\u304f\u3060\u3055\u3044" }, 400);
+  const periodStart = `${period}-01`;
+  const periodEnd = `${period}-31`;
+  const activeContractWhere = {
+    isActive: true,
+    OR: [{ startDate: null }, { startDate: { lte: periodEnd } }],
+    AND: [{ OR: [{ endDate: null }, { endDate: { gte: periodStart } }] }]
+  } satisfies Prisma.SesContractWhereInput;
+
+  const [
+    employees,
+    payrolls,
+    bonuses,
+    salesContracts,
+    purchaseContracts,
+    invoices,
+    partnerCosts,
+    confirmations,
+    revenues,
+    expenses
+  ] = await Promise.all([
+    prisma.employee.findMany({
+      where: { isActive: true },
+      orderBy: [{ employeeNo: "asc" }]
+    }),
+    prisma.payroll.findMany({
+      where: { isDeleted: false, period },
+      select: { employeeId: true }
+    }),
+    prisma.bonus.findMany({
+      where: { isDeleted: false, period },
+      select: { employeeId: true }
+    }),
+    prisma.sesContract.findMany({
+      where: { ...activeContractWhere, contractType: "SALES" },
+      include: {
+        customer: true,
+        members: { include: { employee: true, externalMember: { include: { customer: true } } }, orderBy: { createdAt: "asc" } }
+      },
+      orderBy: [{ updatedAt: "desc" }]
+    }),
+    prisma.sesContract.findMany({
+      where: { ...activeContractWhere, contractType: "PURCHASE" },
+      include: {
+        customer: true,
+        members: { include: { employee: true, externalMember: { include: { customer: true } } }, orderBy: { createdAt: "asc" } }
+      },
+      orderBy: [{ updatedAt: "desc" }]
+    }),
+    prisma.sesInvoice.findMany({
+      where: { isActive: true, period },
+      include: { customer: true, contract: true },
+      orderBy: [{ updatedAt: "desc" }]
+    }),
+    prisma.sesPartnerCost.findMany({
+      where: { isActive: true, period },
+      include: { contractMember: true },
+      orderBy: [{ updatedAt: "desc" }]
+    }),
+    prisma.monthlyCheckConfirmation.findMany({ where: { period } }),
+    prisma.sesRevenue.findMany({ where: { isActive: true, period }, select: { id: true } }),
+    prisma.sesExpense.findMany({ where: { isActive: true, period }, select: { id: true } })
+  ]);
+
+  const activePartnerCostMemberIds = new Set(purchaseContracts.flatMap((contract) =>
+    contract.members.filter((member) => memberActiveInPeriod(member, period)).map((member) => member.id)
+  ));
+  const activePartnerCosts = filterActivePartnerCostsForOwnPeriod(partnerCosts)
+    .filter((cost) => cost.contractMemberId && activePartnerCostMemberIds.has(cost.contractMemberId));
+
+  return c.json(buildMonthlyChecklist({
+    period,
+    employees,
+    payrolls,
+    bonuses,
+    salesContracts,
+    purchaseContracts,
+    invoices,
+    partnerCosts: activePartnerCosts,
+    confirmations,
+    revenues,
+    expenses
+  }));
+});
+
+api.post("/monthly-checklist/confirm", async (c) => {
+  const permissionDenied = await requireMenu(c, "MONTHLY_CHECK", "edit");
+  if (permissionDenied) return permissionDenied;
+
+  const body = await c.req.json().catch(() => ({}));
+  const period = String(body.period || "");
+  const checkKey = String(body.checkKey || "");
+  if (!isPeriod(period)) return c.json({ message: "\u5bfe\u8c61\u6708\u3092\u6307\u5b9a\u3057\u3066\u304f\u3060\u3055\u3044" }, 400);
+  if (checkKey !== individualRevenueExpenseCheckKey) return c.json({ message: "\u78ba\u8a8d\u5bfe\u8c61\u304c\u4e0d\u6b63\u3067\u3059" }, 400);
+
+  const user = currentUser(c);
+  const confirmation = await prisma.monthlyCheckConfirmation.upsert({
+    where: { period_checkKey: { period, checkKey } },
+    update: {
+      confirmedByUserId: user.id,
+      confirmedByName: user.name,
+      confirmedAt: new Date()
+    },
+    create: {
+      period,
+      checkKey,
+      confirmedByUserId: user.id,
+      confirmedByName: user.name
+    }
+  });
+  return c.json(confirmation);
 });
 
 api.get("/settings", async (c) => {
@@ -2094,6 +2215,10 @@ api.get("/ses/invoices/:id/pdf", async (c) => {
   });
   const fileName = invoiceFileName(invoice.customer.name, invoice.period);
   const fallbackFileName = `invoice-${periodForFile(invoice.period)}-${safeFilePart(invoice.customer.id)}.pdf`;
+  await prisma.sesInvoice.update({
+    where: { id: invoice.id },
+    data: { pdfDownloadedAt: new Date() }
+  });
   return new Response(new Uint8Array(pdf), {
     headers: {
       "Content-Type": "application/pdf",

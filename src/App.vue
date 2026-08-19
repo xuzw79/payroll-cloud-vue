@@ -33,7 +33,8 @@ type PermissionMenu =
   | "SES_PROFIT"
   | "USERS"
   | "PERMISSIONS"
-  | "AUDIT_LOGS";
+  | "AUDIT_LOGS"
+  | "MONTHLY_CHECK";
 
 type AuditTargetType = "EMPLOYEE" | "PAYROLL" | "BONUS" | "INVOICE" | "PARTNER_COST";
 type AuditAction = "CREATE" | "UPDATE" | "DELETE" | "RESTORE";
@@ -180,6 +181,24 @@ type AuditLog = {
   createdAt: string;
 };
 
+type MonthlyChecklistItem = {
+  key: string;
+  label: string;
+  status: "OK" | "NG";
+  count: number;
+  details: string[];
+  confirmable?: boolean;
+  confirmedAt?: string | null;
+  confirmedByName?: string | null;
+};
+
+type MonthlyChecklistResponse = {
+  period: string;
+  okCount: number;
+  ngCount: number;
+  items: MonthlyChecklistItem[];
+};
+
 type PublicSettings = {
   systemName?: string | null;
 };
@@ -234,6 +253,11 @@ function tokyoDateParts() {
 function currentTokyoPeriod() {
   const { year, month } = tokyoDateParts();
   return formatYearMonth(year, month);
+}
+
+function previousTokyoPeriod() {
+  const { year, month } = tokyoDateParts();
+  return month === 1 ? formatYearMonth(year - 1, 12) : formatYearMonth(year, month - 1);
 }
 
 function initialPayrollPeriod() {
@@ -296,7 +320,8 @@ const permissionMenus: PermissionMenu[] = [
   "SES_PROFIT",
   "USERS",
   "PERMISSIONS",
-  "AUDIT_LOGS"
+  "AUDIT_LOGS",
+  "MONTHLY_CHECK"
 ];
 const menuLabels: Record<PermissionMenu, string> = {
   PAYROLL: "\u7d66\u4e0e\u7ba1\u7406",
@@ -317,12 +342,13 @@ const menuLabels: Record<PermissionMenu, string> = {
   SES_PROFIT: "\u500b\u4eba\u5225\u5229\u76ca",
   USERS: "\u30e6\u30fc\u30b6\u30fc\u7ba1\u7406",
   PERMISSIONS: "\u6a29\u9650\u7ba1\u7406",
-  AUDIT_LOGS: "\u76e3\u67fb\u30ed\u30b0"
+  AUDIT_LOGS: "\u76e3\u67fb\u30ed\u30b0",
+  MONTHLY_CHECK: "\u6708\u6b21\u30c1\u30a7\u30c3\u30af"
 };
 const payrollPermissionMenus = permissionMenus.filter((item) => item === "PAYROLL" || item.startsWith("PAYROLL_") || ["BONUS_INPUT", "RATES", "TAX_IMPORT", "PAYSLIP", "BONUS_SLIP"].includes(item));
 const sesPermissionMenus = permissionMenus.filter((item) => (item === "SES" || item.startsWith("SES_")) && item !== "SES_MASTERS");
 const masterPermissionMenus: PermissionMenu[] = ["SES_MASTERS"];
-const adminPermissionMenus: PermissionMenu[] = ["USERS", "PERMISSIONS", "AUDIT_LOGS"];
+const adminPermissionMenus: PermissionMenu[] = ["MONTHLY_CHECK", "USERS", "PERMISSIONS", "AUDIT_LOGS"];
 const payrollSubMenus: { key: PayrollSubMenu; label: string; description: string }[] = [
   { key: "payrollBonusInput", label: "給与・賞与入力", description: "月次給与、賞与、個別明細をまとめて入力・確認します。" },
   { key: "slipOutput", label: "明細出力", description: "期間指定PDF、給与CSV、賞与CSVを出力します。" },
@@ -353,7 +379,7 @@ const toastMessage = ref("");
 const confirmDialog = reactive({ visible: false, message: "" });
 const systemName = ref("給与管理クラウド");
 const me = ref<AppUser | null>(null);
-const activeMenu = ref<"payroll" | "ses" | "masters" | "users" | "permissions" | "auditLogs">("payroll");
+const activeMenu = ref<"payroll" | "ses" | "monthlyCheck" | "masters" | "users" | "permissions" | "auditLogs">("payroll");
 const activePayrollSubMenu = ref<PayrollSubMenu>("payrollBonusInput");
 const query = ref("");
 const period = ref(today);
@@ -369,6 +395,8 @@ const deletedPayrolls = ref<Payroll[]>([]);
 const deletedBonuses = ref<Bonus[]>([]);
 const users = ref<AppUser[]>([]);
 const auditLogs = ref<AuditLog[]>([]);
+const monthlyChecklist = ref<MonthlyChecklistResponse | null>(null);
+const monthlyCheckPeriod = ref(previousTokyoPeriod());
 const permissionRoleMasters = ref<PermissionRoleMaster[]>([]);
 const rolePermissions = ref<RolePermission[]>([]);
 const userPermissions = ref<RolePermission[]>([]);
@@ -471,6 +499,7 @@ const roleRank: Record<UserRole, number> = { EMPLOYEE: 0, VIEWER: 1, ACCOUNTING:
 function defaultPermission(role: UserRole, menu: PermissionMenu): RolePermission {
   if (role === "ADMIN") return { role, menu, canShow: true, canView: true, canEdit: true, canViewAll: true };
   if (menu === "AUDIT_LOGS") return { role, menu, canShow: role === "ACCOUNTING", canView: role === "ACCOUNTING", canEdit: false, canViewAll: role === "ACCOUNTING" };
+  if (menu === "MONTHLY_CHECK") return { role, menu, canShow: role === "ACCOUNTING" || role === "VIEWER", canView: role === "ACCOUNTING" || role === "VIEWER", canEdit: role === "ACCOUNTING", canViewAll: role === "ACCOUNTING" || role === "VIEWER" };
   if (menu === "USERS" || menu === "PERMISSIONS") return { role, menu, canShow: false, canView: false, canEdit: false, canViewAll: false };
   if (role === "ACCOUNTING") return { role, menu, canShow: true, canView: true, canEdit: true, canViewAll: true };
   if (role === "VIEWER") return { role, menu, canShow: true, canView: true, canEdit: false, canViewAll: true };
@@ -517,6 +546,9 @@ const canViewAllSlipOutput = computed(() => canViewAllMenu("PAYSLIP") || canView
 const canShowSes = computed(() => !!me.value && permissionFor("SES").canShow);
 const canViewSes = computed(() => !!me.value && permissionFor("SES").canView);
 const canEditSes = computed(() => !!me.value && permissionFor("SES").canEdit);
+const canShowMonthlyCheck = computed(() => !!me.value && permissionFor("MONTHLY_CHECK").canShow);
+const canViewMonthlyCheck = computed(() => !!me.value && permissionFor("MONTHLY_CHECK").canView);
+const canEditMonthlyCheck = computed(() => !!me.value && permissionFor("MONTHLY_CHECK").canEdit);
 const canShowMasters = computed(() => !!me.value && permissionFor("SES_MASTERS").canShow);
 const canViewMasters = computed(() => !!me.value && permissionFor("SES_MASTERS").canView);
 const canEditMasters = computed(() => !!me.value && permissionFor("SES_MASTERS").canEdit);
@@ -780,9 +812,14 @@ function syncPayrollParentPermission(rowForMenu: (menu: PermissionMenu) => RoleP
 
 function normalizeActiveMenu() {
   if (activeMenu.value === "payroll" && !canShowPayroll.value && canShowSes.value) activeMenu.value = "ses";
+  if (activeMenu.value === "payroll" && !canShowPayroll.value && !canShowSes.value && canShowMonthlyCheck.value) activeMenu.value = "monthlyCheck";
   if (activeMenu.value === "payroll" && !canShowPayroll.value && !canShowSes.value && canShowMasters.value) activeMenu.value = "masters";
   if (activeMenu.value === "ses" && !canShowSes.value && canShowPayroll.value) activeMenu.value = "payroll";
+  if (activeMenu.value === "ses" && !canShowSes.value && !canShowPayroll.value && canShowMonthlyCheck.value) activeMenu.value = "monthlyCheck";
   if (activeMenu.value === "ses" && !canShowSes.value && !canShowPayroll.value && canShowMasters.value) activeMenu.value = "masters";
+  if (activeMenu.value === "monthlyCheck" && !canShowMonthlyCheck.value && canShowPayroll.value) activeMenu.value = "payroll";
+  if (activeMenu.value === "monthlyCheck" && !canShowMonthlyCheck.value && !canShowPayroll.value && canShowSes.value) activeMenu.value = "ses";
+  if (activeMenu.value === "monthlyCheck" && !canShowMonthlyCheck.value && !canShowPayroll.value && !canShowSes.value && canShowMasters.value) activeMenu.value = "masters";
   if (activeMenu.value === "masters" && !canShowMasters.value && canShowPayroll.value) activeMenu.value = "payroll";
   if (activeMenu.value === "masters" && !canShowMasters.value && !canShowPayroll.value && canShowSes.value) activeMenu.value = "ses";
   if (activeMenu.value === "users" && !canShowUsers.value && canShowPayroll.value) activeMenu.value = "payroll";
@@ -793,6 +830,7 @@ function normalizeActiveMenu() {
   if (activeMenu.value === "permissions" && !canShowPermissions.value && !canShowPayroll.value && !canShowSes.value && canShowMasters.value) activeMenu.value = "masters";
   if (activeMenu.value === "auditLogs" && !canShowAuditLogs.value && canShowPayroll.value) activeMenu.value = "payroll";
   if (activeMenu.value === "auditLogs" && !canShowAuditLogs.value && !canShowPayroll.value && canShowSes.value) activeMenu.value = "ses";
+  if (activeMenu.value === "auditLogs" && !canShowAuditLogs.value && !canShowPayroll.value && !canShowSes.value && canShowMonthlyCheck.value) activeMenu.value = "monthlyCheck";
   if (activeMenu.value === "auditLogs" && !canShowAuditLogs.value && !canShowPayroll.value && !canShowSes.value && canShowMasters.value) activeMenu.value = "masters";
 }
 
@@ -1130,8 +1168,24 @@ async function refreshAuditLogs() {
   auditLogs.value = await request<AuditLog[]>(`/audit-logs?${params.toString()}`);
 }
 
+async function refreshMonthlyChecklist() {
+  if (!canViewMonthlyCheck.value) return;
+  monthlyChecklist.value = await request<MonthlyChecklistResponse>(`/monthly-checklist?period=${encodeURIComponent(monthlyCheckPeriod.value)}`);
+}
+
+async function confirmMonthlyChecklist(item: MonthlyChecklistItem) {
+  if (!canEditMonthlyCheck.value || !item.confirmable) return;
+  await request("/monthly-checklist/confirm", {
+    method: "POST",
+    body: JSON.stringify({ period: monthlyCheckPeriod.value, checkKey: item.key })
+  });
+  showSuccess("月次チェックを確認済みにしました");
+  await refreshMonthlyChecklist();
+}
+
 async function refreshCurrentMenu() {
   if (activeMenu.value === "auditLogs") return refreshAuditLogs();
+  if (activeMenu.value === "monthlyCheck") return refreshMonthlyChecklist();
   return refresh();
 }
 
@@ -1613,6 +1667,7 @@ function sectionHeadClass(id: string) {
 watch(activeMenu, () => {
   clearMessages();
   if (loggedIn.value && activeMenu.value === "auditLogs") void refreshAuditLogs();
+  if (loggedIn.value && activeMenu.value === "monthlyCheck") void refreshMonthlyChecklist();
 });
 
 watch(visiblePayrollSubMenus, (menus) => {
@@ -1676,6 +1731,7 @@ onMounted(async () => {
     <nav class="main-menu">
       <button v-if="canShowPayroll" :class="{ active: activeMenu === 'payroll' }" @click="activeMenu = 'payroll'">給与管理</button>
       <button v-if="canShowSes" :class="{ active: activeMenu === 'ses' }" @click="activeMenu = 'ses'">SES管理</button>
+      <button v-if="canShowMonthlyCheck" :class="{ active: activeMenu === 'monthlyCheck' }" @click="activeMenu = 'monthlyCheck'">月次チェック</button>
       <button v-if="canShowMasters" :class="{ active: activeMenu === 'masters' }" @click="activeMenu = 'masters'">マスタ管理</button>
       <button v-if="canShowUsers" :class="{ active: activeMenu === 'users' }" @click="activeMenu = 'users'">ユーザー管理</button>
       <button v-if="canShowPermissions" :class="{ active: activeMenu === 'permissions' }" @click="activeMenu = 'permissions'">権限管理</button>
@@ -2076,6 +2132,47 @@ onMounted(async () => {
         <div v-else-if="showIndividualSlips && canShowMenu('BONUS_SLIP')" v-show="!collapsedSections.bonusSlip" class="empty">この社員の賞与はまだ保存されていません。</div>
       </section>
     </div>
+
+    <section v-if="activeMenu === 'monthlyCheck' && canViewMonthlyCheck" class="panel monthly-check-panel">
+      <div class="panel-head" :class="sectionHeadClass('monthlyCheck')" @click="toggleSection('monthlyCheck')">
+        <h2>月次チェック</h2>
+      </div>
+      <div v-show="!collapsedSections.monthlyCheck" class="monthly-check-body">
+        <div class="filter-row monthly-check-search">
+          <label>対象月<input v-model="monthlyCheckPeriod" type="month" @change="refreshMonthlyChecklist" /></label>
+          <button class="primary" @click="refreshMonthlyChecklist"><Search :size="16" />検索</button>
+        </div>
+        <div v-if="monthlyChecklist" class="summary monthly-check-summary">
+          <div><span>対象月</span><strong>{{ monthlyChecklist.period }}</strong></div>
+          <div><span>OK</span><strong>{{ monthlyChecklist.okCount }}件</strong></div>
+          <div><span>未対応</span><strong>{{ monthlyChecklist.ngCount }}件</strong></div>
+        </div>
+        <div v-if="monthlyChecklist" class="monthly-check-list">
+          <article
+            v-for="item in monthlyChecklist.items"
+            :key="item.key"
+            class="monthly-check-item"
+            :class="{ ng: item.status === 'NG' }"
+          >
+            <div class="monthly-check-item-head">
+              <div>
+                <strong>{{ item.label }}</strong>
+                <span>{{ item.count }}件</span>
+                <small v-if="item.confirmedAt">確認済み: {{ item.confirmedByName || "" }} / {{ new Date(item.confirmedAt).toLocaleString("ja-JP") }}</small>
+              </div>
+              <span :class="['monthly-check-status', item.status === 'OK' ? 'ok' : 'ng']">{{ item.status === "OK" ? "OK" : "未対応" }}</span>
+            </div>
+            <ul v-if="item.details.length" class="monthly-check-details">
+              <li v-for="detail in item.details" :key="detail">{{ detail }}</li>
+            </ul>
+            <div v-if="item.confirmable && canEditMonthlyCheck" class="form-actions">
+              <button class="primary" @click="confirmMonthlyChecklist(item)"><Save :size="16" />確認済みにする</button>
+            </div>
+          </article>
+        </div>
+        <div v-else class="empty">対象月を検索してください。</div>
+      </div>
+    </section>
 
     <section v-if="activeMenu === 'auditLogs' && canViewAuditLogs" class="panel">
       <div class="panel-head" :class="sectionHeadClass('auditLogs')" @click="toggleSection('auditLogs')">
