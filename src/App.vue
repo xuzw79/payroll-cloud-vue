@@ -10,6 +10,7 @@ import {
   payrollLockMessage as resolvePayrollLockMessage,
   type PayrollPeriodSettings
 } from "./server/payrollPeriod";
+import { inactiveEmployeeRecords, type InactiveEmployeeRecord } from "./server/inactiveEmployeeRecords";
 
 type PayType = "MONTHLY" | "HOURLY";
 type UserRole = "ADMIN" | "ACCOUNTING" | "VIEWER" | "EMPLOYEE";
@@ -56,6 +57,7 @@ type Employee = {
   bonusEnabled: boolean;
   bonusSchedules?: BonusSchedule[] | null;
   memo?: string | null;
+  isActive?: boolean;
 };
 
 type BonusSchedule = {
@@ -553,6 +555,10 @@ const canViewAllForActivePayrollSubMenu = computed(() => {
 const selectedEmployee = computed(() => employees.value.find((employee) => employee.id === selectedEmployeeId.value));
 const selectedPayroll = computed(() => payrolls.value.find((payroll) => payroll.employeeId === selectedEmployeeId.value));
 const selectedBonus = computed(() => bonuses.value.find((bonus) => bonus.employeeId === selectedEmployeeId.value));
+const inactiveEmployeeRecordRows = computed<InactiveEmployeeRecord[]>(() => inactiveEmployeeRecords({
+  payrolls: payrolls.value,
+  bonuses: bonuses.value
+}));
 function payrollForEmployee(employeeId: string) {
   return payrolls.value.find((payroll) => payroll.employeeId === employeeId);
 }
@@ -1398,6 +1404,21 @@ async function restoreBonus(bonus: Bonus) {
   }
 }
 
+async function deleteInactiveEmployeeRecord(row: InactiveEmployeeRecord) {
+  const label = row.kind === "payroll" ? "給与" : "賞与";
+  if (row.kind === "payroll" && !canEditPayrollInput.value) return;
+  if (row.kind === "bonus" && !canEditBonusInput.value) return;
+  if (!(await confirmAction(`${row.employeeName}さんの${row.period}の${label}を削除します。よろしいですか？`))) return;
+  try {
+    const path = row.kind === "payroll" ? `/payrolls/${row.id}` : `/bonuses/${row.id}`;
+    await request(path, { method: "DELETE" });
+    showSuccess(`${label}を削除しました`);
+    await refresh();
+  } catch (error) {
+    showErrorMessage(error instanceof Error ? error.message : `${label}を削除できませんでした`);
+  }
+}
+
 async function usePreviousPayrollInput() {
   if (!canEditPayrollInput.value) return;
   const currentEmployeeId = employeeForm.id || selectedEmployeeId.value;
@@ -1885,6 +1906,34 @@ onMounted(async () => {
             <button v-if="isPayrollLocked && canForceUpdateLockedPayroll" class="warning" @click="saveBonus(true)"><Save :size="16" />賞与を強制変更して保存</button>
             <button v-if="selectedBonus" type="button" @click="deleteSelectedBonus"><Trash2 :size="16" />賞与削除</button>
             <button @click="downloadBonusPdf"><Download :size="16" />賞与PDFダウンロード</button>
+          </div>
+        </div>
+        <div
+          v-if="activePayrollSubMenu === 'payrollBonusInput' && inactiveEmployeeRecordRows.length"
+          class="panel-head"
+          :class="sectionHeadClass('inactiveEmployeeRecords')"
+          @click="toggleSection('inactiveEmployeeRecords')"
+        >
+          <h2>削除済み社員の登録済みデータ</h2>
+        </div>
+        <div
+          v-if="activePayrollSubMenu === 'payrollBonusInput' && inactiveEmployeeRecordRows.length"
+          v-show="!collapsedSections.inactiveEmployeeRecords"
+          class="deleted-list"
+        >
+          <div v-for="row in inactiveEmployeeRecordRows" :key="`${row.kind}-${row.id}`" class="deleted-item">
+            <div>
+              <strong>{{ row.kind === "payroll" ? "給与" : "賞与" }}</strong>
+              <span>{{ row.period }} / {{ row.employeeNo }} {{ row.employeeName }} / {{ yen.format(row.amount) }}</span>
+              <small>社員は非表示ですが、給与・賞与データが残っています。</small>
+            </div>
+            <button
+              v-if="row.kind === 'payroll' ? canEditPayrollInput : canEditBonusInput"
+              type="button"
+              @click="deleteInactiveEmployeeRecord(row)"
+            >
+              <Trash2 :size="16" />削除
+            </button>
           </div>
         </div>
         <div
