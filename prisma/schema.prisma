@@ -416,11 +416,14 @@ model SesContract {
   manualCustomerName String?
   contractType    SesContractType @default(SALES)
   contractNo      String?
+  purchaseOrderNo String?
   title           String
   taxIncluded     Boolean  @default(false)
   startDate       String?
   endDate         String?
   memo            String?
+  contractPdfDownloadedAt DateTime?
+  purchaseOrderPdfDownloadedAt DateTime?
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

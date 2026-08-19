@@ -21,6 +21,12 @@ import {
 } from "./documentNumber.js";
 import { createInvoicePdf } from "./invoicePdf.js";
 import { invoiceFileName, timeAdjustmentDescription } from "./invoiceFormat.js";
+import {
+  contractDocumentFileName,
+  contractPartnerName,
+  purchaseOrderFileName
+} from "./contractDocumentFormat.js";
+import { createBusinessContractPdf, createPurchaseOrderPdf } from "./contractDocumentPdf.js";
 import { buildMonthlyChecklist, individualRevenueExpenseCheckKey } from "./monthlyChecklist.js";
 import { createPayslipPdf } from "./pdf.js";
 import { calculateBonus, calculatePayroll } from "./payroll.js";
@@ -1458,6 +1464,106 @@ api.delete("/ses/contracts/:id", async (c) => {
 
   await prisma.sesContract.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
   return c.json({ ok: true });
+});
+
+async function purchaseContractForDocument(id: string) {
+  const contract = await prisma.sesContract.findUnique({
+    where: { id },
+    include: {
+      customer: true,
+      members: {
+        include: { employee: true, externalMember: { include: { customer: true } } },
+        orderBy: { createdAt: "asc" }
+      }
+    }
+  });
+  if (!contract || !contract.isActive) return null;
+  return contract;
+}
+
+async function contractDocumentCompanySettings(period: string) {
+  return prisma.companySetting.upsert({
+    where: { id: "default" },
+    update: {},
+    create: { id: "default", currentFiscalYear: periodToFiscalYear(period) }
+  });
+}
+
+function contractDocumentInput(contract: NonNullable<Awaited<ReturnType<typeof purchaseContractForDocument>>>, settings: Awaited<ReturnType<typeof contractDocumentCompanySettings>>) {
+  return {
+    issueDate: todayIso(),
+    partnerName: contractPartnerName(contract),
+    companyName: settings.invoiceCompanyName,
+    companyPostalCode: settings.invoicePostalCode,
+    companyAddress: settings.invoiceAddress,
+    companyTel: settings.invoiceTel,
+    contractNo: contract.contractNo,
+    purchaseOrderNo: contract.purchaseOrderNo,
+    title: contract.title,
+    taxIncluded: contract.taxIncluded,
+    startDate: contract.startDate,
+    endDate: contract.endDate,
+    memo: contract.memo,
+    members: contract.members
+  };
+}
+
+api.get("/ses/contracts/:id/contract-pdf", async (c) => {
+  const contract = await purchaseContractForDocument(c.req.param("id"));
+  if (!contract) return c.json({ message: "契約が見つかりません" }, 404);
+  if (contract.contractType !== "PURCHASE") return c.json({ message: "契約書PDFは仕入契約から出力してください" }, 400);
+  const period = periodFromDateOrToday(contract.startDate);
+  const settings = await contractDocumentCompanySettings(period);
+  const pdf = await createBusinessContractPdf(contractDocumentInput(contract, settings));
+  await prisma.sesContract.update({
+    where: { id: contract.id },
+    data: { contractPdfDownloadedAt: new Date() }
+  });
+  const partnerName = contractPartnerName(contract);
+  const fileName = contractDocumentFileName(partnerName, contract.contractNo);
+  const fallbackFileName = `contract-${safeFilePart(contract.id)}.pdf`;
+  return new Response(new Uint8Array(pdf), {
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": attachmentDisposition(fileName, fallbackFileName)
+    }
+  });
+});
+
+api.get("/ses/contracts/:id/purchase-order-pdf", async (c) => {
+  let contract = await purchaseContractForDocument(c.req.param("id"));
+  if (!contract) return c.json({ message: "契約が見つかりません" }, 404);
+  if (contract.contractType !== "PURCHASE") return c.json({ message: "発注書PDFは仕入契約から出力してください" }, 400);
+  const period = periodFromDateOrToday(contract.startDate);
+  if (!contract.purchaseOrderNo) {
+    const purchaseOrderNo = await nextDocumentNumber("PURCHASE_ORDER", period);
+    contract = await prisma.sesContract.update({
+      where: { id: contract.id },
+      data: { purchaseOrderNo },
+      include: {
+        customer: true,
+        members: {
+          include: { employee: true, externalMember: { include: { customer: true } } },
+          orderBy: { createdAt: "asc" }
+        }
+      }
+    });
+  }
+  const settings = await contractDocumentCompanySettings(period);
+  const pdf = await createPurchaseOrderPdf(contractDocumentInput(contract, settings));
+  await prisma.sesContract.update({
+    where: { id: contract.id },
+    data: { purchaseOrderPdfDownloadedAt: new Date() }
+  });
+  const partnerName = contractPartnerName(contract);
+  const fileName = purchaseOrderFileName(partnerName, period);
+  const fallbackFileName = `purchase-order-${safeFilePart(contract.id)}.pdf`;
+  return new Response(new Uint8Array(pdf), {
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": attachmentDisposition(fileName, fallbackFileName)
+    }
+  });
 });
 
 api.get("/ses/revenues", async (c) => {

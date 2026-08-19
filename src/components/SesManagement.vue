@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { Download, Plus, Save, Search, Trash2 } from "lucide-vue-next";
 import { previousYearMonth, tokyoCurrentYearMonth, tokyoTodayIso } from "../server/datePeriod";
+import { contractDocumentFileName, contractPartnerName, purchaseOrderFileName } from "../server/contractDocumentFormat";
 import { invoiceFileName } from "../server/invoiceFormat";
 import { activePartnerCostRows, partnerCostDefaultAmount as resolvePartnerCostDefaultAmount } from "../server/partnerCostRules";
 import { filterActiveMembersForPeriod } from "../server/sesPeriod";
@@ -72,6 +73,9 @@ type Contract = {
   manualCustomerName?: string | null;
   contractType: ContractType;
   contractNo?: string | null;
+  purchaseOrderNo?: string | null;
+  contractPdfDownloadedAt?: string | null;
+  purchaseOrderPdfDownloadedAt?: string | null;
   title: string;
   taxIncluded?: boolean | null;
   startDate?: string | null;
@@ -932,6 +936,38 @@ async function deleteContract() {
   }
 }
 
+async function downloadContractDocumentPdf(type: "contract" | "purchaseOrder") {
+  const contract = contracts.value.find((item) => item.id === selectedContractId.value);
+  if (!contract || contract.contractType !== "PURCHASE") return;
+  try {
+    const path = type === "contract"
+      ? `/api/ses/contracts/${contract.id}/contract-pdf`
+      : `/api/ses/contracts/${contract.id}/purchase-order-pdf`;
+    const response = await fetch(path, { credentials: "include" });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: "PDFダウンロードに失敗しました" }));
+      throw new Error(error.message || "PDFダウンロードに失敗しました");
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const partnerName = contractPartnerName(contract);
+    const period = (contract.startDate || tokyoCurrentYearMonth()).slice(0, 7);
+    link.href = url;
+    link.download = type === "contract"
+      ? contractDocumentFileName(partnerName, contract.contractNo)
+      : purchaseOrderFileName(partnerName, period);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    showSuccess(type === "contract" ? "契約書PDFをダウンロードしました" : "発注書PDFをダウンロードしました");
+    await refreshContracts();
+  } catch (error) {
+    showError(error, type === "contract" ? "契約書PDFダウンロードに失敗しました" : "発注書PDFダウンロードに失敗しました");
+  }
+}
+
 async function saveCompanySetting() {
   if (!props.canEditSes) return;
   try {
@@ -1278,6 +1314,8 @@ onMounted(async () => {
 
           <div class="form-actions full">
             <button v-if="canEditSes && contractForm.id" type="button" @click="deleteContract"><Trash2 :size="16" />非表示</button>
+            <button v-if="contractForm.id && contractForm.contractType === 'PURCHASE'" type="button" @click="downloadContractDocumentPdf('contract')"><Download :size="16" />契約書PDF</button>
+            <button v-if="contractForm.id && contractForm.contractType === 'PURCHASE'" type="button" @click="downloadContractDocumentPdf('purchaseOrder')"><Download :size="16" />発注書PDF</button>
             <button v-if="canEditSes" class="primary" @click="saveContract"><Save :size="16" />契約保存</button>
           </div>
         </div>
