@@ -65,27 +65,27 @@ function companyLines(input: ContractDocumentInput) {
 
 function drawCompanyBlock(doc: PDFKit.PDFDocument, input: ContractDocumentInput, y: number, x = 330, width = 185) {
   const lines = companyLines(input);
-  doc.font("NotoSansJPBold").fontSize(11);
+  doc.font("NotoSansJPBold").fontSize(9.5);
   drawText(doc, lines[0] || "", x, y, width);
-  doc.font("NotoSansJP").fontSize(9);
-  lines.slice(1).forEach((line, index) => drawText(doc, line, x, y + 18 + index * 13, width));
+  doc.font("NotoSansJP").fontSize(8);
+  lines.slice(1).forEach((line, index) => drawText(doc, line, x, y + 16 + index * 12, width));
 }
 
 function drawWrappedTableRow(doc: PDFKit.PDFDocument, label: string, value: string | string[], x: number, y: number, labelWidth: number, valueWidth: number, minHeight = 30) {
   const values = Array.isArray(value) ? value : [value];
-  doc.font("NotoSansJP").fontSize(9);
-  const textHeight = values.reduce((total, line) => total + doc.heightOfString(line, { width: valueWidth - 16 }) + 4, 0);
-  const rowHeight = Math.max(minHeight, textHeight + 14);
+  doc.font("NotoSansJP").fontSize(8.2);
+  const textHeight = values.reduce((total, line) => total + doc.heightOfString(line, { width: valueWidth - 14 }) + 3, 0);
+  const rowHeight = Math.max(minHeight, textHeight + 12);
 
   doc.rect(x, y, labelWidth, rowHeight).fillAndStroke("#f3f3f3", "#111");
   doc.rect(x + labelWidth, y, valueWidth, rowHeight).stroke();
-  doc.fillColor("#111").font("NotoSansJPBold").fontSize(10);
-  drawText(doc, label, x + 8, y + 9, labelWidth - 16, { align: "center" });
-  doc.font("NotoSansJP").fontSize(9);
-  let cursorY = y + 8;
+  doc.fillColor("#111").font("NotoSansJPBold").fontSize(9);
+  drawText(doc, label, x + 6, y + Math.max(7, rowHeight / 2 - 5), labelWidth - 12, { align: "center" });
+  doc.font("NotoSansJP").fontSize(8.2);
+  let cursorY = y + 7;
   values.forEach((line) => {
-    drawText(doc, line, x + labelWidth + 8, cursorY, valueWidth - 16);
-    cursorY += doc.heightOfString(line, { width: valueWidth - 16 }) + 4;
+    drawText(doc, line, x + labelWidth + 7, cursorY, valueWidth - 14);
+    cursorY += doc.heightOfString(line, { width: valueWidth - 14 }) + 3;
   });
   return rowHeight;
 }
@@ -113,12 +113,12 @@ function drawArticle(doc: PDFKit.PDFDocument, title: string, body: string, y: nu
     doc.addPage();
     y = 52;
   }
-  doc.font("NotoSansJPBold").fontSize(9.5);
+  doc.font("NotoSansJPBold").fontSize(8.8);
   drawText(doc, title, 56, y, 485);
-  doc.font("NotoSansJP").fontSize(8.5);
-  const bodyY = y + 15;
+  doc.font("NotoSansJP").fontSize(8.2);
+  const bodyY = y + 13;
   drawText(doc, body, 56, bodyY, 485, { lineGap: 2 });
-  return bodyY + doc.heightOfString(body, { width: 485, lineGap: 2 }) + 12;
+  return bodyY + doc.heightOfString(body, { width: 485, lineGap: 2 }) + 10;
 }
 
 function contractArticles(input: ContractDocumentInput) {
@@ -175,54 +175,54 @@ function drawSignatureBlock(doc: PDFKit.PDFDocument, input: ContractDocumentInpu
 export async function createPurchaseOrderPdf(input: ContractDocumentInput) {
   const { doc, done } = setupDocument();
   const firstMember = firstDocumentMember(input);
-  doc.font("NotoSansJPBold").fontSize(20).text("注文書", 0, 46, { align: "center" });
-  doc.font("NotoSansJP").fontSize(10);
-  drawText(doc, formatReiwaDate(input.issueDate), 390, 82, 145);
-  if (input.purchaseOrderNo) drawText(doc, `注文書番号：${input.purchaseOrderNo}`, 390, 100, 145);
+  doc.font("NotoSansJPBold").fontSize(16).text("注文書", 0, 42, { align: "center" });
+  doc.font("NotoSansJP").fontSize(8.8);
+  drawText(doc, formatReiwaDate(input.issueDate), 393, 78, 145);
+  if (input.purchaseOrderNo) drawText(doc, `注文書番号：${input.purchaseOrderNo}`, 393, 94, 145);
 
-  doc.font("NotoSansJPBold").fontSize(12);
-  drawText(doc, `${input.partnerName}　御中`, 56, 130, 250);
-  drawCompanyBlock(doc, input, 134, 342, 190);
+  doc.font("NotoSansJPBold").fontSize(10.5);
+  drawText(doc, `${input.partnerName}　御中`, 58, 120, 250);
+  drawCompanyBlock(doc, input, 126, 338, 205);
 
-  doc.font("NotoSansJP").fontSize(10);
-  drawText(doc, "下記の通り注文致します。つきまして、品質の維持、納期の厳守にご尽力なさるようお願い致します。", 56, 232, 485);
+  doc.font("NotoSansJP").fontSize(8.8);
+  drawText(doc, "下記の通り注文致します。つきまして、品質の維持、納期の厳守にご尽力なさるようお願い致します。", 58, 215, 470);
 
-  const tableX = 56;
-  const labelWidth = 118;
-  const valueWidth = 367;
-  let y = 272;
-  y += drawWrappedTableRow(doc, "業 務 名", input.title, tableX, y, labelWidth, valueWidth);
-  y += drawWrappedTableRow(doc, "作 業 内 容", formatPurchaseOrderWork(input), tableX, y, labelWidth, valueWidth);
-  y += drawWrappedTableRow(doc, "作 業 期 間", contractReiwaPeriodText(input.startDate, input.endDate), tableX, y, labelWidth, valueWidth);
+  const tableX = 70;
+  const labelWidth = 104;
+  const valueWidth = 362;
+  let y = 247;
+  y += drawWrappedTableRow(doc, "業 務 名", input.title, tableX, y, labelWidth, valueWidth, 28);
+  y += drawWrappedTableRow(doc, "作 業 内 容", formatPurchaseOrderWork(input), tableX, y, labelWidth, valueWidth, 28);
+  y += drawWrappedTableRow(doc, "作 業 期 間", contractReiwaPeriodText(input.startDate, input.endDate), tableX, y, labelWidth, valueWidth, 28);
   y += drawWrappedTableRow(doc, "作業者氏名", memberDisplayNames(input.members), tableX, y, labelWidth, valueWidth);
-  y += drawWrappedTableRow(doc, "月額委託料金", purchaseOrderFeeLines(firstMember), tableX, y, labelWidth, valueWidth, 120);
-  y += drawWrappedTableRow(doc, "作 業 場 所", "弊社指定場所", tableX, y, labelWidth, valueWidth);
-  y += drawWrappedTableRow(doc, "作 業 条 件", "基本的に現場の就業規則に準じます。", tableX, y, labelWidth, valueWidth);
-  y += drawWrappedTableRow(doc, "納 入 物 件", "作業時間表を月末日までに提出。", tableX, y, labelWidth, valueWidth);
-  y += drawWrappedTableRow(doc, "支 払 条 件", "月末締め、翌々月末日に現金振込。", tableX, y, labelWidth, valueWidth);
-  drawWrappedTableRow(doc, "特 記 事 項", input.memo || defaultSpecialNotes(), tableX, y, labelWidth, valueWidth, 56);
+  y += drawWrappedTableRow(doc, "月額委託料金", purchaseOrderFeeLines(firstMember), tableX, y, labelWidth, valueWidth, 104);
+  y += drawWrappedTableRow(doc, "作 業 場 所", "弊社指定場所", tableX, y, labelWidth, valueWidth, 28);
+  y += drawWrappedTableRow(doc, "作 業 条 件", "基本的に現場の就業規則に準じます。", tableX, y, labelWidth, valueWidth, 28);
+  y += drawWrappedTableRow(doc, "納 入 物 件", "作業時間表を月末日までに提出。", tableX, y, labelWidth, valueWidth, 28);
+  y += drawWrappedTableRow(doc, "支 払 条 件", "月末締め、翌々月末日に現金振込。", tableX, y, labelWidth, valueWidth, 28);
+  drawWrappedTableRow(doc, "特 記 事 項", input.memo || defaultSpecialNotes(), tableX, y, labelWidth, valueWidth, 52);
   doc.end();
   return done;
 }
 
 export async function createBusinessContractPdf(input: ContractDocumentInput) {
   const { doc, done } = setupDocument();
-  doc.font("NotoSansJPBold").fontSize(18).text("業務委託契約書", 0, 54, { align: "center" });
+  doc.font("NotoSansJPBold").fontSize(15).text("業務委託契約書", 0, 48, { align: "center" });
   doc.font("NotoSansJP").fontSize(9);
-  if (input.contractNo) drawText(doc, `契約番号：${input.contractNo}`, 56, 90, 210);
+  if (input.contractNo) drawText(doc, `契約番号：${input.contractNo}`, 56, 82, 210);
 
   const companyName = companyLines(input)[0] || "アイウィル株式会社";
-  doc.font("NotoSansJP").fontSize(9.5);
+  doc.font("NotoSansJP").fontSize(8.7);
   drawText(
     doc,
     `${companyName}（以下「甲」という）と${input.partnerName}（以下「乙」という）とは、甲の乙に対する情報システム業務の委託に関する取引条件について、次のとおり契約（以下「本契約」という）を締結する。`,
     56,
-    128,
+    104,
     485,
     { lineGap: 3 }
   );
 
-  let y = 188;
+  let y = 154;
   contractArticles(input).forEach(([title, body]) => {
     y = drawArticle(doc, title, body, y);
   });
