@@ -178,7 +178,7 @@ export async function createPayslipPdf(input: PayslipPdfInput) {
     [
       { label: "基本給", value: formatYen(input.regularPay) },
       { label: "固定残業手当", value: formatYen(input.fixedOvertimeAllowance) },
-      { label: "時間外労働手当", value: "0" },
+      { label: "時間外労働手当", value: formatYen(input.overtimePay) },
       { label: "深夜労働手当", value: "0" },
       { label: "休日労働手当", value: "0" },
       { label: "手当", value: formatYen(input.allowance) },
