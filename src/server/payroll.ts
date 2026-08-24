@@ -7,6 +7,7 @@ export type PayrollInput = {
   overtimeHours: number;
   allowance: number;
   fixedOvertimeAllowance: number;
+  overtimeHourlyAmount?: number;
   fixedDeduction: number;
   overtimeRate: number;
   incomeTaxRate: number;
@@ -37,7 +38,10 @@ export type BonusInput = {
 export function calculatePayroll(input: PayrollInput) {
   const regularPay = input.payType === "MONTHLY" ? input.basePay : input.basePay * input.workHours;
   const hourlyRate = input.payType === "MONTHLY" ? input.basePay / Math.max(input.workHours || 160, 1) : input.basePay;
-  const overtimePay = hourlyRate * input.overtimeHours * input.overtimeRate;
+  const overtimeHourlyAmount = input.overtimeHourlyAmount && input.overtimeHourlyAmount > 0
+    ? input.overtimeHourlyAmount
+    : hourlyRate * input.overtimeRate;
+  const overtimePay = overtimeHourlyAmount * input.overtimeHours;
   const fixedOvertimeAllowance = input.fixedOvertimeAllowance || 0;
   const grossPay = regularPay + overtimePay + fixedOvertimeAllowance + input.allowance;
   const socialInsuranceBase = input.socialInsuranceBaseAmount && input.socialInsuranceBaseAmount > 0

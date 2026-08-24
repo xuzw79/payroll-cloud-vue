@@ -1,0 +1,2 @@
+ALTER TABLE "Employee" ADD COLUMN "overtimeHourlyAmount" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "Payroll" ADD COLUMN "overtimeHourlyAmount" INTEGER NOT NULL DEFAULT 0;

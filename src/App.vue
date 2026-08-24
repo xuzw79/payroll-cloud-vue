@@ -55,6 +55,7 @@ type Employee = {
   payType: PayType;
   basePay: number;
   fixedOvertimeAllowance: number;
+  overtimeHourlyAmount: number;
   bonusEnabled: boolean;
   bonusSchedules?: BonusSchedule[] | null;
   memo?: string | null;
@@ -87,6 +88,7 @@ type Payroll = {
   regularPay: number;
   overtimePay: number;
   fixedOvertimeAllowance: number;
+  overtimeHourlyAmount: number;
   incomeTax: number;
   healthInsurance: number;
   pensionInsurance: number;
@@ -454,6 +456,7 @@ const employeeForm = reactive({
   payType: "MONTHLY" as PayType,
   basePay: 0,
   fixedOvertimeAllowance: 0,
+  overtimeHourlyAmount: 0,
   bonusEnabled: true,
   bonusSchedules: [
     { month: 4, amount: 0 },
@@ -972,6 +975,7 @@ function applyEmployee(employee?: Employee) {
     payType: "MONTHLY" as PayType,
     basePay: 0,
     fixedOvertimeAllowance: 0,
+    overtimeHourlyAmount: 0,
     bonusEnabled: true,
     bonusSchedules: [
       { month: 4, amount: 0 },
@@ -995,6 +999,7 @@ function applyEmployee(employee?: Employee) {
   employeeForm.payType = target.payType;
   employeeForm.basePay = target.basePay;
   employeeForm.fixedOvertimeAllowance = target.fixedOvertimeAllowance || 0;
+  employeeForm.overtimeHourlyAmount = target.overtimeHourlyAmount || 0;
   employeeForm.bonusEnabled = target.bonusEnabled ?? true;
   employeeForm.bonusSchedules = normalizedBonusSchedules(target);
   employeeForm.memo = target.memo || "";
@@ -1596,7 +1601,7 @@ async function downloadPayslipPdfRange() {
 }
 
 function exportCsv() {
-  const header = ["支給月", "社員番号", "氏名", "給与区分", "扶養人数", "社会保険加入", "社会保険適用金額", "課税対象額", "所得税", "健康・介護保険", "厚生年金保険", "子ども・子育て支援金", "社会保険合計", "雇用保険適用", "雇用保険", "住民税", "寮使用料", "固定残業手当", "総支給額", "控除合計", "差引支給額", "メール送信日時"];
+  const header = ["支給月", "社員番号", "氏名", "給与区分", "扶養人数", "社会保険加入", "社会保険適用金額", "課税対象額", "所得税", "健康・介護保険", "厚生年金保険", "子ども・子育て支援金", "社会保険合計", "雇用保険適用", "雇用保険", "住民税", "寮使用料", "固定残業手当", "残業1時間単価", "総支給額", "控除合計", "差引支給額", "メール送信日時"];
   const rows = payrolls.value.map((payroll) => [
     payroll.period,
     payroll.employee.employeeNo,
@@ -1616,6 +1621,7 @@ function exportCsv() {
     payroll.residentTax,
     payroll.dormitoryFee,
     payroll.fixedOvertimeAllowance,
+    payroll.overtimeHourlyAmount,
     payroll.grossPay,
     payroll.totalDeduction,
     payroll.netPay,
@@ -1829,6 +1835,7 @@ onMounted(async () => {
           <label>給与区分<select v-model="employeeForm.payType"><option value="MONTHLY">月給</option><option value="HOURLY">時給</option></select></label>
           <label>基本給・時給<input v-model.number="employeeForm.basePay" type="number" min="0" /></label>
           <label>固定残業手当<input v-model.number="employeeForm.fixedOvertimeAllowance" type="number" min="0" /></label>
+          <label>残業1時間単価<input v-model.number="employeeForm.overtimeHourlyAmount" type="number" min="0" placeholder="未入力時は年度料率で計算" /></label>
           <label>賞与設定<select v-model="employeeForm.bonusEnabled"><option :value="true">賞与あり</option><option :value="false">賞与なし</option></select></label>
           <div v-if="employeeForm.bonusEnabled" class="bonus-schedule full">
             <strong>賞与予定（最大3回）</strong>
@@ -1916,6 +1923,7 @@ onMounted(async () => {
             <dt>給与区分</dt><dd>{{ payTypeLabel(selectedEmployee.payType) }}</dd>
             <dt>基本給・時給</dt><dd>{{ yen.format(selectedEmployee.basePay) }}</dd>
             <dt>固定残業手当</dt><dd>{{ yen.format(selectedEmployee.fixedOvertimeAllowance || 0) }}</dd>
+            <dt>残業1時間単価</dt><dd>{{ selectedEmployee.overtimeHourlyAmount ? yen.format(selectedEmployee.overtimeHourlyAmount) : "年度料率で計算" }}</dd>
             <dt>既定の扶養人数</dt><dd>{{ selectedEmployee.defaultDependentCount }}名</dd>
             <dt>雇用保険適用</dt><dd>{{ selectedEmployee.employmentInsuranceEnrolled ? "適用" : "対象外" }}</dd>
             <dt>賞与設定</dt><dd>{{ bonusScheduleSummary(selectedEmployee) }}</dd>
@@ -2078,6 +2086,7 @@ onMounted(async () => {
           <dl>
             <dt>基本給</dt><dd>{{ yen.format(selectedPayroll.regularPay) }}</dd>
             <dt>固定残業手当</dt><dd>{{ yen.format(selectedPayroll.fixedOvertimeAllowance) }}</dd>
+            <dt>残業1時間単価</dt><dd>{{ selectedPayroll.overtimeHourlyAmount ? yen.format(selectedPayroll.overtimeHourlyAmount) : "年度料率で計算" }}</dd>
             <dt>残業代</dt><dd>{{ yen.format(selectedPayroll.overtimePay) }}</dd>
             <dt>総支給額</dt><dd>{{ yen.format(selectedPayroll.grossPay) }}</dd>
             <dt>扶養人数</dt><dd>{{ selectedPayroll.dependentCount }}</dd>
