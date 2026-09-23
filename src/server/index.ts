@@ -497,6 +497,7 @@ function toPayslipPdfInput(payroll: Payroll & { employee: Employee }) {
     employmentInsurance: payroll.employmentInsurance,
     residentTax: payroll.residentTax,
     dormitoryFee: payroll.dormitoryFee,
+    fixedDeductionLabel: payroll.fixedDeductionLabel,
     fixedDeduction: payroll.fixedDeduction,
     totalDeduction: payroll.totalDeduction,
     netPay: payroll.netPay
@@ -2842,6 +2843,7 @@ api.post("/payrolls", async (c) => {
   const overtimeHours = Number(body.overtimeHours || 0);
   const allowance = Number(body.allowance || 0);
   const fixedDeduction = Number(body.fixedDeduction || 0);
+  const fixedDeductionLabel = nullableText(body.fixedDeductionLabel);
   const residentTax = Number(body.residentTax || 0);
   const dormitoryFee = Number(body.dormitoryFee || 0);
   const dependentCount = Math.max(0, Math.trunc(numberOrDefault(body.dependentCount, employee.defaultDependentCount ?? 0)));
@@ -2910,6 +2912,7 @@ api.post("/payrolls", async (c) => {
       overtimeHours,
       allowance,
       fixedDeduction,
+      fixedDeductionLabel,
       overtimeHourlyAmount: employee.overtimeHourlyAmount,
       overtimeRate,
       incomeTaxRate,
@@ -2937,6 +2940,7 @@ api.post("/payrolls", async (c) => {
       overtimeHours,
       allowance,
       fixedDeduction,
+      fixedDeductionLabel,
       overtimeHourlyAmount: employee.overtimeHourlyAmount,
       overtimeRate,
       incomeTaxRate,

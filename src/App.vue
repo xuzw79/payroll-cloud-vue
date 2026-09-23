@@ -76,6 +76,7 @@ type Payroll = {
   overtimeHours: string;
   allowance: number;
   fixedDeduction: number;
+  fixedDeductionLabel?: string | null;
   residentTax: number;
   dormitoryFee: number;
   dependentCount: number;
@@ -471,6 +472,7 @@ const payrollForm = reactive({
   overtimeHours: 0,
   allowance: 0,
   fixedDeduction: 0,
+  fixedDeductionLabel: "固定控除",
   residentTax: 0,
   dormitoryFee: 0,
   dependentCount: 0,
@@ -682,6 +684,7 @@ function resetPayrollForm(employee: Employee) {
     overtimeHours: 0,
     allowance: 0,
     fixedDeduction: 0,
+    fixedDeductionLabel: "固定控除",
     residentTax: 0,
     dormitoryFee: 0,
     dependentCount: employee.defaultDependentCount || 0,
@@ -1086,6 +1089,7 @@ function applyPayrollInput(payroll: Payroll) {
   payrollForm.overtimeHours = Number(payroll.overtimeHours);
   payrollForm.allowance = payroll.allowance;
   payrollForm.fixedDeduction = payroll.fixedDeduction;
+  payrollForm.fixedDeductionLabel = payroll.fixedDeductionLabel || "固定控除";
   payrollForm.residentTax = payroll.residentTax || 0;
   payrollForm.dormitoryFee = payroll.dormitoryFee || 0;
   payrollForm.note = payroll.note || "";
@@ -1944,6 +1948,7 @@ onMounted(async () => {
           <label>手当<input v-model.number="payrollForm.allowance" type="number" min="0" /></label>
           <label>住民税<input v-model.number="payrollForm.residentTax" type="number" min="0" /></label>
           <label>寮使用料<input v-model.number="payrollForm.dormitoryFee" type="number" min="0" /></label>
+          <label>固定控除タイトル<input v-model="payrollForm.fixedDeductionLabel" placeholder="固定控除" /></label>
           <label>固定控除<input v-model.number="payrollForm.fixedDeduction" type="number" min="0" /></label>
           <label class="wide">備考<input v-model="payrollForm.note" /></label>
           <div v-if="isPayrollLocked" class="lock-warning full">{{ payrollLockMessage }}</div>

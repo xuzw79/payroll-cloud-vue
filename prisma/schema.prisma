@@ -210,6 +210,7 @@ model Payroll {
   fixedOvertimeAllowance   Int      @default(0)
   overtimeHourlyAmount     Int      @default(0)
   fixedDeduction           Int      @default(0)
+  fixedDeductionLabel      String?
   overtimeRate             Decimal  @db.Decimal(8, 6)
   incomeTaxRate            Decimal  @db.Decimal(8, 6)
   socialInsuranceRate      Decimal  @db.Decimal(8, 6)

@@ -24,6 +24,7 @@ type PayslipPdfInput = {
   employmentInsurance: number;
   residentTax: number;
   dormitoryFee: number;
+  fixedDeductionLabel?: string | null;
   fixedDeduction: number;
   totalDeduction: number;
   netPay: number;
@@ -44,6 +45,13 @@ const yen = new Intl.NumberFormat("ja-JP", {
 
 function formatYen(value?: number | null) {
   return yen.format(Math.round(value || 0));
+}
+
+export function payslipFixedDeductionCell(label: string | null | undefined, amount: number): Cell {
+  return {
+    label: label?.trim() || "固定控除",
+    value: formatYen(amount)
+  };
 }
 
 function periodTitle(period: string) {
@@ -211,7 +219,7 @@ export async function createPayslipPdf(input: PayslipPdfInput) {
     [
       { label: "寮使用料", value: formatYen(input.dormitoryFee) },
       { label: "年末調整不足額", value: "0" },
-      { label: "", blank: true },
+      payslipFixedDeductionCell(input.fixedDeductionLabel, input.fixedDeduction),
       { label: "", blank: true },
       { label: "", blank: true },
       { label: "", blank: true },
