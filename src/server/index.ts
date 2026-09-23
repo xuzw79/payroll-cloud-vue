@@ -11,6 +11,7 @@ import { cookieName, createSession, requireAuth, type SessionUser } from "./auth
 import { writeAuditLog } from "./auditLog.js";
 import { deletedFilterFromQuery } from "./deletedFilter.js";
 import { prisma } from "./db.js";
+import { expenseAccountTitle, expenseRowsToSave } from "./expenseAccounts.js";
 import { sendPayslipMail } from "./mailer.js";
 import { createBonusPdf } from "./bonusPdf.js";
 import {
@@ -64,6 +65,7 @@ const permissionMenus: PermissionMenu[] = [
   "SES_INVOICES",
   "SES_PARTNER_COSTS",
   "SES_REVENUE",
+  "SES_EXPENSES",
   "SES_MASTERS",
   "SES_PROFIT",
   "USERS",
@@ -73,7 +75,7 @@ const permissionMenus: PermissionMenu[] = [
 ];
 
 const payrollMenus = new Set<PermissionMenu>(["PAYROLL", "PAYROLL_EMPLOYEES", "PAYROLL_INPUT", "BONUS_INPUT", "RATES", "TAX_IMPORT", "PAYSLIP", "BONUS_SLIP"]);
-const sesMenus = new Set<PermissionMenu>(["SES", "SES_CUSTOMERS", "SES_PROJECTS", "SES_INVOICES", "SES_PARTNER_COSTS", "SES_REVENUE", "SES_MASTERS", "SES_PROFIT"]);
+const sesMenus = new Set<PermissionMenu>(["SES", "SES_CUSTOMERS", "SES_PROJECTS", "SES_INVOICES", "SES_PARTNER_COSTS", "SES_REVENUE", "SES_EXPENSES", "SES_MASTERS", "SES_PROFIT"]);
 
 function defaultRolePermission(role: UserRole, menu: PermissionMenu) {
   if (role === "ADMIN") return { role, menu, canShow: true, canView: true, canEdit: true, canViewAll: true };
@@ -818,7 +820,7 @@ api.get("/audit-logs", async (c) => {
   const from = c.req.query("from") || "";
   const to = c.req.query("to") || "";
   const where: Prisma.AuditLogWhereInput = {};
-  if (["EMPLOYEE", "PAYROLL", "BONUS", "INVOICE", "PARTNER_COST"].includes(targetType)) {
+  if (["EMPLOYEE", "PAYROLL", "BONUS", "INVOICE", "EXPENSE", "PARTNER_COST"].includes(targetType)) {
     where.targetType = targetType as Prisma.EnumAuditTargetTypeFilter["equals"];
   }
   if (["CREATE", "UPDATE", "DELETE", "RESTORE"].includes(action)) {
@@ -1765,11 +1767,16 @@ api.delete("/ses/revenues/:id", async (c) => {
 });
 
 async function expenseData(body: Record<string, unknown>) {
-  const period = String(body.period || "");
-  const title = String(body.title || "").trim();
+  const expenseDate = nullableText(body.expenseDate);
+  const period = expenseDate ? expenseDate.slice(0, 7) : String(body.period || "");
+  const accountCode = body.accountCode == null || body.accountCode === "" ? null : Number(body.accountCode);
+  const accountTitle = accountCode == null ? nullableText(body.accountTitle) : expenseAccountTitle(accountCode);
+  const title = accountTitle || String(body.title || "").trim();
   const amount = numberOrDefault(body.amount, 0);
   const contractId = nullableText(body.contractId);
   if (!isPeriod(period)) throw new Error("支出月を指定してください");
+  if (expenseDate && !/^\d{4}-\d{2}-\d{2}$/.test(expenseDate)) throw new Error("対象年月日をYYYY-MM-DD形式で指定してください");
+  if (accountCode != null && !accountTitle) throw new Error("勘定科目を選択してください");
   if (!title) throw new Error("支出名を入力してください");
 
   let customerId = nullableText(body.customerId);
@@ -1780,6 +1787,9 @@ async function expenseData(body: Record<string, unknown>) {
 
   return {
     period,
+    expenseDate,
+    accountCode,
+    accountTitle,
     customerId,
     contractId,
     employeeId: nullableText(body.employeeId),
@@ -1789,6 +1799,23 @@ async function expenseData(body: Record<string, unknown>) {
     memo: nullableText(body.memo)
   };
 }
+
+api.get("/ses/expenses", async (c) => {
+
+  const period = c.req.query("period") || previousYearMonthServer();
+  if (!isPeriod(period)) return c.json({ message: "経費対象月を指定してください" }, 400);
+  const expenses = await prisma.sesExpense.findMany({
+    where: { isActive: true, period },
+    include: {
+      customer: true,
+      contract: true,
+      employee: true,
+      externalMember: { include: { customer: true } }
+    },
+    orderBy: [{ expenseDate: "asc" }, { updatedAt: "desc" }]
+  });
+  return c.json({ period, expenses });
+});
 
 api.post("/ses/expenses", async (c) => {
 
@@ -1803,6 +1830,14 @@ api.post("/ses/expenses", async (c) => {
         externalMember: { include: { customer: true } }
       }
     });
+    await writeAuditLog(prisma, {
+      user: currentUser(c),
+      targetType: "EXPENSE",
+      targetId: expense.id,
+      targetLabel: `${expense.expenseDate || expense.period} ${expense.title}`,
+      action: "CREATE",
+      after: expense
+    });
     return c.json(expense, 201);
   } catch (error) {
     return c.json({ message: error instanceof Error ? error.message : "支出を保存できませんでした" }, 400);
@@ -1813,6 +1848,7 @@ api.put("/ses/expenses/:id", async (c) => {
 
   try {
     const body = await c.req.json();
+    const before = await prisma.sesExpense.findUnique({ where: { id: c.req.param("id") } });
     const expense = await prisma.sesExpense.update({
       where: { id: c.req.param("id") },
       data: await expenseData(body),
@@ -1823,6 +1859,15 @@ api.put("/ses/expenses/:id", async (c) => {
         externalMember: { include: { customer: true } }
       }
     });
+    await writeAuditLog(prisma, {
+      user: currentUser(c),
+      targetType: "EXPENSE",
+      targetId: expense.id,
+      targetLabel: `${expense.expenseDate || expense.period} ${expense.title}`,
+      action: "UPDATE",
+      before,
+      after: expense
+    });
     return c.json(expense);
   } catch (error) {
     return c.json({ message: error instanceof Error ? error.message : "支出を保存できませんでした" }, 400);
@@ -1831,8 +1876,64 @@ api.put("/ses/expenses/:id", async (c) => {
 
 api.delete("/ses/expenses/:id", async (c) => {
 
-  await prisma.sesExpense.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
+  const before = await prisma.sesExpense.findUniqueOrThrow({ where: { id: c.req.param("id") } });
+  const expense = await prisma.sesExpense.update({ where: { id: c.req.param("id") }, data: { isActive: false } });
+  await writeAuditLog(prisma, {
+    user: currentUser(c),
+    targetType: "EXPENSE",
+    targetId: expense.id,
+    targetLabel: `${expense.expenseDate || expense.period} ${expense.title}`,
+    action: "DELETE",
+    before,
+    after: expense
+  });
   return c.json({ ok: true });
+});
+
+api.post("/ses/expenses/batch", async (c) => {
+
+  try {
+    const body = await c.req.json();
+    const rows = expenseRowsToSave(Array.isArray(body.rows) ? body.rows : []);
+    const saved = [];
+    for (const row of rows) {
+      const data = await expenseData(row);
+      const before = row.id ? await prisma.sesExpense.findUnique({ where: { id: row.id } }) : null;
+      const expense = row.id
+        ? await prisma.sesExpense.update({
+          where: { id: row.id },
+          data,
+          include: {
+            customer: true,
+            contract: true,
+            employee: true,
+            externalMember: { include: { customer: true } }
+          }
+        })
+        : await prisma.sesExpense.create({
+          data,
+          include: {
+            customer: true,
+            contract: true,
+            employee: true,
+            externalMember: { include: { customer: true } }
+          }
+        });
+      await writeAuditLog(prisma, {
+        user: currentUser(c),
+        targetType: "EXPENSE",
+        targetId: expense.id,
+        targetLabel: `${expense.expenseDate || expense.period} ${expense.title}`,
+        action: before ? "UPDATE" : "CREATE",
+        before,
+        after: expense
+      });
+      saved.push(expense);
+    }
+    return c.json({ savedCount: saved.length, expenses: saved });
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : "経費を保存できませんでした" }, 400);
+  }
 });
 
 api.get("/ses/partner-costs", async (c) => {

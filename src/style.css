@@ -596,6 +596,30 @@ p {
   min-width: max-content;
 }
 
+.expense-entry-table {
+  display: grid;
+  gap: 4px;
+  overflow-x: auto;
+}
+
+.expense-entry-row {
+  display: grid;
+  grid-template-columns: 160px 220px 160px minmax(240px, 1fr) 100px;
+  gap: 4px;
+  align-items: center;
+  min-width: 900px;
+}
+
+.expense-entry-row.header {
+  padding: 6px 0;
+  font-weight: 700;
+}
+
+.expense-entry-row input,
+.expense-entry-row select {
+  width: 100%;
+}
+
 .status-chip {
   flex: 0 0 auto;
   display: inline-flex;

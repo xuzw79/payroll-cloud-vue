@@ -34,6 +34,7 @@ enum PermissionMenu {
   SES_INVOICES
   SES_PARTNER_COSTS
   SES_REVENUE
+  SES_EXPENSES
   SES_MASTERS
   SES_PROFIT
   USERS
@@ -47,6 +48,7 @@ enum AuditTargetType {
   PAYROLL
   BONUS
   INVOICE
+  EXPENSE
   PARTNER_COST
 }
 
@@ -560,6 +562,9 @@ model SesRevenue {
 model SesExpense {
   id                String   @id @default(cuid())
   period            String
+  expenseDate       String?
+  accountCode       Int?
+  accountTitle      String?
   customerId        String?
   contractId        String?
   employeeId        String?

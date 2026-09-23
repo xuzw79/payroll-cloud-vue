@@ -3,13 +3,14 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { Download, Plus, Save, Search, Trash2 } from "lucide-vue-next";
 import { previousYearMonth, tokyoCurrentYearMonth, tokyoTodayIso } from "../server/datePeriod";
 import { contractDocumentFileName, contractPartnerName, purchaseOrderFileName } from "../server/contractDocumentFormat";
+import { expenseAccountOptions, expenseRowsToSave } from "../server/expenseAccounts";
 import { invoiceFileName } from "../server/invoiceFormat";
 import { activePartnerCostRows, partnerCostDefaultAmount as resolvePartnerCostDefaultAmount } from "../server/partnerCostRules";
 import { filterActiveMembersForPeriod } from "../server/sesPeriod";
 import { refreshKeysForSesSubMenu, shouldContinueSesRefreshAfterCompanySettingError, type SesRefreshKey } from "../server/sesRefreshPlan";
 
-type SesSubMenu = "customers" | "projects" | "invoices" | "masters" | "numberSettings" | "revenue" | "partnerCosts" | "profit";
-type PermissionMenu = "SES_CUSTOMERS" | "SES_PROJECTS" | "SES_INVOICES" | "SES_PARTNER_COSTS" | "SES_REVENUE" | "SES_MASTERS" | "SES_PROFIT";
+type SesSubMenu = "customers" | "projects" | "invoices" | "masters" | "numberSettings" | "revenue" | "expenses" | "partnerCosts" | "profit";
+type PermissionMenu = "SES_CUSTOMERS" | "SES_PROJECTS" | "SES_INVOICES" | "SES_PARTNER_COSTS" | "SES_REVENUE" | "SES_EXPENSES" | "SES_MASTERS" | "SES_PROFIT";
 type RolePermission = { menu: string; canShow: boolean; canView: boolean; canEdit: boolean; canViewAll: boolean };
 type MemberSource = "NONE" | "EMPLOYEE" | "EXTERNAL";
 type BillingType = "FIXED" | "TIME_RANGE" | "HOURLY";
@@ -114,6 +115,9 @@ type Invoice = {
 type Revenue = {
   id: string;
   period: string;
+  expenseDate?: string | null;
+  accountCode?: number | null;
+  accountTitle?: string | null;
   customerId?: string | null;
   contractId?: string | null;
   employeeId?: string | null;
@@ -129,6 +133,14 @@ type Revenue = {
 
 type Expense = Revenue;
 
+type ExpenseRow = {
+  id?: string;
+  expenseDate: string;
+  accountCode: number | null;
+  amount: number | null;
+  memo: string;
+};
+
 type PartnerCost = Revenue & {
   contractMemberId?: string | null;
 };
@@ -137,6 +149,11 @@ type PartnerCostResponse = {
   period: string;
   contracts: Contract[];
   costs: PartnerCost[];
+};
+
+type ExpenseResponse = {
+  period: string;
+  expenses: Expense[];
 };
 
 type MonthlyTotal = {
@@ -232,6 +249,7 @@ const allSubMenus: { key: SesSubMenu; label: string; description: string }[] = [
   { key: "masters", label: "マスタ管理", description: "自社情報、振込先など共通マスタを管理します。" },
   { key: "numberSettings", label: "番号採番設定", description: "請求書番号、契約番号、注文書番号の自動採番ルールを管理します。" },
   { key: "revenue", label: "年間売上", description: "決算年度ごとの売上合計を表示し、個別売上を登録します。" },
+  { key: "expenses", label: "経費登録", description: "対象年月日、勘定科目、発生金額、備考をまとめて登録します。" },
   { key: "partnerCosts", label: "外注費入力", description: "協力会社への月額支払を登録します。" },
   { key: "profit", label: "個人別利益", description: "売上、給与、外注費から利益を確認します。" }
 ];
@@ -243,6 +261,7 @@ const sesSubMenuPermissions: Record<SesSubMenu, PermissionMenu> = {
   masters: "SES_MASTERS",
   numberSettings: "SES_MASTERS",
   revenue: "SES_REVENUE",
+  expenses: "SES_EXPENSES",
   partnerCosts: "SES_PARTNER_COSTS",
   profit: "SES_PROFIT"
 };
@@ -261,6 +280,7 @@ const revenueQuery = ref("");
 const defaultInvoicePeriod = previousYearMonth();
 const invoiceSearchPeriod = ref(defaultInvoicePeriod);
 const partnerCostPeriod = ref(defaultInvoicePeriod);
+const expensePeriod = ref(defaultInvoicePeriod);
 const revenueFiscalYear = ref(new Date().getFullYear());
 const customers = ref<Customer[]>([]);
 const employees = ref<Employee[]>([]);
@@ -270,6 +290,7 @@ const invoices = ref<Invoice[]>([]);
 const periodInvoices = ref<Invoice[]>([]);
 const revenues = ref<Revenue[]>([]);
 const expenses = ref<Expense[]>([]);
+const expenseRows = ref<ExpenseRow[]>([]);
 const partnerCostContracts = ref<Contract[]>([]);
 const partnerCosts = ref<PartnerCost[]>([]);
 const partnerCostInputs = reactive<Record<string, number | null>>({});
@@ -471,6 +492,34 @@ function resetExpenseForm() {
     memo: ""
   });
   selectedExpenseId.value = "";
+}
+
+function newExpenseRow(): ExpenseRow {
+  return {
+    expenseDate: `${expensePeriod.value}-01`,
+    accountCode: null,
+    amount: null,
+    memo: ""
+  };
+}
+
+function resetExpenseRows() {
+  expenseRows.value = Array.from({ length: 5 }, () => newExpenseRow());
+}
+
+function addExpenseRows() {
+  expenseRows.value.push(...Array.from({ length: 5 }, () => newExpenseRow()));
+}
+
+function applyExpenseRows(items: Expense[]) {
+  expenseRows.value = items.map((expense) => ({
+    id: expense.id,
+    expenseDate: expense.expenseDate || `${expense.period}-01`,
+    accountCode: expense.accountCode ?? null,
+    amount: Number(expense.amount || 0),
+    memo: expense.memo || ""
+  }));
+  if (expenseRows.value.length < 5) addExpenseRows();
 }
 
 function applyRevenue(revenue?: Revenue) {
@@ -718,6 +767,12 @@ async function refreshPartnerCosts() {
   }
 }
 
+async function refreshExpenses() {
+  const result = await request<ExpenseResponse>(`/ses/expenses?period=${encodeURIComponent(expensePeriod.value)}`);
+  expensePeriod.value = result.period;
+  applyExpenseRows(result.expenses);
+}
+
 async function refreshRevenues() {
   const params = new URLSearchParams({
     fiscalYear: String(revenueFiscalYear.value),
@@ -809,6 +864,7 @@ async function refreshByKey(key: SesRefreshKey) {
   if (key === "masterData") return refreshSesMasterData();
   if (key === "invoices") return refreshInvoices();
   if (key === "revenues") return refreshRevenues();
+  if (key === "expenses") return refreshExpenses();
   return refreshPartnerCosts();
 }
 
@@ -1031,6 +1087,32 @@ async function saveExpense() {
     applyExpense(expense);
   } catch (error) {
     showError(error, "支出を保存できませんでした");
+  }
+}
+
+async function saveExpenseRows() {
+  if (!props.canEditSes) return;
+  try {
+    const rows = expenseRowsToSave(expenseRows.value);
+    await request("/ses/expenses/batch", {
+      method: "POST",
+      body: JSON.stringify({ rows })
+    });
+    showSuccess("経費を保存しました");
+    await Promise.all([refreshExpenses(), refreshRevenues()]);
+  } catch (error) {
+    showError(error, "経費を保存できませんでした");
+  }
+}
+
+async function deleteExpenseRow(row: ExpenseRow) {
+  if (!props.canEditSes || !row.id || !(await props.confirmAction("この経費を非表示にしますか？"))) return;
+  try {
+    await request(`/ses/expenses/${row.id}`, { method: "DELETE" });
+    showSuccess("経費を非表示にしました");
+    await Promise.all([refreshExpenses(), refreshRevenues()]);
+  } catch (error) {
+    showError(error, "経費を非表示にできませんでした");
   }
 }
 
@@ -1402,6 +1484,49 @@ onMounted(async () => {
           </div>
         </div>
       </div>
+      </div>
+    </section>
+
+    <section v-else-if="activeSubMenu === 'expenses'" class="panel">
+      <div class="panel-head" :class="sesSectionHeadClass('expenses')" @click="toggleSesSection('expenses')">
+        <h2>経費登録</h2>
+      </div>
+      <div v-show="!collapsedSesSections.expenses">
+        <div class="filter-row ses-search invoice-search">
+          <label>対象月<input v-model="expensePeriod" type="month" @change="refreshExpenses" /></label>
+          <button class="primary" @click="refreshExpenses"><Search :size="16" />検索</button>
+        </div>
+        <div class="sub-panel">
+          <div class="sub-panel-head">
+            <h3>経費入力</h3>
+            <div class="form-actions">
+              <button v-if="canEditSes" type="button" @click="addExpenseRows"><Plus :size="16" />5行追加</button>
+              <button v-if="canEditSes" type="button" @click="resetExpenseRows"><Plus :size="16" />入力クリア</button>
+              <button v-if="canEditSes" class="primary" @click="saveExpenseRows"><Save :size="16" />一括保存</button>
+            </div>
+          </div>
+          <div class="expense-entry-table">
+            <div class="expense-entry-row header">
+              <span>対象年月日</span>
+              <span>勘定科目</span>
+              <span>発生金額</span>
+              <span>備考</span>
+              <span>操作</span>
+            </div>
+            <div v-for="(row, index) in expenseRows" :key="row.id || index" class="expense-entry-row">
+              <input v-model="row.expenseDate" type="date" />
+              <select v-model.number="row.accountCode">
+                <option :value="null">選択</option>
+                <option v-for="account in expenseAccountOptions" :key="account.code" :value="account.code">
+                  {{ account.code }} {{ account.name }}
+                </option>
+              </select>
+              <input v-model.number="row.amount" type="number" min="0" />
+              <input v-model="row.memo" />
+              <button v-if="canEditSes && row.id" type="button" @click="deleteExpenseRow(row)"><Trash2 :size="16" />非表示</button>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 

@@ -29,6 +29,7 @@ type PermissionMenu =
   | "SES_INVOICES"
   | "SES_PARTNER_COSTS"
   | "SES_REVENUE"
+  | "SES_EXPENSES"
   | "SES_MASTERS"
   | "SES_PROFIT"
   | "USERS"
@@ -36,7 +37,7 @@ type PermissionMenu =
   | "AUDIT_LOGS"
   | "MONTHLY_CHECK";
 
-type AuditTargetType = "EMPLOYEE" | "PAYROLL" | "BONUS" | "INVOICE" | "PARTNER_COST";
+type AuditTargetType = "EMPLOYEE" | "PAYROLL" | "BONUS" | "INVOICE" | "EXPENSE" | "PARTNER_COST";
 type AuditAction = "CREATE" | "UPDATE" | "DELETE" | "RESTORE";
 
 type Employee = {
@@ -319,6 +320,7 @@ const permissionMenus: PermissionMenu[] = [
   "SES_INVOICES",
   "SES_PARTNER_COSTS",
   "SES_REVENUE",
+  "SES_EXPENSES",
   "SES_MASTERS",
   "SES_PROFIT",
   "USERS",
@@ -341,6 +343,7 @@ const menuLabels: Record<PermissionMenu, string> = {
   SES_INVOICES: "\u8acb\u6c42\u7ba1\u7406",
   SES_PARTNER_COSTS: "\u5916\u6ce8\u8cbb\u5165\u529b",
   SES_REVENUE: "\u5e74\u9593\u58f2\u4e0a",
+  SES_EXPENSES: "\u7d4c\u8cbb\u767b\u9332",
   SES_MASTERS: "\u30de\u30b9\u30bf\u7ba1\u7406",
   SES_PROFIT: "\u500b\u4eba\u5225\u5229\u76ca",
   USERS: "\u30e6\u30fc\u30b6\u30fc\u7ba1\u7406",
@@ -663,6 +666,7 @@ const auditTargetLabels: Record<AuditTargetType, string> = {
   PAYROLL: "給与",
   BONUS: "賞与",
   INVOICE: "請求書",
+  EXPENSE: "経費",
   PARTNER_COST: "外注費"
 };
 
@@ -2194,7 +2198,7 @@ onMounted(async () => {
       </div>
       <div v-show="!collapsedSections.auditLogs" class="audit-log-panel">
         <div class="filter-row audit-search">
-          <label>対象<select v-model="auditLogQuery.targetType"><option value="">すべて</option><option value="EMPLOYEE">社員</option><option value="PAYROLL">給与</option><option value="BONUS">賞与</option><option value="INVOICE">請求書</option><option value="PARTNER_COST">外注費</option></select></label>
+          <label>対象<select v-model="auditLogQuery.targetType"><option value="">すべて</option><option value="EMPLOYEE">社員</option><option value="PAYROLL">給与</option><option value="BONUS">賞与</option><option value="INVOICE">請求書</option><option value="EXPENSE">経費</option><option value="PARTNER_COST">外注費</option></select></label>
           <label>操作<select v-model="auditLogQuery.action"><option value="">すべて</option><option value="CREATE">登録</option><option value="UPDATE">更新</option><option value="DELETE">削除</option><option value="RESTORE">復元</option></select></label>
           <label>操作者<input v-model="auditLogQuery.actor" placeholder="氏名・メール" @keyup.enter="refreshAuditLogs" /></label>
           <label>開始日<input v-model="auditLogQuery.from" type="date" /></label>

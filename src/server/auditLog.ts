@@ -6,6 +6,7 @@ const targetLabels: Record<AuditTargetType, string> = {
   PAYROLL: "給与",
   BONUS: "賞与",
   INVOICE: "請求書",
+  EXPENSE: "経費",
   PARTNER_COST: "外注費"
 };
 
