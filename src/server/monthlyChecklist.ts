@@ -1,8 +1,11 @@
+import { employeeActiveInPayrollPeriod } from "./employeePeriod.js";
+
 type EmployeeLike = {
   id: string;
   employeeNo: string;
   name: string;
   isActive?: boolean | null;
+  retirementDate?: string | null;
   bonusEnabled?: boolean | null;
   bonusSchedules?: unknown;
 };
@@ -139,7 +142,7 @@ function invoiceLabel(invoice: InvoiceLike) {
 }
 
 export function buildMonthlyChecklist(input: BuildMonthlyChecklistInput): MonthlyChecklistResult {
-  const activeEmployees = input.employees.filter((employee) => employee.isActive !== false);
+  const activeEmployees = input.employees.filter((employee) => employee.isActive !== false && employeeActiveInPayrollPeriod(employee, input.period));
   const payrollEmployeeIds = new Set(input.payrolls.map((payroll) => payroll.employeeId));
   const bonusEmployeeIds = new Set(input.bonuses.map((bonus) => bonus.employeeId));
   const invoiceContractIds = new Set(input.invoices.map((invoice) => invoice.contractId).filter(Boolean));

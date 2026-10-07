@@ -1171,12 +1171,14 @@ api.post("/income-tax-brackets/import", async (c) => {
 
 api.get("/employees", async (c) => {
   const q = c.req.query("q") || "";
+  const period = c.req.query("period") || "";
   const employeeId = await readableEmployeeId(c, payrollEmployeeReadMenus(c.req.query("menu")));
   const employees = await prisma.employee.findMany({
     where: {
       isActive: true,
       id: employeeId || undefined,
-      OR: q ? [{ name: { contains: q, mode: "insensitive" } }, { employeeNo: { contains: q, mode: "insensitive" } }] : undefined
+      OR: period && isPeriod(period) ? [{ retirementDate: null }, { retirementDate: { gte: `${period}-01` } }] : undefined,
+      AND: q ? [{ OR: [{ name: { contains: q, mode: "insensitive" } }, { employeeNo: { contains: q, mode: "insensitive" } }] }] : undefined
     },
     orderBy: { employeeNo: "asc" }
   });
