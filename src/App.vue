@@ -1140,10 +1140,11 @@ async function refresh() {
     const fiscalYear = fiscalYearFromPeriod(period.value);
     const q = encodeURIComponent(query.value);
     const employeeMenu = encodeURIComponent(employeeReadMenuForActiveSubMenu());
+    const employeePeriodParam = activePayrollSubMenu.value === "employees" ? "" : `&period=${encodeURIComponent(period.value)}`;
     const payrollMenu = encodeURIComponent(payrollReadMenuForActiveSubMenu());
     const bonusMenu = encodeURIComponent(bonusReadMenuForActiveSubMenu());
     const [employeeData, payrollData, bonusData, deletedPayrollData, deletedBonusData, fiscalRateData, taxData] = await Promise.all([
-      request<Employee[]>(`/employees?q=${q}&menu=${employeeMenu}&period=${encodeURIComponent(period.value)}`),
+      request<Employee[]>(`/employees?q=${q}&menu=${employeeMenu}${employeePeriodParam}`),
       request<Payroll[]>(`/payrolls?period=${encodeURIComponent(period.value)}&q=${q}&menu=${payrollMenu}`),
       request<Bonus[]>(`/bonuses?period=${encodeURIComponent(period.value)}&q=${q}&menu=${bonusMenu}`),
       request<Payroll[]>(`/payrolls?period=${encodeURIComponent(period.value)}&q=${q}&menu=${payrollMenu}&deletedOnly=true`),
