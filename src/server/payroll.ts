@@ -25,6 +25,7 @@ export type PayrollInput = {
 
 export type BonusInput = {
   bonusAmount: number;
+  incomeTaxAmount?: number;
   priorStandardBonusAmount?: number;
   incomeTaxRate: number;
   healthInsuranceRate: number;
@@ -90,7 +91,7 @@ export function calculateBonus(input: BonusInput) {
   const socialInsurance = healthInsurance + pensionInsurance + childCareSupport;
   const employmentInsurance = input.employmentInsuranceEnrolled === false ? 0 : bonusAmount * input.employmentInsuranceRate;
   const taxableIncome = Math.max(bonusAmount - socialInsurance - employmentInsurance, 0);
-  const incomeTax = taxableIncome * input.incomeTaxRate;
+  const incomeTax = input.incomeTaxAmount ?? taxableIncome * input.incomeTaxRate;
   const totalDeduction = incomeTax + socialInsurance + employmentInsurance;
 
   return {

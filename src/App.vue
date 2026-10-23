@@ -111,6 +111,7 @@ type Bonus = {
   employeeId: string;
   bonusAmount: number;
   incomeTaxRate: string | number;
+  incomeTaxAmount?: number | null;
   socialInsuranceEnrolled: boolean;
   socialInsuranceBaseAmount?: number | null;
   taxableIncome: number;
@@ -485,6 +486,7 @@ const payrollForm = reactive({
 });
 const bonusForm = reactive({
   bonusAmount: 0,
+  incomeTaxAmount: "" as number | string,
   socialInsuranceEnrolled: true,
   socialInsuranceBaseAmount: 0,
   note: ""
@@ -741,6 +743,7 @@ function resetBonusForm() {
   const scheduledAmount = scheduledBonusAmount(selectedEmployee.value, period.value);
   Object.assign(bonusForm, {
     bonusAmount: scheduledAmount,
+    incomeTaxAmount: "",
     socialInsuranceEnrolled: true,
     socialInsuranceBaseAmount: scheduledAmount,
     note: ""
@@ -1101,6 +1104,7 @@ function applyPayrollInput(payroll: Payroll) {
 
 function applyBonusInput(bonus: Bonus) {
   bonusForm.bonusAmount = bonus.bonusAmount;
+  bonusForm.incomeTaxAmount = bonus.incomeTaxAmount ?? "";
   bonusForm.socialInsuranceEnrolled = bonus.socialInsuranceEnrolled;
   bonusForm.socialInsuranceBaseAmount = bonus.socialInsuranceBaseAmount || 0;
   bonusForm.note = bonus.note || "";
@@ -1971,6 +1975,7 @@ onMounted(async () => {
         <div v-if="activePayrollSubMenu === 'payrollBonusInput' && canEditBonusInput && canShowMenu('BONUS_INPUT')" v-show="!collapsedSections.bonusInput" class="form-grid">
           <div class="bonus-guidance full" :class="{ active: isBonusPaymentMonth }">{{ bonusPaymentMessage }}</div>
           <label>賞与額<input v-model.number="bonusForm.bonusAmount" type="number" min="0" /></label>
+          <label>所得税（手動）<input v-model.number="bonusForm.incomeTaxAmount" type="number" min="0" step="1" placeholder="空欄は自動計算" /></label>
           <label>社会保険加入<select v-model="bonusForm.socialInsuranceEnrolled"><option :value="true">加入</option><option :value="false">未加入</option></select></label>
           <label v-if="bonusForm.socialInsuranceEnrolled">社会保険適用金額<input v-model.number="bonusForm.socialInsuranceBaseAmount" type="number" min="0" placeholder="未入力時は賞与額" /></label>
           <label class="wide">賞与備考<input v-model="bonusForm.note" /></label>

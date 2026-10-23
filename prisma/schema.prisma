@@ -323,6 +323,7 @@ model Bonus {
   period                   String
   bonusAmount              Int      @default(0)
   incomeTaxRate            Decimal  @db.Decimal(8, 6)
+  incomeTaxAmount          Int?
   healthInsuranceRate      Decimal  @db.Decimal(8, 6)
   pensionInsuranceRate     Decimal  @db.Decimal(8, 6)
   childCareSupportRate     Decimal  @db.Decimal(8, 6) @default(0.000000)

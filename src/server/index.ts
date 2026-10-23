@@ -2632,6 +2632,11 @@ api.post("/bonuses", async (c) => {
   const employee = await prisma.employee.findUniqueOrThrow({ where: { id: String(body.employeeId) } });
   const { fiscalYear, rates } = await getRatesForPeriod(period);
   const bonusAmount = Math.max(0, Math.round(Number(body.bonusAmount || 0)));
+  const incomeTaxAmount = body.incomeTaxAmount == null || String(body.incomeTaxAmount).trim() === ""
+    ? null : Number(body.incomeTaxAmount);
+  if (incomeTaxAmount !== null && (!Number.isSafeInteger(incomeTaxAmount) || incomeTaxAmount < 0 || incomeTaxAmount > 2147483647)) {
+    return c.json({ message: "所得税（手動）は0以上の整数で入力してください" }, 400);
+  }
   const incomeTaxRate = Number(body.incomeTaxRate ?? rates.incomeTaxRate);
   const healthInsuranceRate = Number(body.healthInsuranceRate ?? rates.healthInsuranceRate);
   const pensionInsuranceRate = Number(body.pensionInsuranceRate ?? rates.pensionInsuranceRate);
@@ -2657,6 +2662,7 @@ api.post("/bonuses", async (c) => {
   }, 0);
   const calculated = calculateBonus({
     bonusAmount,
+    incomeTaxAmount: incomeTaxAmount ?? undefined,
     priorStandardBonusAmount,
     incomeTaxRate,
     healthInsuranceRate,
@@ -2675,6 +2681,7 @@ api.post("/bonuses", async (c) => {
     where: { employeeId_period: { employeeId: employee.id, period } },
     update: {
       bonusAmount,
+      incomeTaxAmount,
       incomeTaxRate,
       healthInsuranceRate,
       pensionInsuranceRate,
@@ -2693,6 +2700,7 @@ api.post("/bonuses", async (c) => {
       employeeId: employee.id,
       period,
       bonusAmount,
+      incomeTaxAmount,
       incomeTaxRate,
       healthInsuranceRate,
       pensionInsuranceRate,

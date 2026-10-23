@@ -12,6 +12,18 @@ const input = {
 };
 
 describe("bonus insurance limits", () => {
+  it("prioritizes a manual income tax amount and updates net pay", () => {
+    const result = calculateBonus({ ...input, incomeTaxRate: 0.1, incomeTaxAmount: 123456 });
+    assert.equal(result.incomeTax, 123456);
+    assert.equal(result.netPay, input.bonusAmount - result.totalDeduction);
+  });
+
+  it("accepts zero manual tax and uses automatic calculation when unset", () => {
+    assert.equal(calculateBonus({ ...input, incomeTaxRate: 0.1, incomeTaxAmount: 0 }).incomeTax, 0);
+    const automatic = calculateBonus({ ...input, incomeTaxRate: 0.1 });
+    assert.equal(automatic.incomeTax, Math.round(automatic.taxableIncome * 0.1));
+    assert.ok(automatic.incomeTax > 0);
+  });
   it("caps pension at 1.5 million while health and employment use their own bases", () => {
     const result = calculateBonus(input);
     assert.equal(result.pensionInsurance, 137250);
