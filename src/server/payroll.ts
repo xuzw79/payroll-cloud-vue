@@ -25,6 +25,7 @@ export type PayrollInput = {
 
 export type BonusInput = {
   bonusAmount: number;
+  priorStandardBonusAmount?: number;
   incomeTaxRate: number;
   healthInsuranceRate: number;
   pensionInsuranceRate: number;
@@ -80,9 +81,12 @@ export function calculateBonus(input: BonusInput) {
   const socialInsuranceBase = input.socialInsuranceBaseAmount && input.socialInsuranceBaseAmount > 0
     ? input.socialInsuranceBaseAmount
     : bonusAmount;
-  const healthInsurance = input.socialInsuranceEnrolled === false ? 0 : socialInsuranceBase * input.healthInsuranceRate;
-  const pensionInsurance = input.socialInsuranceEnrolled === false ? 0 : socialInsuranceBase * input.pensionInsuranceRate;
-  const childCareSupport = input.socialInsuranceEnrolled === false ? 0 : socialInsuranceBase * input.childCareSupportRate;
+  const standardBonusAmount = Math.floor(socialInsuranceBase / 1000) * 1000;
+  const healthInsuranceBase = Math.min(standardBonusAmount, Math.max(0, 5730000 - (input.priorStandardBonusAmount || 0)));
+  const pensionInsuranceBase = Math.min(standardBonusAmount, 1500000);
+  const healthInsurance = input.socialInsuranceEnrolled === false ? 0 : healthInsuranceBase * input.healthInsuranceRate;
+  const pensionInsurance = input.socialInsuranceEnrolled === false ? 0 : pensionInsuranceBase * input.pensionInsuranceRate;
+  const childCareSupport = input.socialInsuranceEnrolled === false ? 0 : healthInsuranceBase * input.childCareSupportRate;
   const socialInsurance = healthInsurance + pensionInsurance + childCareSupport;
   const employmentInsurance = input.employmentInsuranceEnrolled === false ? 0 : bonusAmount * input.employmentInsuranceRate;
   const taxableIncome = Math.max(bonusAmount - socialInsurance - employmentInsurance, 0);

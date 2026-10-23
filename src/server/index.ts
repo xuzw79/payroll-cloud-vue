@@ -2640,8 +2640,24 @@ api.post("/bonuses", async (c) => {
   const socialInsuranceEnrolled = body.socialInsuranceEnrolled !== false;
   const employmentInsuranceEnrolled = employee.employmentInsuranceEnrolled !== false;
   const socialInsuranceBaseAmount = body.socialInsuranceBaseAmount ? Number(body.socialInsuranceBaseAmount) : null;
+  const bonusYear = Number(period.slice(0, 4)) - (Number(period.slice(5, 7)) < 4 ? 1 : 0);
+  const priorBonuses = await prisma.bonus.findMany({
+    where: {
+      employeeId: employee.id,
+      isDeleted: false,
+      socialInsuranceEnrolled: true,
+      period: { gte: `${bonusYear}-04`, lt: period }
+    },
+    select: { bonusAmount: true, socialInsuranceBaseAmount: true }
+  });
+  const priorStandardBonusAmount = priorBonuses.reduce((sum, bonus) => {
+    const base = bonus.socialInsuranceBaseAmount && bonus.socialInsuranceBaseAmount > 0
+      ? bonus.socialInsuranceBaseAmount : bonus.bonusAmount;
+    return sum + Math.floor(Math.max(0, base) / 1000) * 1000;
+  }, 0);
   const calculated = calculateBonus({
     bonusAmount,
+    priorStandardBonusAmount,
     incomeTaxRate,
     healthInsuranceRate,
     pensionInsuranceRate,
