@@ -520,6 +520,8 @@ model MonthlyCheckConfirmation {
 model SesInvoiceItem {
   id          String   @id @default(cuid())
   invoiceId   String
+  employeeId  String?
+  externalMemberId String?
   description String
   quantity    Decimal  @db.Decimal(10, 2) @default(1)
   unit         String   @default("式")
@@ -543,6 +545,8 @@ model SesRevenue {
   externalMemberId  String?
   title             String
   amount            Int      @default(0)
+  taxMode           String?
+  taxRate           Decimal  @db.Decimal(8, 6) @default(0.100000)
   memo              String?
   isActive          Boolean  @default(true)
   createdAt         DateTime @default(now())
@@ -572,6 +576,8 @@ model SesExpense {
   externalMemberId  String?
   title             String
   amount            Int      @default(0)
+  taxMode           String?
+  taxRate           Decimal  @db.Decimal(8, 6) @default(0.100000)
   memo              String?
   isActive          Boolean  @default(true)
   createdAt         DateTime @default(now())

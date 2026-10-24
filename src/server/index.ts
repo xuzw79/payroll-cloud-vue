@@ -31,6 +31,7 @@ import { createBusinessContractPdf, createPurchaseOrderPdf } from "./contractDoc
 import { buildMonthlyChecklist, individualRevenueExpenseCheckKey } from "./monthlyChecklist.js";
 import { createPayslipPdf } from "./pdf.js";
 import { calculateBonus, calculatePayroll } from "./payroll.js";
+import { buildPersonalProfit, resolveInvoicePerson, type ProfitEntry } from "./personalProfit.js";
 import {
   isPayrollLockedPeriod,
   normalizePayrollPeriodSettings,
@@ -1571,6 +1572,91 @@ api.get("/ses/contracts/:id/purchase-order-pdf", async (c) => {
   });
 });
 
+api.get("/ses/profit", async (c) => {
+  const denied = await requireMenu(c, "SES_PROFIT", "view");
+  if (denied) return denied;
+  const period = c.req.query("period") || previousYearMonthServer();
+  if (!isPeriod(period)) return c.json({ message: "対象年月を指定してください" }, 400);
+  const permission = await menuPermission(c, "SES_PROFIT");
+  const ownEmployeeId = currentUser(c).employeeId;
+  const q = (c.req.query("q") || "").trim().toLocaleLowerCase();
+  const [invoices, revenues, expenses, costs, payrolls, bonuses, employees, externals] = await Promise.all([
+    prisma.sesInvoice.findMany({ where: { period, isActive: true }, include: { items: true, contract: { include: { members: true } } } }),
+    prisma.sesRevenue.findMany({ where: { period, isActive: true } }),
+    prisma.sesExpense.findMany({ where: { period, isActive: true } }),
+    prisma.sesPartnerCost.findMany({ where: { period, isActive: true }, include: { contractMember: true } }),
+    prisma.payroll.findMany({ where: { period, isDeleted: false } }),
+    prisma.bonus.findMany({ where: { period, isDeleted: false } }),
+    prisma.employee.findMany({ select: { id: true, employeeNo: true, name: true } }),
+    prisma.sesExternalMember.findMany({ select: { id: true, name: true, customer: { select: { name: true } } } })
+  ]);
+  const people = [
+    ...employees.map(person => ({ source: "EMPLOYEE" as const, id: person.id, name: `${person.employeeNo} ${person.name}` })),
+    ...externals.map(person => ({ source: "EXTERNAL" as const, id: person.id, name: `${person.customer?.name || "所属未設定"} / ${person.name}` }))
+  ];
+  const entries: ProfitEntry[] = [];
+  const review: Array<{ kind: string; id: string; label: string; amount: number; reason: string; taxMode: string; taxRate: number; personKey: string }> = [];
+  const addEntry = (entry: ProfitEntry) => {
+    if (!permission.canViewAll && !(entry.source === "EMPLOYEE" && entry.id === ownEmployeeId)) return;
+    const person = people.find(person => person.source === entry.source && person.id === entry.id);
+    entry.name = person?.name || entry.id;
+    if (q && !(entry.name || "").toLocaleLowerCase().includes(q)) return;
+    entries.push(entry);
+  };
+  for (const invoice of invoices) {
+    for (const item of invoice.items) {
+      const person = resolveInvoicePerson(item, invoice.contract?.members || []);
+      const label = `${invoice.invoiceNo || invoice.title} / ${item.description}`;
+      addEntry({ ...person, category: "invoice", amount: item.amount, label });
+      if (permission.canViewAll) review.push({ kind: "invoice", id: item.id, label, amount: item.amount, reason: person ? "設定済み" : "個人未割当", taxMode: "EXCLUSIVE", taxRate: 0, personKey: person ? `${person.source}:${person.id}` : "" });
+    }
+  }
+  for (const [kind, records] of [["revenue", revenues], ["expense", expenses]] as const) {
+    for (const record of records) {
+      const person = resolveInvoicePerson(record, []);
+      addEntry({ ...person, category: kind, amount: record.amount, taxMode: record.taxMode, taxRate: Number(record.taxRate), label: record.title });
+      if (permission.canViewAll) review.push({ kind, id: record.id, label: record.title, amount: record.amount,
+        reason: !record.taxMode ? "税区分未設定" : !person ? "個人未割当" : "設定済み", taxMode: record.taxMode || "", taxRate: Number(record.taxRate), personKey: person ? `${person.source}:${person.id}` : "" });
+    }
+  }
+  for (const cost of filterActivePartnerCostsForOwnPeriod(costs)) {
+    addEntry({ ...resolveInvoicePerson(cost, []), category: "partner", amount: cost.amount, taxMode: "INCLUSIVE", taxRate: 0.1, label: cost.title });
+  }
+  for (const [category, records] of [["payroll", payrolls], ["bonus", bonuses]] as const) {
+    for (const record of records) {
+      addEntry({ source: "EMPLOYEE", id: record.employeeId, category, amount: "grossPay" in record ? record.grossPay : record.bonusAmount });
+      addEntry({ source: "EMPLOYEE", id: record.employeeId, category: "insurance", amount: record.socialInsurance });
+    }
+  }
+  return c.json({ period, ...buildPersonalProfit(entries), review,
+    people: permission.canViewAll ? people : people.filter(person => person.source === "EMPLOYEE" && person.id === ownEmployeeId),
+    canManage: permission.canViewAll && permission.canEdit });
+});
+
+api.post("/ses/profit/assignments", async (c) => {
+  const permission = await menuPermission(c, "SES_PROFIT");
+  if (!permission.canEdit || !permission.canViewAll) return c.json({ message: "権限がありません" }, 403);
+  const body = await c.req.json();
+  const employeeId = nullableText(body.employeeId);
+  const externalMemberId = nullableText(body.externalMemberId);
+  if (employeeId && externalMemberId) return c.json({ message: "対象者は1名を指定してください" }, 400);
+  if (employeeId && !await prisma.employee.findUnique({ where: { id: employeeId } })) return c.json({ message: "社員が見つかりません" }, 400);
+  if (externalMemberId && !await prisma.sesExternalMember.findUnique({ where: { id: externalMemberId } })) return c.json({ message: "外部メンバーが見つかりません" }, 400);
+  const id = String(body.id || "");
+  if (body.kind === "invoice") {
+    if (!employeeId && !externalMemberId) return c.json({ message: "対象者を選択してください" }, 400);
+    await prisma.sesInvoiceItem.update({ where: { id }, data: { employeeId, externalMemberId } });
+  } else if (body.kind === "revenue" || body.kind === "expense") {
+    const taxMode = String(body.taxMode || "");
+    const taxRate = Number(body.taxRate);
+    if (!["EXCLUSIVE", "INCLUSIVE", "EXEMPT"].includes(taxMode) || !Number.isFinite(taxRate) || taxRate < 0 || taxRate > 1) return c.json({ message: "税区分・税率を確認してください" }, 400);
+    const data = { employeeId, externalMemberId, taxMode, taxRate };
+    if (body.kind === "revenue") await prisma.sesRevenue.update({ where: { id }, data });
+    else await prisma.sesExpense.update({ where: { id }, data });
+  } else return c.json({ message: "対象が不正です" }, 400);
+  return c.json({ ok: true });
+});
+
 api.get("/ses/revenues", async (c) => {
 
   const settings = await prisma.companySetting.upsert({
@@ -1901,6 +1987,10 @@ api.post("/ses/expenses/batch", async (c) => {
     for (const row of rows) {
       const data = await expenseData(row);
       const before = row.id ? await prisma.sesExpense.findUnique({ where: { id: row.id } }) : null;
+      if (before) {
+        data.employeeId = before.employeeId;
+        data.externalMemberId = before.externalMemberId;
+      }
       const expense = row.id
         ? await prisma.sesExpense.update({
           where: { id: row.id },
@@ -2306,7 +2396,11 @@ api.post("/ses/invoices/generate", async (c) => {
   const workHoursByMember = (body.workHoursByMember || {}) as Record<string, unknown>;
   let items: SesInvoiceItemData[];
   try {
-    items = filterActiveMembersForPeriod(contract.members, period).flatMap((member) => invoiceItemFromContractMember(member, workHoursByMember));
+    items = filterActiveMembersForPeriod(contract.members, period).flatMap((member) => invoiceItemFromContractMember(member, workHoursByMember).map(item => ({
+      ...item,
+      employeeId: member.employeeId,
+      externalMemberId: member.externalMemberId
+    })));
   } catch (error) {
     return c.json({ message: error instanceof Error ? error.message : "請求明細を作成できませんでした" }, 400);
   }

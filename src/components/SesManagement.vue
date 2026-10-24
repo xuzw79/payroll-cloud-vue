@@ -5,6 +5,7 @@ import { previousYearMonth, tokyoCurrentYearMonth, tokyoTodayIso } from "../serv
 import { contractDocumentFileName, contractPartnerName, purchaseOrderFileName } from "../server/contractDocumentFormat";
 import { expenseAccountOptions, expenseRowsToSave } from "../server/expenseAccounts";
 import { invoiceFileName } from "../server/invoiceFormat";
+import type { PersonalProfitRow } from "../server/personalProfit";
 import { activePartnerCostRows, partnerCostDefaultAmount as resolvePartnerCostDefaultAmount } from "../server/partnerCostRules";
 import { filterActiveMembersForPeriod } from "../server/sesPeriod";
 import { refreshKeysForSesSubMenu, shouldContinueSesRefreshAfterCompanySettingError, type SesRefreshKey } from "../server/sesRefreshPlan";
@@ -156,6 +157,28 @@ type ExpenseResponse = {
   expenses: Expense[];
 };
 
+type ProfitReview = {
+  kind: string;
+  id: string;
+  label: string;
+  amount: number;
+  reason: string;
+  taxMode: string;
+  taxRate: number;
+  personKey: string;
+};
+type ProfitResponse = {
+  period: string;
+  rows: PersonalProfitRow[];
+  issues: Array<{ label: string; amount: number; reason: string }>;
+  review: ProfitReview[];
+  people: Array<{ source: string; id: string; name: string }>;
+  revenue: number;
+  cost: number;
+  profit: number;
+  canManage: boolean;
+};
+
 type MonthlyTotal = {
   period: string;
   amount: number;
@@ -281,6 +304,11 @@ const defaultInvoicePeriod = previousYearMonth();
 const invoiceSearchPeriod = ref(defaultInvoicePeriod);
 const partnerCostPeriod = ref(defaultInvoicePeriod);
 const expensePeriod = ref(defaultInvoicePeriod);
+const profitPeriod = ref(defaultInvoicePeriod);
+const profitQuery = ref("");
+const personalProfit = ref<ProfitResponse | null>(null);
+const profitLoading = ref(false);
+const profitSaving = ref(false);
 const revenueFiscalYear = ref(new Date().getFullYear());
 const customers = ref<Customer[]>([]);
 const employees = ref<Employee[]>([]);
@@ -773,6 +801,38 @@ async function refreshExpenses() {
   applyExpenseRows(result.expenses);
 }
 
+async function refreshPersonalProfit() {
+  profitLoading.value = true;
+  personalProfit.value = null;
+  try {
+    personalProfit.value = await request<ProfitResponse>(`/ses/profit?${new URLSearchParams({ period: profitPeriod.value, q: profitQuery.value })}`);
+  } catch (error) {
+    showError(error, "個人別利益を取得できませんでした");
+  } finally {
+    profitLoading.value = false;
+  }
+}
+
+async function saveProfitAssignment(row: ProfitReview) {
+  if (!personalProfit.value?.canManage || profitSaving.value) return;
+  const separator = row.personKey.indexOf(":");
+  const source = row.personKey.slice(0, separator);
+  const personId = separator < 0 ? "" : row.personKey.slice(separator + 1);
+  profitSaving.value = true;
+  try {
+    await request("/ses/profit/assignments", { method: "POST", body: JSON.stringify({
+      kind: row.kind, id: row.id, taxMode: row.taxMode, taxRate: row.taxRate,
+      employeeId: source === "EMPLOYEE" ? personId : "", externalMemberId: source === "EXTERNAL" ? personId : ""
+    }) });
+    showSuccess("集計区分を保存しました");
+    await refreshPersonalProfit();
+  } catch (error) {
+    showError(error, "集計区分を保存できませんでした");
+  } finally {
+    profitSaving.value = false;
+  }
+}
+
 async function refreshRevenues() {
   const params = new URLSearchParams({
     fiscalYear: String(revenueFiscalYear.value),
@@ -865,6 +925,7 @@ async function refreshByKey(key: SesRefreshKey) {
   if (key === "invoices") return refreshInvoices();
   if (key === "revenues") return refreshRevenues();
   if (key === "expenses") return refreshExpenses();
+  if (key === "profit") return refreshPersonalProfit();
   return refreshPartnerCosts();
 }
 
@@ -1576,6 +1637,56 @@ onMounted(async () => {
           <div v-if="!partnerCostMembers.length" class="empty">対象月の仕入契約メンバーがありません。</div>
         </div>
       </div>
+      </div>
+    </section>
+
+    <section v-else-if="activeSubMenu === 'profit'" class="panel">
+      <div class="panel-head" :class="sesSectionHeadClass('profit')" @click="toggleSesSection('profit')"><h2>個人別利益</h2></div>
+      <div v-show="!collapsedSesSections.profit">
+        <div class="filter-row ses-search invoice-search">
+          <label>対象年月<input v-model="profitPeriod" type="month" @change="refreshPersonalProfit" /></label>
+          <label>氏名検索<input v-model="profitQuery" placeholder="氏名・社員番号・所属会社" @keyup.enter="refreshPersonalProfit" /></label>
+          <button class="primary" :disabled="profitLoading" @click="refreshPersonalProfit"><Search :size="16" />検索</button>
+        </div>
+        <div v-if="profitLoading" class="empty">読込中...</div>
+        <template v-else-if="personalProfit">
+          <div class="summary revenue-summary">
+            <div><span>個人割当済売上（税抜）</span><strong>{{ personalProfit.revenue.toLocaleString('ja-JP') }}円</strong></div>
+            <div><span>費用（概算）</span><strong>{{ personalProfit.cost.toLocaleString('ja-JP') }}円</strong></div>
+            <div><span>利益（概算）</span><strong :class="{ negative: personalProfit.profit < 0 }">{{ personalProfit.profit.toLocaleString('ja-JP') }}円</strong></div>
+            <div><span>集計確認対象</span><strong>{{ personalProfit.issues.length }}件</strong></div>
+          </div>
+          <p class="note profit-note">税抜集計 / 会社負担社保は本人負担社会保険料と同額の概算 / 給与・賞与は登録月で計上</p>
+          <div class="profit-table-wrap">
+            <table class="profit-table">
+              <thead><tr><th>区分</th><th>氏名</th><th>売上（税抜）</th><th>給与</th><th>賞与</th><th>会社負担社保（概算）</th><th>外注費（税抜）</th><th>個別経費（税抜）</th><th>利益（概算）</th><th>利益率</th></tr></thead>
+              <tbody><tr v-for="row in personalProfit.rows" :key="`${row.source}:${row.id}`">
+                <td>{{ row.source === 'EMPLOYEE' ? '社員' : '外部' }}</td><td>{{ row.name }}</td>
+                <td :title="`請求書 ${row.invoice.toLocaleString('ja-JP')}円 / 個別売上 ${row.individualRevenue.toLocaleString('ja-JP')}円`">{{ row.revenue.toLocaleString('ja-JP') }}</td>
+                <td>{{ row.payroll.toLocaleString('ja-JP') }}</td><td>{{ row.bonus.toLocaleString('ja-JP') }}</td><td>{{ row.insurance.toLocaleString('ja-JP') }}</td>
+                <td>{{ row.partner.toLocaleString('ja-JP') }}</td><td>{{ row.expense.toLocaleString('ja-JP') }}</td>
+                <td :class="{ negative: row.profit < 0 }">{{ row.profit.toLocaleString('ja-JP') }}</td><td>{{ row.margin === null ? '-' : `${row.margin.toFixed(1)}%` }}</td>
+              </tr></tbody>
+            </table>
+          </div>
+          <div v-if="!personalProfit.rows.length" class="empty">対象月の個人割当済データはありません。</div>
+          <div v-if="personalProfit.issues.length" class="profit-review">
+            <h3>未割当・税区分未設定</h3>
+            <table class="profit-table"><thead><tr><th>対象</th><th>金額</th><th>確認内容</th></tr></thead>
+              <tbody><tr v-for="(issue, index) in personalProfit.issues" :key="index"><td>{{ issue.label }}</td><td>{{ issue.amount.toLocaleString('ja-JP') }}</td><td>{{ issue.reason }}</td></tr></tbody>
+            </table>
+          </div>
+          <details v-if="personalProfit.canManage && personalProfit.review.length" class="profit-review">
+            <summary>集計区分設定（{{ personalProfit.review.length }}件）</summary>
+            <div v-for="row in personalProfit.review" :key="`${row.kind}:${row.id}`" class="profit-assignment">
+              <strong>{{ row.label }}</strong>
+              <label>対象者<select v-model="row.personKey"><option value="">未割当</option><option v-for="person in personalProfit.people" :key="`${person.source}:${person.id}`" :value="`${person.source}:${person.id}`">{{ person.name }}</option></select></label>
+              <label v-if="row.kind !== 'invoice'">税区分<select v-model="row.taxMode"><option value="">未設定</option><option value="EXCLUSIVE">税抜</option><option value="INCLUSIVE">税込</option><option value="EXEMPT">非課税・不課税</option></select></label>
+              <label v-if="row.kind !== 'invoice' && row.taxMode === 'INCLUSIVE'">税率<select v-model.number="row.taxRate"><option :value="0.1">10%</option><option :value="0.08">8%</option><option :value="0">0%</option></select></label>
+              <button :disabled="profitSaving" class="primary" @click="saveProfitAssignment(row)"><Save :size="16" />保存</button>
+            </div>
+          </details>
+        </template>
       </div>
     </section>
 

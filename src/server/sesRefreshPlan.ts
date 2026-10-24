@@ -1,5 +1,5 @@
 export type SesSubMenuKey = "customers" | "projects" | "invoices" | "masters" | "numberSettings" | "revenue" | "expenses" | "partnerCosts" | "profit";
-export type SesRefreshKey = "customers" | "contracts" | "masterData" | "invoices" | "revenues" | "expenses" | "partnerCosts";
+export type SesRefreshKey = "customers" | "contracts" | "masterData" | "invoices" | "revenues" | "expenses" | "partnerCosts" | "profit";
 
 export function refreshKeysForSesSubMenu(menu: SesSubMenuKey): SesRefreshKey[] {
   if (menu === "customers") return ["customers"];
@@ -8,7 +8,7 @@ export function refreshKeysForSesSubMenu(menu: SesSubMenuKey): SesRefreshKey[] {
   if (menu === "partnerCosts") return ["partnerCosts"];
   if (menu === "expenses") return ["expenses"];
   if (menu === "revenue") return ["customers", "contracts", "masterData", "revenues"];
-  if (menu === "profit") return ["revenues"];
+  if (menu === "profit") return ["profit"];
   return [];
 }
 

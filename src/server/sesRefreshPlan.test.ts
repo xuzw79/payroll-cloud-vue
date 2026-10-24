@@ -7,7 +7,7 @@ assert.deepEqual(refreshKeysForSesSubMenu("invoices"), ["customers", "contracts"
 assert.deepEqual(refreshKeysForSesSubMenu("partnerCosts"), ["partnerCosts"]);
 assert.deepEqual(refreshKeysForSesSubMenu("expenses"), ["expenses"]);
 assert.deepEqual(refreshKeysForSesSubMenu("revenue"), ["customers", "contracts", "masterData", "revenues"]);
-assert.deepEqual(refreshKeysForSesSubMenu("profit"), ["revenues"]);
+assert.deepEqual(refreshKeysForSesSubMenu("profit"), ["profit"]);
 assert.deepEqual(refreshKeysForSesSubMenu("masters"), []);
 assert.deepEqual(refreshKeysForSesSubMenu("numberSettings"), []);
 

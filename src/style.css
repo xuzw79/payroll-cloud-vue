@@ -602,6 +602,34 @@ p {
   overflow-x: auto;
 }
 
+.profit-table-wrap,
+.profit-review {
+  overflow-x: auto;
+  padding: 10px;
+}
+
+.profit-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+
+.profit-table th,
+.profit-table td {
+  border: 1px solid #c9d0da;
+  padding: 8px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.profit-table th { background: #e8ebef; }
+.profit-table td:first-child,
+.profit-table-wrap .profit-table td:nth-child(2) { text-align: left; }
+.profit-note { margin: 8px 10px; }
+.profit-assignment { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; border-bottom: 1px solid #c9d0da; padding: 10px 0; }
+.profit-assignment strong { flex-basis: 100%; overflow-wrap: anywhere; }
+.profit-assignment label { min-width: 140px; max-width: 100%; }
+
 .expense-entry-row {
   display: grid;
   grid-template-columns: 160px 220px 160px minmax(240px, 1fr) 100px;
